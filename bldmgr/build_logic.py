@@ -1,9 +1,100 @@
 import os
 import subprocess
 import shutil
-import bldmgr.config as config
+import config
 import sys
 import re
+import urllib.request
+import zipfile
+import tarfile
+
+def _download_and_extract_tool(url, archive_path, extract_dir, final_check_path, rename_map=None):
+    """Helper to download, extract, and set up a single tool."""
+    print(f"    -> Downloading from {url}")
+    try:
+        with urllib.request.urlopen(url) as response, open(archive_path, 'wb') as out_file:
+            total_size_str = response.getheader('Content-Length')
+            if total_size_str:
+                total_size = int(total_size_str)
+                downloaded_size = 0
+                chunk_size = 8192  # 8 KB chunks
+
+                while True:
+                    chunk = response.read(chunk_size)
+                    if not chunk:
+                        break
+                    out_file.write(chunk)
+                    downloaded_size += len(chunk)
+
+                    # Draw progress bar
+                    progress = downloaded_size / total_size
+                    bar_length = 40
+                    filled_length = int(bar_length * progress)
+                    bar = '█' * filled_length + '-' * (bar_length - filled_length)
+                    percent = progress * 100
+                    print(f"\r      [{bar}] {percent:.1f}% ({downloaded_size/1024/1024:.1f}/{total_size/1024/1024:.1f} MB)", end="")
+                print()  # Newline after the progress bar is complete
+            else:
+                # Fallback if Content-Length is not provided
+                print("    -> Downloading (size unknown)...")
+                shutil.copyfileobj(response, out_file)
+                print("    -> Download complete.")
+    except Exception as e:
+        print(f"\n❌ Error: Failed to download tool. Reason: {e}", file=sys.stderr)
+        print("Please check your internet connection or download it manually as per README.md.", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"    -> Extracting {os.path.basename(archive_path)}...")
+    try:
+        if archive_path.endswith(".zip"):
+            with zipfile.ZipFile(archive_path, 'r') as zip_ref:
+                zip_ref.extractall(extract_dir)
+        elif archive_path.endswith(".tar.gz"):
+            with tarfile.open(archive_path, 'r:gz') as tar_ref:
+                tar_ref.extractall(extract_dir)
+    except Exception as e:
+        print(f"❌ Error: Failed to extract tool. Reason: {e}", file=sys.stderr)
+        print("Please ensure you have permissions and the archive is not corrupt.", file=sys.stderr)
+        sys.exit(1)
+    finally:
+        os.remove(archive_path)
+
+    if rename_map:
+        for src, dst in rename_map.items():
+            src_path = os.path.join(extract_dir, src)
+            dst_path = os.path.join(extract_dir, dst)
+            print(f"    -> Renaming '{src_path}' to '{dst_path}'...")
+            try:
+                os.rename(src_path, dst_path)
+            except OSError as e:
+                print(f"❌ Error: Failed to rename extracted directory. Reason: {e}", file=sys.stderr)
+                sys.exit(1)
+
+    if not (os.path.isdir(final_check_path) or os.path.isfile(final_check_path)):
+        print(f"❌ Error: Tool setup failed. Expected path '{final_check_path}' not found after download.", file=sys.stderr)
+        sys.exit(1)
+    
+    print("    -> Tool setup successful.")
+
+def ensure_tools_are_present():
+    """Checks for required toolchains and downloads them if missing."""
+    tools_dir = "tools"
+    os.makedirs(tools_dir, exist_ok=True)
+
+    # 1. Check for RISC-V GCC Toolchain
+    if not os.path.isdir(config.TOOLCHAIN_PATH):
+        print("⚠️  RISC-V GCC toolchain not found. Attempting to download and set up...")
+        url = "https://github.com/xpack-dev-tools/riscv-none-elf-gcc-xpack/releases/download/v14.2.0-3/xpack-riscv-none-elf-gcc-14.2.0-3-win32-x64.zip"
+        archive_path = os.path.join(tools_dir, "gcc.zip")
+        _download_and_extract_tool(url=url, archive_path=archive_path, extract_dir=tools_dir, final_check_path=config.TOOLCHAIN_PATH)
+
+    # 2. Check for OpenOCD
+    if not os.path.isfile(config.OPENOCD_PATH):
+        print("⚠️  OpenOCD not found. Attempting to download and set up...")
+        url = "https://github.com/openocd-org/openocd/releases/download/v0.12.0/openocd-v0.12.0-i686-w64-mingw32.tar.gz"
+        archive_path = os.path.join(tools_dir, 'openocd.tar.gz')
+        extract_dir = os.path.join(tools_dir, "OpenOCD_0.12.0_")
+        _download_and_extract_tool(url=url, archive_path=archive_path, extract_dir=extract_dir, final_check_path=config.OPENOCD_PATH, rename_map={"": "../OpenOCD_0.12.0"})
 
 class Builder:
     """
@@ -13,6 +104,7 @@ class Builder:
 
     def __init__(self):
         """Initializes the builder, sets up toolchain paths, and constructs build flags."""
+        ensure_tools_are_present()
         if config.TOOLCHAIN_PATH and config.TOOLCHAIN_PATH not in os.environ['PATH']:
             os.environ['PATH'] = config.TOOLCHAIN_PATH + os.pathsep + os.environ['PATH']
 

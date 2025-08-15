@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import sys
-from bldmgr.build_logic import Builder
+from build_logic import Builder
 
 def print_usage():
     """Prints the available commands and their descriptions."""
