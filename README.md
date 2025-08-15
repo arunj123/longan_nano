@@ -1,0 +1,88 @@
+# GD32VF103 Longan Nano Bare-Metal Project
+
+This project is a bare-metal firmware template for the **Sipeed Longan Nano**, designed as a learning exercise for the GD32VF103 RISC-V microcontroller. It uses a custom Python-based build system (`bldmgr/build.py`) and avoids reliance on large IDEs or complex frameworks like PlatformIO or CMake.
+
+## Firmware Features
+
+The current demo application configures the Longan Nano with the following features:
+
+*   **USB CDC (Virtual COM Port):** The board enumerates as a USB serial device, allowing you to send and receive data from a host computer using a standard terminal emulator.
+*   **UART0 Debug Output:** `printf` is retargeted to `USART0` (pins `PA9`/`PA10`) at 115200 baud, providing a convenient way to print debug messages.
+*   **LED Blink:** The onboard LED on pin `PC13` blinks to give a visual "heartbeat," indicating the program is running.
+
+## Hardware Setup
+
+### Target Board: Sipeed Longan Nano
+
+A compact development board featuring the GigaDevice GD32VF103CBT6 RISC-V microcontroller.
+*   **Product Wiki:** wiki.sipeed.com/longan-nano
+
+### Programmer/Debugger: Sipeed USB-JTAG/TTL
+
+This project is configured to be flashed using the **Sipeed RV-Debugger** (or a compatible FT2232-based JTAG adapter). This device provides both JTAG programming and a USB-to-TTL serial converter for monitoring UART output.
+*   **Product Wiki:** wiki.sipeed.com/rv-debugger
+
+#### Connections
+
+1.  **JTAG:** Connect the JTAG pins from the debugger to the corresponding pins on the Longan Nano (`JTAG_TMS`, `JTAG_TCK`, `JTAG_TDI`, `JTAG_TDO`, `GND`, `3V3`).
+2.  **UART:** For debug output, connect the debugger's UART pins to the Longan Nano:
+    *   Debugger `RX` -> Longan Nano `PA9` (TX)
+    *   Debugger `TX` -> Longan Nano `PA10` (RX)
+
+## Prerequisites
+
+This build system is designed for **Windows**. You will need Python 3 installed and available in your `PATH`.
+
+## Toolchain Setup
+
+This project requires two external tools: the RISC-V GCC toolchain and OpenOCD for flashing. The build script expects them to be in a `tools` directory.
+
+1.  Create a `tools` directory in the project root.
+
+2.  **RISC-V GCC Toolchain:**
+    *   Download from: xpack-riscv-none-elf-gcc-14.2.0-3-win32-x64.zip
+    *   Extract the contents into the `tools` directory. The final path to the binaries should be: `tools/xpack-riscv-none-elf-gcc-14.2.0-3/bin`
+
+3.  **OpenOCD:**
+    *   Download from: openocd-v0.12.0-i686-w64-mingw32.tar.gz
+    *   Extract the contents. You will get a folder like `openocd-0.12.0`. Rename it to `OpenOCD_0.12.0` and move it into the `tools` directory. The final path to the executable should be: `tools/OpenOCD_0.12.0/bin/openocd.exe`
+
+## Building and Flashing
+
+All build and flash operations are handled by the `bldmgr/build.py` script.
+
+Open a terminal in the project root and use the following commands:
+
+### Available Commands
+
+```
+python bldmgr/build.py [command]
+
+Commands:
+  build    (default) Incrementally builds the project (.elf, .hex, .bin).
+  rebuild  Cleans and then builds the entire project from scratch.
+  clean    Removes the build directory.
+  flash    Incrementally builds and then programs the device using OpenOCD.
+  program  Programs an already-built binary to the device using OpenOCD.
+  nucleus  Incrementally builds and programs using Nuclei-specific OpenOCD.
+  dfu      Incrementally builds and programs using DFU-util.
+```
+
+### Examples
+
+```bash
+# Build the project
+python bldmgr/build.py build
+
+# Clean the build directory and rebuild everything
+python bldmgr/build.py rebuild
+
+# Build and flash to the board
+python bldmgr/build.py flash
+```
+
+## References
+
+This project was inspired by and references code from:
+*   [cjacker/opensource-toolchain-gd32vf103](https://github.com/cjacker/opensource-toolchain-gd32vf103)
+*   GigaDevice GD32VF103 Firmware Library (V1.5.0), downloaded from the [official product page](https://www.gigadevice.com/microcontrollers/gd32vf103/).
