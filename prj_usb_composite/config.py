@@ -56,7 +56,7 @@ LINKER_SCRIPT = r"src/system/GD32VF103xB.lds"
 gd32_components = {}
 for component_name in ['riscv_drivers', 'syscall_stubs', 'gd32_std_peripheral_lib',
                        'usb_driver_core', 'usb_driver_device', 'usb_device_core',
-                       'usb_class_cdc', 'usb_device_ustd',]:
+                       'usb_device_ustd',]:
     gd32_components[component_name] = components[component_name].copy()
     gd32_components[component_name]['enabled'] = True
     gd32_components[component_name]['module'] = "gd32"
@@ -65,7 +65,7 @@ COMPONENTS = {
     **gd32_components,
     "core_startup": {
         "c_sources": [r"src/system/system_gd32vf103.c", r"src/system/init.c",
-                       r"src/system/handlers.c", r"src/system/systick.c"],
+                       r"src/system/handlers.c", r"src/system/systick.c",],
         "cpp_sources": [],
         "asm_sources": [r"src/system/entry.S", r"src/system/start.S"],
         "include_paths": [r"-Isrc/system"],
@@ -78,18 +78,20 @@ COMPONENTS = {
         "cpp_sources": [r"src/usb_serial/usb.cpp",],
         "asm_sources": [],
         "include_paths": [r"-Isrc/usb_serial"],
-        "enabled": True,
+        "enabled": False,
     },
     "usb_composite": {
-        "c_sources": [],
+        "c_sources": [r"src/usb_composite/gd32vf103_it.cpp",
+                      r"src/usb_composite/usb_device.cpp",
+                      r"src/usb_composite/usbd_descriptors.cpp",],
         "cpp_sources": [],
         "asm_sources": [],
         "include_paths": [r"-Isrc/usb_composite"],
-        "enabled": False,
+        "enabled": True,
     },
     "application": {
         "c_sources": [r"src/gd32vf103_hw.c",],
-        "cpp_sources": [r"src/main.cpp",],
+        "cpp_sources": [r"src/main.cpp", r"src/usbd_msc_mem.cpp", r"src/board.cpp",],
         "asm_sources": [],
         "include_paths": [r"-Isrc"],
         "enabled": True

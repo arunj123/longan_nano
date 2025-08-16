@@ -99,14 +99,22 @@ components = {
         "asm_sources": [],
         "include_paths": [r"-IFirmware/GD32VF103_usbfs_library/device/class/audio/Include"],
     },
+    "usb_device_ustd": {
+        "c_sources": [],
+        "cpp_sources": [],
+        "asm_sources": [],
+        "include_paths": [
+            r"-IFirmware/GD32VF103_usbfs_library/ustd/common",
+            r"-IFirmware/GD32VF103_usbfs_library/ustd/class/cdc",
+            r"-IFirmware/GD32VF103_usbfs_library/ustd/class/msc",
+            r"-IFirmware/GD32VF103_usbfs_library/ustd/class/hid",],
+    },
     "usb_class_cdc": {
         "c_sources": [r"Firmware/GD32VF103_usbfs_library/device/class/cdc/Source/cdc_acm_core.c"],
         "cpp_sources": [],
         "asm_sources": [],
         "include_paths": [
             r"-IFirmware/GD32VF103_usbfs_library/device/class/cdc/Include",
-            r"-IFirmware/GD32VF103_usbfs_library/ustd/common",
-            r"-IFirmware/GD32VF103_usbfs_library/ustd/class/cdc",
         ],
     },
     "usb_device_class_dfu": {
@@ -125,7 +133,7 @@ components = {
         ],
         "cpp_sources": [],
         "asm_sources": [],
-        "include_paths": [r"-IFirmware/GD32VF103_usbfs_library/device/class/hid/Include"],
+        "include_paths": [r"-IFirmware/GD32VF103_usbfs_library/device/class/hid/Include",],
     },
     "usb_device_class_iap": {
         "c_sources": [r"Firmware/GD32VF103_usbfs_library/device/class/iap/Source/usb_iap_core.c"],
@@ -141,7 +149,7 @@ components = {
         ],
         "cpp_sources": [],
         "asm_sources": [],
-        "include_paths": [r"-IFirmware/GD32VF103_usbfs_library/device/class/msc/Include"],
+        "include_paths": [r"-IFirmware/GD32VF103_usbfs_library/device/class/msc/Include",],
     },
     "usb_device_class_printer": {
         "c_sources": [r"Firmware/GD32VF103_usbfs_library/device/class/printer/Source/printer_core.c"],
