@@ -42,10 +42,10 @@
 // If a handler is not defined by the user, the linker will use this weak
 // default, which typically points to an infinite loop (defined later).
 // =============================================================================
-    .weak  eclic_msip_handler
-    .weak  eclic_mtip_handler
-    .weak  eclic_bwei_handler
-    .weak  eclic_pmovi_handler
+    .weak  eclic_msip_handler // Machine Software Interrupt.
+    .weak  eclic_mtip_handler // System timer interrupt.
+    .weak  eclic_bwei_handler // Machine External Interrupt.
+    .weak  eclic_pmovi_handler // Machine External Interrupt for PMO (Performance Monitor Overflow).
     .weak  WWDGT_IRQHandler
     .weak  LVD_IRQHandler
     .weak  TAMPER_IRQHandler

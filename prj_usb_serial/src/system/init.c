@@ -31,7 +31,7 @@ void _init()
 {
 	SystemInit();
 
-	//ECLIC init
+	// ECLIC init
 	eclic_init(ECLIC_NUM_INTERRUPTS);
 	eclic_mode_enable();
 

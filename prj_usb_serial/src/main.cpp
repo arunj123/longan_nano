@@ -31,19 +31,27 @@ WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWIS
 ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY 
 OF SUCH DAMAGE.
 */
-
+extern "C" {
 #include "gd32vf103.h"
 #include "systick.h"
-#include <stdio.h>
-#include "drv_usb_hw.h"
-#include "cdc_acm_core.h"
 
-usb_core_driver cdc_acm;
+int _write(int file, char *ptr, int len);
+}
+#include <stdio.h>
+#include "gpio.h"
+#include "usb.hpp"
+
+
+// Create instances of the Led class for the onboard LEDs
+// LEDR (Red LED) is on GPIOC, PIN_13 and is active low (lights up when pin is low)
+static Led led_red(GPIOC, GPIO_PIN_13, true);
+// LEDG (Green LED) is on GPIOA, PIN_1 and is active high
+static Led led_green(GPIOA, GPIO_PIN_1);
+// LEDB (Blue LED) is on GPIOA, PIN_2 and is active high
+static Led led_blue(GPIOA, GPIO_PIN_2);
 
 // Function prototypes
 void usart0_config(void);
-
-void _init(void);
 
 /*!
     \brief      main function
@@ -55,50 +63,44 @@ int main(void)
 {
     /* enable the LED clock */
     rcu_periph_clock_enable(RCU_GPIOC);
-    /* configure LED GPIO port */
+    rcu_periph_clock_enable(RCU_GPIOA);
+    // Initialize LED pins as push-pull outputs
+    // Red LED (PC13)
     gpio_init(GPIOC, GPIO_MODE_OUT_PP, GPIO_OSPEED_50MHZ, GPIO_PIN_13);
-    gpio_bit_reset(GPIOC, GPIO_PIN_13);
+    // Green (PA1) and Blue (PA2) LEDs
+    gpio_init(GPIOA, GPIO_MODE_OUT_PP, GPIO_OSPEED_50MHZ, GPIO_PIN_1 | GPIO_PIN_2);
 
     // Configure USART0 with the correct pins and parameters.
     usart0_config();
     delay_1ms(100);
 
-    // USB
-    eclic_global_interrupt_enable();
-
-    eclic_priority_group_set(ECLIC_PRIGROUP_LEVEL2_PRIO2);
-
-    usb_rcu_config();
-
-    usb_timer_init();
-
-    usb_intr_config();
-
-    usbd_init (&cdc_acm, &cdc_desc, &cdc_class);
-
-    usb_intr_config();
-    // -----------
+    // Initialize the USB device with a single call
+    usb::init();
     
     uint32_t counter = 0;
     while(1){
         // Print a message with a counter to show the program is running.
         printf("Counter value: %lu\n", counter++);    
         /* turn on LED1, turn off LED4 */
-        gpio_bit_set(GPIOC, GPIO_PIN_13);
+        led_red.on();
+        led_green.on();
+        led_blue.off();
         
-        delay_1ms(1000);
+        delay_1ms(100);
 
-        if (USBD_CONFIGURED == cdc_acm.dev.cur_status) {
-            if (0U == cdc_acm_check_ready(&cdc_acm)) {
-                cdc_acm_data_receive(&cdc_acm);
-            } else {
-                cdc_acm_data_send(&cdc_acm);
-            }
-        }
+        // Handle periodic USB tasks
+        usb::poll();
 
         /* turn off LED1, turn on LED4 */
-        gpio_bit_reset(GPIOC, GPIO_PIN_13);
-        delay_1ms(1000);
+        led_red.off();
+        led_green.off();
+        led_blue.off();
+        delay_1ms(100);
+
+        led_red.on();
+        led_green.off();
+        led_blue.on();
+        delay_1ms(100);
     }
 }
 
@@ -167,6 +169,7 @@ void usart0_config(void)
  */
 int _write(int file, char *ptr, int len)
 {
+    (void)file; // Unused parameter, silence compiler warning
     int i;
     for (i = 0; i < len; i++) {
         // Send the character.

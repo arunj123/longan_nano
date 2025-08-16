@@ -33,7 +33,7 @@ OF SUCH DAMAGE.
 */
 
 #include "drv_usbd_int.h"
-#include "gd32vf103_it.h"
+#include "interrupts.h"
 
 extern usb_core_driver cdc_acm;
 extern uint32_t usbfs_prescaler;

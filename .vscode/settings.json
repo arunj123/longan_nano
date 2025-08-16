@@ -1,0 +1,7 @@
+{
+    "files.associations": {
+        "usb_conf.h": "c",
+        "gd32vf103.h": "c",
+        "functional": "c"
+    }
+}

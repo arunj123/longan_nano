@@ -86,3 +86,6 @@ python bldmgr/build.py flash
 This project was inspired by and references code from:
 *   [cjacker/opensource-toolchain-gd32vf103](https://github.com/cjacker/opensource-toolchain-gd32vf103)
 *   GigaDevice GD32VF103 Firmware Library (V1.5.0), downloaded from the [official product page](https://www.gigadevice.com/microcontrollers/gd32vf103/).
+*   [Appelsiini.net: Programming GD32V (Longan Nano)](https://www.appelsiini.net/2020/programming-gd32v-longan-nano/)
+*   [Longan-Nano-Rainbow](https://github.com/joba-1/Longan-Nano-Rainbow/tree/main): An example of using Timer/PWM to control an RGB LED.
+*   [GD32VF103_templates](https://github.com/WRansohoff/GD32VF103_templates/tree/master): A collection of templates for low-level peripheral usage, including Systick.

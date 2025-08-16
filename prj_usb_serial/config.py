@@ -65,21 +65,33 @@ COMPONENTS = {
     **gd32_components,
     "core_startup": {
         "c_sources": [r"src/system/system_gd32vf103.c", r"src/system/init.c",
-                       r"src/system/handlers.c", r"src/system/your_printf.c"],
+                       r"src/system/handlers.c", r"src/system/systick.c"],
         "cpp_sources": [],
         "asm_sources": [r"src/system/entry.S", r"src/system/start.S"],
         "include_paths": [r"-Isrc/system"],
+        "enabled": True,
     },
-    "application": {
+    "usb_serial": {
         "c_sources": [
-            r"src/main.c",
-            r"src/gd32vf103_hw.c",
-            r"src/gd32vf103_it.c",
-            r"src/systick.c",
+            r"src/usb_serial/interrupts.c",
         ],
+        "cpp_sources": [r"src/usb_serial/usb.cpp",],
+        "asm_sources": [],
+        "include_paths": [r"-Isrc/usb_serial"],
+        "enabled": True,
+    },
+    "usb_composite": {
+        "c_sources": [],
         "cpp_sources": [],
         "asm_sources": [],
-        "include_paths": [r"-Isrc", r"-IUtilities"],
+        "include_paths": [r"-Isrc/usb_composite"],
+        "enabled": False,
+    },
+    "application": {
+        "c_sources": [r"src/gd32vf103_hw.c",],
+        "cpp_sources": [r"src/main.cpp",],
+        "asm_sources": [],
+        "include_paths": [r"-Isrc"],
         "enabled": True
     },
 }
@@ -100,6 +112,7 @@ C_STANDARD = config.C_STANDARD
 CPP_STANDARD = config.CPP_STANDARD
 COMMON_WARNING_FLAGS = config.COMMON_WARNING_FLAGS
 C_WARNING_FLAGS = config.C_WARNING_FLAGS
-CPP_WARNING_FLAGS = config.CPP_WARNING_FLAGS
+CPP_WARNING_FLAGS = config.CPP_WARNING_FLAGS.copy()
+CPP_WARNING_FLAGS.remove("-Wold-style-cast")  # Not needed for this project
 CPP_EMBEDDED_FLAGS = config.CPP_EMBEDDED_FLAGS
 LIBRARIES = config.LIBRARIES
