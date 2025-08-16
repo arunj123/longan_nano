@@ -63,7 +63,6 @@ int main(void)
     usart0_config();
     delay_1ms(100);
 
-
     // USB
     eclic_global_interrupt_enable();
 
