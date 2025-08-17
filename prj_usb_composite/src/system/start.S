@@ -1,110 +1,104 @@
 /*
- * Copyright (c) 2019 Nuclei Limited. All rights reserved.
- * Copyright (c) 2024, GigaDevice Semiconductor Inc.
- *
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the License); you may
- * not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an AS IS BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * -----------------------------------------------------------------------------
+ * -- FILE: start.S
+ * -----------------------------------------------------------------------------
+ * --
+ * -- DESCRIPTION:
+ * -- MCU startup file for the GD32VF103. This is the first code executed
+ * -- after a processor reset.
+ * --
+ * -- RESPONSIBILITIES:
+ * --   - Provides the interrupt vector table with weak default handlers.
+ * --   - Sets up core CSRs for exception and interrupt handling (ECLIC).
+ * --   - Initializes the stack pointer (sp) and global pointer (gp).
+ * --   - Initializes the C runtime environment by:
+ * --     - Copying the .data section from Flash to SRAM.
+ * --     - Clearing the .bss section in SRAM.
+ * --   - Calls the application's main() function.
+ * --
+ * -----------------------------------------------------------------------------
  */
 
-/*
- * This file provides the MCU startup sequence. It handles:
- * - Setting up the initial interrupt vector table.
- * - Configuring core CSRs for exception and interrupt handling.
- * - Initializing the FPU.
- * - Setting up the stack and global pointers.
- * - Initializing .data and .bss sections for the C runtime.
- * - Calling the application's main() function.
- */
 #include "riscv_encoding.h"
 
 // =============================================================================
 // SECTION: .init
-// This section contains the startup code and interrupt vector table.
+// Contains the startup code and interrupt vector table.
 // =============================================================================
-		.section .init
+    .section .init
 
 // =============================================================================
-// Weak Definitions for Interrupt Handlers
+// Weak Alias Definitions for Interrupt Handlers
 //
-// Each peripheral interrupt handler is defined as a weak symbol. This allows
-// the user to implement any handler by defining a function with the same name.
-// If a handler is not defined by the user, the linker will use this weak
-// default, which typically points to an infinite loop (defined later).
+// Each peripheral interrupt handler is created as a weak alias for the
+// `_unassigned_interrupts_handler` function. The `.weakref` directive
+// instructs the linker to use the address of `_unassigned_interrupts_handler`
+// for any handler that is not explicitly defined with a strong symbol
+// elsewhere in the project. This is the correct and final fix.
 // =============================================================================
-    .weak  eclic_msip_handler // Machine Software Interrupt.
-    .weak  eclic_mtip_handler // System timer interrupt.
-    .weak  eclic_bwei_handler // Machine External Interrupt.
-    .weak  eclic_pmovi_handler // Machine External Interrupt for PMO (Performance Monitor Overflow).
-    .weak  WWDGT_IRQHandler
-    .weak  LVD_IRQHandler
-    .weak  TAMPER_IRQHandler
-    .weak  RTC_IRQHandler
-    .weak  FMC_IRQHandler
-    .weak  RCU_IRQHandler
-    .weak  EXTI0_IRQHandler
-    .weak  EXTI1_IRQHandler
-    .weak  EXTI2_IRQHandler
-    .weak  EXTI3_IRQHandler
-    .weak  EXTI4_IRQHandler
-    .weak  DMA0_Channel0_IRQHandler
-    .weak  DMA0_Channel1_IRQHandler
-    .weak  DMA0_Channel2_IRQHandler
-    .weak  DMA0_Channel3_IRQHandler
-    .weak  DMA0_Channel4_IRQHandler
-    .weak  DMA0_Channel5_IRQHandler
-    .weak  DMA0_Channel6_IRQHandler
-    .weak  ADC0_1_IRQHandler
-    .weak  CAN0_TX_IRQHandler
-    .weak  CAN0_RX0_IRQHandler
-    .weak  CAN0_RX1_IRQHandler
-    .weak  CAN0_EWMC_IRQHandler
-    .weak  EXTI5_9_IRQHandler
-    .weak  TIMER0_BRK_IRQHandler
-    .weak  TIMER0_UP_IRQHandler
-    .weak  TIMER0_TRG_CMT_IRQHandler
-    .weak  TIMER0_Channel_IRQHandler
-    .weak  TIMER1_IRQHandler
-    .weak  TIMER2_IRQHandler
-    .weak  TIMER3_IRQHandler
-    .weak  I2C0_EV_IRQHandler
-    .weak  I2C0_ER_IRQHandler
-    .weak  I2C1_EV_IRQHandler
-    .weak  I2C1_ER_IRQHandler
-    .weak  SPI0_IRQHandler
-    .weak  SPI1_IRQHandler
-    .weak  USART0_IRQHandler
-    .weak  USART1_IRQHandler
-    .weak  USART2_IRQHandler
-    .weak  EXTI10_15_IRQHandler
-    .weak  RTC_Alarm_IRQHandler
-    .weak  USBFS_WKUP_IRQHandler
-    .weak  TIMER4_IRQHandler
-    .weak  SPI2_IRQHandler
-    .weak  UART3_IRQHandler
-    .weak  UART4_IRQHandler
-    .weak  TIMER5_IRQHandler
-    .weak  TIMER6_IRQHandler
-    .weak  DMA1_Channel0_IRQHandler
-    .weak  DMA1_Channel1_IRQHandler
-    .weak  DMA1_Channel2_IRQHandler
-    .weak  DMA1_Channel3_IRQHandler
-    .weak  DMA1_Channel4_IRQHandler
-    .weak  CAN1_TX_IRQHandler
-    .weak  CAN1_RX0_IRQHandler
-    .weak  CAN1_RX1_IRQHandler
-    .weak  CAN1_EWMC_IRQHandler
-    .weak  USBFS_IRQHandler
+    .weakref  eclic_msip_handler, _unassigned_interrupts_handler
+    .weakref  eclic_mtip_handler, _unassigned_interrupts_handler
+    .weakref  eclic_bwei_handler, _unassigned_interrupts_handler
+    .weakref  eclic_pmovi_handler, _unassigned_interrupts_handler
+    .weakref  WWDGT_IRQHandler, _unassigned_interrupts_handler
+    .weakref  LVD_IRQHandler, _unassigned_interrupts_handler
+    .weakref  TAMPER_IRQHandler, _unassigned_interrupts_handler
+    .weakref  RTC_IRQHandler, _unassigned_interrupts_handler
+    .weakref  FMC_IRQHandler, _unassigned_interrupts_handler
+    .weakref  RCU_IRQHandler, _unassigned_interrupts_handler
+    .weakref  EXTI0_IRQHandler, _unassigned_interrupts_handler
+    .weakref  EXTI1_IRQHandler, _unassigned_interrupts_handler
+    .weakref  EXTI2_IRQHandler, _unassigned_interrupts_handler
+    .weakref  EXTI3_IRQHandler, _unassigned_interrupts_handler
+    .weakref  EXTI4_IRQHandler, _unassigned_interrupts_handler
+    .weakref  DMA0_Channel0_IRQHandler, _unassigned_interrupts_handler
+    .weakref  DMA0_Channel1_IRQHandler, _unassigned_interrupts_handler
+    .weakref  DMA0_Channel2_IRQHandler, _unassigned_interrupts_handler
+    .weakref  DMA0_Channel3_IRQHandler, _unassigned_interrupts_handler
+    .weakref  DMA0_Channel4_IRQHandler, _unassigned_interrupts_handler
+    .weakref  DMA0_Channel5_IRQHandler, _unassigned_interrupts_handler
+    .weakref  DMA0_Channel6_IRQHandler, _unassigned_interrupts_handler
+    .weakref  ADC0_1_IRQHandler, _unassigned_interrupts_handler
+    .weakref  CAN0_TX_IRQHandler, _unassigned_interrupts_handler
+    .weakref  CAN0_RX0_IRQHandler, _unassigned_interrupts_handler
+    .weakref  CAN0_RX1_IRQHandler, _unassigned_interrupts_handler
+    .weakref  CAN0_EWMC_IRQHandler, _unassigned_interrupts_handler
+    .weakref  EXTI5_9_IRQHandler, _unassigned_interrupts_handler
+    .weakref  TIMER0_BRK_IRQHandler, _unassigned_interrupts_handler
+    .weakref  TIMER0_UP_IRQHandler, _unassigned_interrupts_handler
+    .weakref  TIMER0_TRG_CMT_IRQHandler, _unassigned_interrupts_handler
+    .weakref  TIMER0_Channel_IRQHandler, _unassigned_interrupts_handler
+    .weakref  TIMER1_IRQHandler, _unassigned_interrupts_handler
+    .weakref  TIMER2_IRQHandler, _unassigned_interrupts_handler
+    .weakref  TIMER3_IRQHandler, _unassigned_interrupts_handler
+    .weakref  I2C0_EV_IRQHandler, _unassigned_interrupts_handler
+    .weakref  I2C0_ER_IRQHandler, _unassigned_interrupts_handler
+    .weakref  I2C1_EV_IRQHandler, _unassigned_interrupts_handler
+    .weakref  I2C1_ER_IRQHandler, _unassigned_interrupts_handler
+    .weakref  SPI0_IRQHandler, _unassigned_interrupts_handler
+    .weakref  SPI1_IRQHandler, _unassigned_interrupts_handler
+    .weakref  USART0_IRQHandler, _unassigned_interrupts_handler
+    .weakref  USART1_IRQHandler, _unassigned_interrupts_handler
+    .weakref  USART2_IRQHandler, _unassigned_interrupts_handler
+    .weakref  EXTI10_15_IRQHandler, _unassigned_interrupts_handler
+    .weakref  RTC_Alarm_IRQHandler, _unassigned_interrupts_handler
+    .weakref  USBFS_WKUP_IRQHandler, _unassigned_interrupts_handler
+    .weakref  TIMER4_IRQHandler, _unassigned_interrupts_handler
+    .weakref  SPI2_IRQHandler, _unassigned_interrupts_handler
+    .weakref  UART3_IRQHandler, _unassigned_interrupts_handler
+    .weakref  UART4_IRQHandler, _unassigned_interrupts_handler
+    .weakref  TIMER5_IRQHandler, _unassigned_interrupts_handler
+    .weakref  TIMER6_IRQHandler, _unassigned_interrupts_handler
+    .weakref  DMA1_Channel0_IRQHandler, _unassigned_interrupts_handler
+    .weakref  DMA1_Channel1_IRQHandler, _unassigned_interrupts_handler
+    .weakref  DMA1_Channel2_IRQHandler, _unassigned_interrupts_handler
+    .weakref  DMA1_Channel3_IRQHandler, _unassigned_interrupts_handler
+    .weakref  DMA1_Channel4_IRQHandler, _unassigned_interrupts_handler
+    .weakref  CAN1_TX_IRQHandler, _unassigned_interrupts_handler
+    .weakref  CAN1_RX0_IRQHandler, _unassigned_interrupts_handler
+    .weakref  CAN1_RX1_IRQHandler, _unassigned_interrupts_handler
+    .weakref  CAN1_EWMC_IRQHandler, _unassigned_interrupts_handler
+    .weakref  USBFS_IRQHandler, _unassigned_interrupts_handler
 
 // =============================================================================
 // Interrupt Vector Table for ECLIC
@@ -117,93 +111,80 @@
 vector_base:
     // Entry 0: Reset Vector. Jumps to the startup code entry point.
     j _start
-    .align    2
-    .word     0
-    .word     0
-    .word     eclic_msip_handler
-    .word     0
-    .word     0
-    .word  	  0
-    .word  	  eclic_mtip_handler
-    .word  	  0
-    .word  	  0
-    .word  	  0
-    .word  	  0
-    .word  	  0
-    .word  	  0
-    .word  	  0
-    .word 	  0
-    .word  	  0
-    .word  	  eclic_bwei_handler
-    .word  	  eclic_pmovi_handler
-    .word  	  WWDGT_IRQHandler
-	.word     LVD_IRQHandler
-	.word     TAMPER_IRQHandler
-	.word     RTC_IRQHandler
-	.word     FMC_IRQHandler
-	.word     RCU_IRQHandler
-	.word     EXTI0_IRQHandler
-	.word     EXTI1_IRQHandler
-	.word     EXTI2_IRQHandler
-	.word     EXTI3_IRQHandler
-	.word     EXTI4_IRQHandler
-	.word     DMA0_Channel0_IRQHandler
-	.word     DMA0_Channel1_IRQHandler
-	.word     DMA0_Channel2_IRQHandler
-	.word     DMA0_Channel3_IRQHandler
-	.word     DMA0_Channel4_IRQHandler
-	.word     DMA0_Channel5_IRQHandler
-	.word     DMA0_Channel6_IRQHandler
-	.word     ADC0_1_IRQHandler
-	.word     CAN0_TX_IRQHandler
-	.word     CAN0_RX0_IRQHandler
-	.word     CAN0_RX1_IRQHandler
-	.word     CAN0_EWMC_IRQHandler
-	.word     EXTI5_9_IRQHandler
-	.word     TIMER0_BRK_IRQHandler
-	.word     TIMER0_UP_IRQHandler
-	.word     TIMER0_TRG_CMT_IRQHandler
-	.word     TIMER0_Channel_IRQHandler
-	.word     TIMER1_IRQHandler
-	.word     TIMER2_IRQHandler
-	.word     TIMER3_IRQHandler
-	.word     I2C0_EV_IRQHandler
-	.word     I2C0_ER_IRQHandler
-	.word     I2C1_EV_IRQHandler
-	.word     I2C1_ER_IRQHandler
-	.word     SPI0_IRQHandler
-	.word     SPI1_IRQHandler
-	.word     USART0_IRQHandler
-	.word     USART1_IRQHandler
-	.word     USART2_IRQHandler
-	.word     EXTI10_15_IRQHandler
-	.word     RTC_Alarm_IRQHandler
-	.word     USBFS_WKUP_IRQHandler
-    .word     0
-    .word     0
-    .word     0
-    .word     0
-	.word     0
-	.word     0
-	.word     0
-	.word     TIMER4_IRQHandler
-	.word     SPI2_IRQHandler
-	.word     UART3_IRQHandler
-	.word     UART4_IRQHandler
-	.word     TIMER5_IRQHandler
-	.word     TIMER6_IRQHandler
-	.word     DMA1_Channel0_IRQHandler
-	.word     DMA1_Channel1_IRQHandler
-	.word     DMA1_Channel2_IRQHandler
-	.word     DMA1_Channel3_IRQHandler
-	.word     DMA1_Channel4_IRQHandler
-    .word     0
-    .word     0
-	.word     CAN1_TX_IRQHandler
-	.word     CAN1_RX0_IRQHandler
-	.word     CAN1_RX1_IRQHandler
-	.word     CAN1_EWMC_IRQHandler
-	.word     USBFS_IRQHandler
+    .align 2
+    
+    // Core Interrupts (N200 Specific)
+    .word     0                                  // Reserved
+    .word     0                                  // Reserved
+    .word     eclic_msip_handler                 // IRQ 3: Machine Software Interrupt
+    .word     0, 0, 0                            // Reserved
+    .word     eclic_mtip_handler                 // IRQ 7: Machine Timer Interrupt
+    .word     0, 0, 0, 0, 0, 0, 0, 0, 0          // Reserved
+    .word     eclic_bwei_handler                 // IRQ 17: Bus Error/Write Error
+    .word     eclic_pmovi_handler                // IRQ 18: Performance Monitor Overflow
+    
+    // Peripheral Interrupts (GD32VF103 Specific)
+    .word     WWDGT_IRQHandler                   // IRQ 19: Window Watchdog Timer
+    .word     LVD_IRQHandler                     // IRQ 20: Low Voltage Detector
+    .word     TAMPER_IRQHandler                  // IRQ 21: Tamper
+    .word     RTC_IRQHandler                     // IRQ 22: RTC global
+    .word     FMC_IRQHandler                     // IRQ 23: FMC global
+    .word     RCU_IRQHandler                     // IRQ 24: RCU global
+    .word     EXTI0_IRQHandler                   // IRQ 25: EXTI Line 0
+    .word     EXTI1_IRQHandler                   // IRQ 26: EXTI Line 1
+    .word     EXTI2_IRQHandler                   // IRQ 27: EXTI Line 2
+    .word     EXTI3_IRQHandler                   // IRQ 28: EXTI Line 3
+    .word     EXTI4_IRQHandler                   // IRQ 29: EXTI Line 4
+    .word     DMA0_Channel0_IRQHandler           // IRQ 30: DMA0 Channel 0
+    .word     DMA0_Channel1_IRQHandler           // IRQ 31: DMA0 Channel 1
+    .word     DMA0_Channel2_IRQHandler           // IRQ 32: DMA0 Channel 2
+    .word     DMA0_Channel3_IRQHandler           // IRQ 33: DMA0 Channel 3
+    .word     DMA0_Channel4_IRQHandler           // IRQ 34: DMA0 Channel 4
+    .word     DMA0_Channel5_IRQHandler           // IRQ 35: DMA0 Channel 5
+    .word     DMA0_Channel6_IRQHandler           // IRQ 36: DMA0 Channel 6
+    .word     ADC0_1_IRQHandler                  // IRQ 37: ADC0 and ADC1 global
+    .word     CAN0_TX_IRQHandler                 // IRQ 38: CAN0 TX
+    .word     CAN0_RX0_IRQHandler                // IRQ 39: CAN0 RX0
+    .word     CAN0_RX1_IRQHandler                // IRQ 40: CAN0 RX1
+    .word     CAN0_EWMC_IRQHandler               // IRQ 41: CAN0 EWMC
+    .word     EXTI5_9_IRQHandler                 // IRQ 42: EXTI Line 9..5
+    .word     TIMER0_BRK_IRQHandler              // IRQ 43: TIMER0 Break
+    .word     TIMER0_UP_IRQHandler               // IRQ 44: TIMER0 Update
+    .word     TIMER0_TRG_CMT_IRQHandler          // IRQ 45: TIMER0 Trigger and Commutation
+    .word     TIMER0_Channel_IRQHandler          // IRQ 46: TIMER0 Channel Capture/Compare
+    .word     TIMER1_IRQHandler                  // IRQ 47: TIMER1
+    .word     TIMER2_IRQHandler                  // IRQ 48: TIMER2
+    .word     TIMER3_IRQHandler                  // IRQ 49: TIMER3
+    .word     I2C0_EV_IRQHandler                 // IRQ 50: I2C0 Event
+    .word     I2C0_ER_IRQHandler                 // IRQ 51: I2C0 Error
+    .word     I2C1_EV_IRQHandler                 // IRQ 52: I2C1 Event
+    .word     I2C1_ER_IRQHandler                 // IRQ 53: I2C1 Error
+    .word     SPI0_IRQHandler                    // IRQ 54: SPI0
+    .word     SPI1_IRQHandler                    // IRQ 55: SPI1
+    .word     USART0_IRQHandler                  // IRQ 56: USART0
+    .word     USART1_IRQHandler                  // IRQ 57: USART1
+    .word     USART2_IRQHandler                  // IRQ 58: USART2
+    .word     EXTI10_15_IRQHandler               // IRQ 59: EXTI Line 15..10
+    .word     RTC_Alarm_IRQHandler               // IRQ 60: RTC Alarm through EXTI Line
+    .word     USBFS_WKUP_IRQHandler              // IRQ 61: USBFS Wakeup from suspend
+    .word     0, 0, 0, 0, 0, 0, 0                // Reserved
+    .word     TIMER4_IRQHandler                  // IRQ 69: TIMER4
+    .word     SPI2_IRQHandler                    // IRQ 70: SPI2
+    .word     UART3_IRQHandler                   // IRQ 71: UART3
+    .word     UART4_IRQHandler                   // IRQ 72: UART4
+    .word     TIMER5_IRQHandler                  // IRQ 73: TIMER5
+    .word     TIMER6_IRQHandler                  // IRQ 74: TIMER6
+    .word     DMA1_Channel0_IRQHandler           // IRQ 75: DMA1 Channel 0
+    .word     DMA1_Channel1_IRQHandler           // IRQ 76: DMA1 Channel 1
+    .word     DMA1_Channel2_IRQHandler           // IRQ 77: DMA1 Channel 2
+    .word     DMA1_Channel3_IRQHandler           // IRQ 78: DMA1 Channel 3
+    .word     DMA1_Channel4_IRQHandler           // IRQ 79: DMA1 Channel 4
+    .word     0, 0                               // Reserved
+    .word     CAN1_TX_IRQHandler                 // IRQ 82: CAN1 TX
+    .word     CAN1_RX0_IRQHandler                // IRQ 83: CAN1 RX0
+    .word     CAN1_RX1_IRQHandler                // IRQ 84: CAN1 RX1
+    .word     CAN1_EWMC_IRQHandler               // IRQ 85: CAN1 EWMC
+    .word     USBFS_IRQHandler                   // IRQ 86: USBFS global
 
 // =============================================================================
 // Startup Code Entry Point (_start)

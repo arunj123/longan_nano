@@ -40,45 +40,28 @@ int main(void)
     board_led_init();
     board_key_init();
 
-    // 2. Initialize the entire USB stack
-    usb::init();
-
     // Configure USART0 with the correct pins and parameters.
     usart0_config();
     delay_1ms(100);
 
-    // Initialize the USB device with a single call
+    // 2. Initialize the entire USB stack
     usb::init();
 
     // 3. Wait until the device is configured by the host
+    //    Blink the LED while waiting to show the MCU is running.
     while (!usb::is_configured()) {
-        // You can blink an LED here to indicate waiting for enumeration
+        board_led_toggle();
+        delay_1ms(200); // Requires a delay implementation
     }
-    
+    printf("USB device configured successfully!\n");
+    board_led_on(); // Turn on the LED to indicate success
     uint32_t counter = 0;
     while(1){
         // Print a message with a counter to show the program is running.
-        printf("Counter value: %lu\n", counter++);    
-        /* turn on LED1, turn off LED4 */
-        led_red.on();
-        led_green.on();
-        led_blue.off();
-        
-        delay_1ms(100);
 
         // Handle periodic USB tasks
         usb::poll();
 
-        /* turn off LED1, turn on LED4 */
-        led_red.off();
-        led_green.off();
-        led_blue.off();
-        delay_1ms(100);
-
-        led_red.on();
-        led_green.off();
-        led_blue.on();
-        delay_1ms(100);
     }
 }
 

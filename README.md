@@ -1,14 +1,21 @@
 # GD32VF103 Longan Nano Bare-Metal Project
 
-This project is a bare-metal firmware template for the **Sipeed Longan Nano**, designed as a learning exercise for the GD32VF103 RISC-V microcontroller. It uses a custom Python-based build system (`bldmgr/build.py`) and avoids reliance on large IDEs or complex frameworks like PlatformIO or CMake.
+This repository contains a collection of bare-metal firmware projects for the **Sipeed Longan Nano**, designed as a learning exercise for the GD32VF103 RISC-V microcontroller. It uses a custom Python-based build system (`bldmgr/build.py`) and avoids reliance on large IDEs or complex frameworks like PlatformIO or CMake.
 
-## Firmware Features
+## Supported Projects
 
-The current demo application configures the Longan Nano with the following features:
+This repository is structured to support multiple independent firmware applications. Each project resides in its own directory in the project root, and its name must be prefixed with `prj_`.
+
+### `prj_usb_serial`
+
+This project configures the Longan Nano as a USB CDC (Virtual COM Port) device.
 
 *   **USB CDC (Virtual COM Port):** The board enumerates as a USB serial device, allowing you to send and receive data from a host computer using a standard terminal emulator.
 *   **UART0 Debug Output:** `printf` is retargeted to `USART0` (pins `PA9`/`PA10`) at 115200 baud, providing a convenient way to print debug messages.
-*   **LED Blink:** The onboard LED on pin `PC13` blinks to give a visual "heartbeat," indicating the program is running.
+
+### `prj_usb_composite`
+
+This project demonstrates a composite USB device, which can expose multiple interfaces to the host computer simultaneously (e.g., a serial port and a Human Interface Device).
 
 ## Hardware Setup
 
@@ -49,36 +56,46 @@ This project requires two external tools: the RISC-V GCC toolchain and OpenOCD f
 
 ## Building and Flashing
 
-All build and flash operations are handled by the `bldmgr/build.py` script.
+All build and flash operations are handled by the `bldmgr/build.py` script. You must specify which project you want to build.
 
 Open a terminal in the project root and use the following commands:
 
 ### Available Commands
 
-```
-python bldmgr/build.py [command]
+The command structure is `python bldmgr/build.py <project_name> [command]`.
+
+```bash
+python bldmgr/build.py <project_name> [command]
+
+Arguments:
+  project_name  The name of the project to build (e.g., prj_usb_serial).
+  command       The action to perform. Defaults to 'build' if not specified.
 
 Commands:
-  build    (default) Incrementally builds the project (.elf, .hex, .bin).
-  rebuild  Cleans and then builds the entire project from scratch.
-  clean    Removes the build directory.
-  flash    Incrementally builds and then programs the device using OpenOCD.
-  program  Programs an already-built binary to the device using OpenOCD.
-  nucleus  Incrementally builds and programs using Nuclei-specific OpenOCD.
-  dfu      Incrementally builds and programs using DFU-util.
+  build    (default) Incrementally builds the selected project.
+  rebuild  Cleans and then builds the project from scratch.
+  clean    Removes the project's build directory.
+  flash    Builds and programs the device using OpenOCD.
+  program  Programs an already-built binary using OpenOCD.
+  nucleus  Builds and programs using Nuclei-specific OpenOCD.
+  dfu      Builds and programs using DFU-util.
+  debug    Builds the project and starts an interactive GDB debug session.
 ```
 
 ### Examples
 
 ```bash
-# Build the project
-python bldmgr/build.py build
+# Build the 'prj_usb_serial' project
+python bldmgr/build.py prj_usb_serial
 
-# Clean the build directory and rebuild everything
-python bldmgr/build.py rebuild
+# Clean and rebuild the 'prj_usb_composite' project
+python bldmgr/build.py prj_usb_composite rebuild
 
-# Build and flash to the board
-python bldmgr/build.py flash
+# Build and flash the 'prj_usb_serial' project
+python bldmgr/build.py prj_usb_serial flash
+
+# Build and start a command-line debug session for 'prj_usb_serial'
+python bldmgr/build.py prj_usb_serial debug
 ```
 
 ## References

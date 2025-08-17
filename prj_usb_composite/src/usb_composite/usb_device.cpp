@@ -13,6 +13,7 @@
 extern "C" {
     void usbd_isr(usb_core_driver *udev);
     void usb_timer_irq(void);
+    void serial_string_get(uint16_t *unicode_str);
 }
 
 // Define the static instance for the singleton
@@ -58,6 +59,8 @@ UsbDevice::UsbDevice() {
     m_descriptors.dev_desc = (uint8_t *)&composite_dev_desc;
     m_descriptors.config_desc = (uint8_t *)&composite_config_desc;
     m_descriptors.strings = usbd_composite_strings;
+
+    serial_string_get((uint16_t*)m_descriptors.strings[usb::STR_IDX_SERIAL]);
 }
 
 void UsbDevice::init() {
@@ -112,7 +115,10 @@ void UsbDevice::send_custom_hid_report(uint8_t report_id, uint8_t data) {
 
 // --- Composite Dispatcher Methods ---
 uint8_t UsbDevice::_init_composite(uint8_t config_index) {
-    (void)config_index; // Unused parameter
+    (void)config_index;
+    m_core_driver.dev.class_data[STD_HID_INTERFACE]    = &m_std_hid_handler;
+    m_core_driver.dev.class_data[CUSTOM_HID_INTERFACE] = &m_custom_hid_handler;
+    m_core_driver.dev.class_data[MSC_INTERFACE]        = &m_msc_handler;
     _std_hid_init();
     _custom_hid_init();
     _msc_init();
@@ -120,7 +126,7 @@ uint8_t UsbDevice::_init_composite(uint8_t config_index) {
 }
 
 uint8_t UsbDevice::_deinit_composite(uint8_t config_index) {
-    (void)config_index; // Unused parameter
+    (void)config_index;
     _std_hid_deinit();
     _custom_hid_deinit();
     _msc_deinit();
@@ -267,21 +273,27 @@ void UsbDevice::_msc_deinit() {
 
 uint8_t UsbDevice::_msc_req_handler(usb::UsbRequest *req) {
     usb_transc *transc = &m_core_driver.dev.transc_in[0];
-    switch(req->bRequest) {
-        case usb::msc::REQ_GET_MAX_LUN:
-            m_msc_handler.max_lun = (uint8_t)usbd_mem_fops->mem_maxlun();
-            transc->xfer_buf = &m_msc_handler.max_lun;
-            transc->remain_len = 1U;
-            break;
-        case usb::msc::REQ_BBB_RESET:
-            _msc_bbb_reset();
-            break;
-        case static_cast<uint8_t>(usb::StdReq::CLEAR_FEATURE):
-            _msc_bbb_clrfeature((uint8_t)req->wIndex);
-            break;
-        default: return USBD_FAIL;
+
+    if (req->bRequest == usb::msc::REQ_GET_MAX_LUN) {
+        m_msc_handler.max_lun = (uint8_t)get_msc_mem_fops().mem_maxlun();
+        transc->xfer_buf = &m_msc_handler.max_lun;
+        transc->remain_len = 1U;
+    } 
+
+    // Use an if/else if chain for clarity and robustness
+    if (req->bRequest == usb::msc::REQ_GET_MAX_LUN) {
+        m_msc_handler.max_lun = (uint8_t)get_msc_mem_fops().mem_maxlun();
+        transc->xfer_buf = &m_msc_handler.max_lun;
+        transc->remain_len = 1U;
+    } else if (req->bRequest == usb::msc::REQ_BBB_RESET) {
+        _msc_bbb_reset();
+    } else if (req->bRequest == static_cast<uint8_t>(usb::StdReq::CLEAR_FEATURE)) {
+        _msc_bbb_clrfeature((uint8_t)req->wIndex);
+    } else {
+        return USBD_FAIL; // Request not supported, causes STALL
     }
-    return USBD_OK;
+
+    return USBD_OK; // Request was handled successfully
 }
 
 void UsbDevice::_msc_data_in() { _msc_bbb_data_in(); }
@@ -292,7 +304,7 @@ void UsbDevice::_msc_bbb_init() {
     m_msc_handler.bbb_state = usb::msc::BbbState::BBB_IDLE;
     m_msc_handler.bbb_status = usb::msc::BbbStatus::BBB_STATUS_NORMAL;
     for(uint8_t lun_num = 0U; lun_num < MEM_LUN_NUM; lun_num++) {
-        usbd_mem_fops->mem_init(lun_num);
+        get_msc_mem_fops().mem_init(lun_num);
     }
     usbd_fifo_flush(&m_core_driver, MSC_OUT_EP);
     usbd_fifo_flush(&m_core_driver, MSC_IN_EP);
@@ -444,7 +456,7 @@ int8_t UsbDevice::_scsi_test_unit_ready(uint8_t lun) {
         _scsi_sense_code(m_msc_handler.bbb_cbw.bCBWLUN, usb::msc::scsi::SenseKey::ILLEGAL_REQUEST, usb::msc::scsi::Asc::INVALID_CDB);
         return -1;
     }
-    if(0 != usbd_mem_fops->mem_ready(lun)) {
+    if(0 != get_msc_mem_fops().mem_ready(lun)) {
         _scsi_sense_code(lun, usb::msc::scsi::SenseKey::NOT_READY, usb::msc::scsi::Asc::MEDIUM_NOT_PRESENT);
         return -1;
     }
@@ -453,7 +465,7 @@ int8_t UsbDevice::_scsi_test_unit_ready(uint8_t lun) {
 }
 
 int8_t UsbDevice::_scsi_inquiry(uint8_t lun, uint8_t *params) {
-    uint8_t* page = (uint8_t *)usbd_mem_fops->mem_inquiry_data[lun];
+    uint8_t* page = (uint8_t *)get_msc_mem_fops().mem_inquiry_data[lun];
     uint16_t len = (uint16_t)(page[4] + 5U);
     if(params[4] <= len) {
         len = params[4];
@@ -464,9 +476,9 @@ int8_t UsbDevice::_scsi_inquiry(uint8_t lun, uint8_t *params) {
 }
 
 int8_t UsbDevice::_scsi_read_capacity10(uint8_t lun) {
-    uint32_t blk_num = usbd_mem_fops->mem_block_len[lun] - 1U;
-    m_msc_handler.scsi_blk_nbr[lun] = usbd_mem_fops->mem_block_len[lun];
-    m_msc_handler.scsi_blk_size[lun] = usbd_mem_fops->mem_block_size[lun];
+    uint32_t blk_num = get_msc_mem_fops().mem_block_len[lun] - 1U;
+    m_msc_handler.scsi_blk_nbr[lun] = get_msc_mem_fops().mem_block_len[lun];
+    m_msc_handler.scsi_blk_size[lun] = get_msc_mem_fops().mem_block_size[lun];
     m_msc_handler.bbb_data[0] = (uint8_t)(blk_num >> 24);
     m_msc_handler.bbb_data[1] = (uint8_t)(blk_num >> 16);
     m_msc_handler.bbb_data[2] = (uint8_t)(blk_num >> 8);
@@ -485,7 +497,7 @@ int8_t UsbDevice::_scsi_read10(uint8_t lun, uint8_t *params) {
             _scsi_sense_code(m_msc_handler.bbb_cbw.bCBWLUN, usb::msc::scsi::SenseKey::ILLEGAL_REQUEST, usb::msc::scsi::Asc::INVALID_CDB);
             return -1;
         }
-        if(0 != usbd_mem_fops->mem_ready(lun)) {
+        if(0 != get_msc_mem_fops().mem_ready(lun)) {
             _scsi_sense_code(lun, usb::msc::scsi::SenseKey::NOT_READY, usb::msc::scsi::Asc::MEDIUM_NOT_PRESENT);
             return -1;
         }
@@ -512,11 +524,11 @@ int8_t UsbDevice::_scsi_write10(uint8_t lun, uint8_t *params) {
             _scsi_sense_code(m_msc_handler.bbb_cbw.bCBWLUN, usb::msc::scsi::SenseKey::ILLEGAL_REQUEST, usb::msc::scsi::Asc::INVALID_CDB);
             return -1;
         }
-        if(0 != usbd_mem_fops->mem_ready(lun)) {
+        if(0 != get_msc_mem_fops().mem_ready(lun)) {
             _scsi_sense_code(lun, usb::msc::scsi::SenseKey::NOT_READY, usb::msc::scsi::Asc::MEDIUM_NOT_PRESENT);
             return -1;
         }
-        if(0 != usbd_mem_fops->mem_protected(lun)) {
+        if(0 != get_msc_mem_fops().mem_protected(lun)) {
             _scsi_sense_code(lun, usb::msc::scsi::SenseKey::NOT_READY, usb::msc::scsi::Asc::WRITE_PROTECTED);
             return -1;
         }
@@ -541,7 +553,7 @@ int8_t UsbDevice::_scsi_write10(uint8_t lun, uint8_t *params) {
 
 int8_t UsbDevice::_scsi_process_read(uint8_t lun) {
     uint32_t len = USB_MIN(m_msc_handler.scsi_blk_len, MSC_MEDIA_PACKET_SIZE);
-    if(usbd_mem_fops->mem_read(lun, m_msc_handler.bbb_data, m_msc_handler.scsi_blk_addr, (uint16_t)(len / m_msc_handler.scsi_blk_size[lun])) < 0) {
+    if(get_msc_mem_fops().mem_read(lun, m_msc_handler.bbb_data, m_msc_handler.scsi_blk_addr, (uint16_t)(len / m_msc_handler.scsi_blk_size[lun])) < 0) {
         _scsi_sense_code(lun, usb::msc::scsi::SenseKey::HARDWARE_ERROR, usb::msc::scsi::Asc::UNRECOVERED_READ_ERROR);
         return -1;
     }
@@ -557,7 +569,7 @@ int8_t UsbDevice::_scsi_process_read(uint8_t lun) {
 
 int8_t UsbDevice::_scsi_process_write(uint8_t lun) {
     uint32_t len = USB_MIN(m_msc_handler.scsi_blk_len, MSC_MEDIA_PACKET_SIZE);
-    if(usbd_mem_fops->mem_write(lun, m_msc_handler.bbb_data, m_msc_handler.scsi_blk_addr, (uint16_t)(len / m_msc_handler.scsi_blk_size[lun])) < 0) {
+    if(get_msc_mem_fops().mem_write(lun, m_msc_handler.bbb_data, m_msc_handler.scsi_blk_addr, (uint16_t)(len / m_msc_handler.scsi_blk_size[lun])) < 0) {
         _scsi_sense_code(lun, usb::msc::scsi::SenseKey::HARDWARE_ERROR, usb::msc::scsi::Asc::WRITE_FAULT);
         return -1;
     }
@@ -581,8 +593,8 @@ int8_t UsbDevice::_scsi_check_address_range(uint8_t lun, uint32_t blk_offset, ui
 }
 
 // Dummy implementations for other SCSI commands to satisfy the switch case
-int8_t UsbDevice::_scsi_read_format_capacity(uint8_t lun) { (void)lun; return 0; }
-int8_t UsbDevice::_scsi_mode_sense6(uint8_t lun) { (void)lun; return 0; }
-int8_t UsbDevice::_scsi_mode_sense10(uint8_t lun) { (void)lun; return 0; }
-int8_t UsbDevice::_scsi_request_sense(uint8_t lun, uint8_t *params) { (void)lun; (void)params; return 0; }
-int8_t UsbDevice::_scsi_verify10(uint8_t lun) { (void)lun; return 0; }
+int8_t UsbDevice::_scsi_read_format_capacity(uint8_t lun) { (void)lun; m_msc_handler.bbb_datalen = 0U; return 0; }
+int8_t UsbDevice::_scsi_mode_sense6(uint8_t lun) { (void)lun; m_msc_handler.bbb_datalen = 0U; return 0; }
+int8_t UsbDevice::_scsi_mode_sense10(uint8_t lun) { (void)lun; m_msc_handler.bbb_datalen = 0U; return 0; }
+int8_t UsbDevice::_scsi_request_sense(uint8_t lun, uint8_t *params) { (void)lun; (void)params; m_msc_handler.bbb_datalen = 0U; return 0; }
+int8_t UsbDevice::_scsi_verify10(uint8_t lun) { (void)lun; m_msc_handler.bbb_datalen = 0U; return 0; }

@@ -81,12 +81,19 @@ COMPONENTS = {
         "enabled": False,
     },
     "usb_composite": {
-        "c_sources": [r"src/usb_composite/gd32vf103_it.cpp",
-                      r"src/usb_composite/usb_device.cpp",
-                      r"src/usb_composite/usbd_descriptors.cpp",],
-        "cpp_sources": [],
+        "c_sources": [],
+        "cpp_sources": [r"src/usb_composite/gd32vf103_it.cpp",
+                        r"src/usb_composite/usb_device.cpp",
+                        r"src/usb_composite/usbd_descriptors.cpp",],
         "asm_sources": [],
         "include_paths": [r"-Isrc/usb_composite"],
+        "enabled": True,
+    },
+    "sdcard": {
+        "c_sources": [],
+        "cpp_sources": [r"src/sdcard/sd_card.cpp",],
+        "asm_sources": [],
+        "include_paths": [r"-Isrc/sdcard"],
         "enabled": True,
     },
     "application": {

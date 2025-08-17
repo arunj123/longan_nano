@@ -123,7 +123,7 @@ private:
     usb_class_core  m_class_core;
     usb_desc        m_descriptors;
 
-    // State handlers for each class
+    // State handlers for each class using correct C++ types
     usb::hid::StandardHidHandler m_std_hid_handler;
     usb::hid::CustomHidHandler   m_custom_hid_handler;
     usb::msc::MscHandler         m_msc_handler;

@@ -32,6 +32,7 @@ def print_usage(projects):
     print("  program  Programs an already-built binary using OpenOCD.")
     print("  nucleus  Builds and programs using Nuclei-specific OpenOCD.")
     print("  dfu      Builds and programs using DFU-util.")
+    print("  debug    Builds the project and starts an interactive GDB debug session.")
     sys.exit(1)
 
 def main():
@@ -81,6 +82,9 @@ def main():
     elif command == "dfu":
         builder.build_all()
         builder.program_dfu()
+    elif command == "debug":
+        builder.build_all()
+        builder.debug_session()
     else:
         print(f"\n❌ Error: Unknown command '{command}'")
         print_usage(available_projects)
