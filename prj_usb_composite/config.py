@@ -12,7 +12,9 @@ sys.path.insert(0, _ROOT)
 # Import the toolchain configuration from the 'tools' directory at the project root.
 # This now works because we've added the project root to the system path above.
 from tools import config
-from gd32.components import components
+from gd32.components import components as gd32
+from lib.components import components as lib
+
 
 # ==============================================================================
 # Project & Target Configuration
@@ -58,12 +60,17 @@ gd32_components = {}
 for component_name in ['riscv_drivers', 'syscall_stubs', 'gd32_std_peripheral_lib',
                        'usb_driver_core', 'usb_driver_device', 'usb_device_core',
                        'usb_device_ustd',]:
-    gd32_components[component_name] = components[component_name].copy()
-    gd32_components[component_name]['enabled'] = True
+    gd32_components[component_name] = gd32[component_name].copy()
     gd32_components[component_name]['module'] = "gd32"
+
+lib_components = {}
+for component_name in ['sdcard',]:
+    lib_components[component_name] = lib[component_name].copy()
+    lib_components[component_name]['module'] = 'lib'
 
 COMPONENTS = { 
     **gd32_components,
+    **lib_components,
     "core_startup": {
         "c_sources": [r"src/system/system_gd32vf103.c", r"src/system/init.c",
                        r"src/system/handlers.c", r"src/system/systick.c",],
@@ -88,13 +95,6 @@ COMPONENTS = {
                         r"src/usb_composite/usbd_descriptors.cpp",],
         "asm_sources": [],
         "include_paths": [r"-Isrc/usb_composite"],
-        "enabled": True,
-    },
-    "sdcard": {
-        "c_sources": [],
-        "cpp_sources": [r"src/sdcard/sd_card.cpp"],
-        "asm_sources": [],
-        "include_paths": [r"-Isrc/sdcard"],
         "enabled": True,
     },
     "application": {
