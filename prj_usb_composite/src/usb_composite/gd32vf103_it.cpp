@@ -7,6 +7,11 @@
 
 #include "usb_device.h"
 #include "board.h"
+extern "C" {
+#include "systick.h" // For delay_1ms
+}
+
+volatile bool user_key_pressed = false;
 
 extern "C" {
 
@@ -25,17 +30,8 @@ void TIMER2_IRQHandler(void) {
 // This ISR now handles the single user key on the Longan Nano (PA8)
 void EXTI5_9_IRQHandler(void) {
     if (RESET != exti_interrupt_flag_get(USER_KEY_EXTI_LINE)) {
-        if (usb::is_configured()) {
-            // Example: Send 'a' key press and release
-            usb::send_keyboard_report(0x00, 0x04); // Press 'a'
-            usb::send_keyboard_report(0x00, 0x00); // Release all keys
-
-            // Example: Move mouse cursor right and down
-            usb::send_mouse_report(10, 10, 0, 0);
-
-            // Example: Send custom HID report for button 1
-            usb::send_custom_hid_report(0x15, 0x01);
-        }
+        
+        user_key_pressed = true; // Set the flag to indicate the key was pressed
 
         exti_interrupt_flag_clear(USER_KEY_EXTI_LINE);
     }

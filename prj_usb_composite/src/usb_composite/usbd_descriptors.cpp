@@ -12,7 +12,7 @@
 #define USBD_PID                     0xABCD // New PID for the composite device
 
 /* USB standard device descriptor */
-const usb_desc_dev composite_dev_desc = {
+usb_desc_dev composite_dev_desc = {
     .header = {
         .bLength          = USB_DEV_DESC_LEN, 
         .bDescriptorType  = USB_DESCTYPE_DEV
@@ -32,7 +32,7 @@ const usb_desc_dev composite_dev_desc = {
 };
 
 /* USB composite configuration descriptor */
-const usb_composite_desc_config_set composite_config_desc = {
+usb_composite_desc_config_set composite_config_desc = {
     .config = {
         .header = {
             .bLength         = sizeof(usb_desc_config), 

@@ -17,6 +17,8 @@ This project configures the Longan Nano as a USB CDC (Virtual COM Port) device.
 
 This project demonstrates a composite USB device, which can expose multiple interfaces to the host computer simultaneously (e.g., a serial port and a Human Interface Device).
 
+**Note:** The USB Mass Storage (disk) function in this composite device is incomplete and will not work.
+
 ## Hardware Setup
 
 ### Target Board: Sipeed Longan Nano

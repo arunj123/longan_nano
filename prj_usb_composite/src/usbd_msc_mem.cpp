@@ -7,11 +7,17 @@
 
 #include "usbd_conf.h"
 #include "usbd_msc_mem.h"
+#include <cstdio> // For printf
 
 // Conditionally include the SD card driver
 #if defined(USE_SD_CARD_MSC) && (USE_SD_CARD_MSC == 1)
     #include "sd_card.h"
 #endif
+
+// --- State and Storage Properties ---
+static bool is_media_present = false;
+static uint32_t card_block_size = 512;
+static uint32_t card_block_count = 0;
 
 // --- Forward Declarations ---
 static int8_t mem_init (uint8_t lun);
@@ -21,7 +27,7 @@ static int8_t mem_read (uint8_t lun, uint8_t *buf, uint32_t block_addr, uint16_t
 static int8_t mem_write (uint8_t lun, const uint8_t *buf, uint32_t block_addr, uint16_t block_len);
 static int8_t mem_maxlun (void);
 
-/* USB mass storage inquiry data */
+/* USB mass storage inquiry data (remains the same) */
 const uint8_t msc_inquiry_data[] = {
     0x00, /* Direct-access device */
     0x80, /* Removable media */
@@ -34,12 +40,7 @@ const uint8_t msc_inquiry_data[] = {
     '1', '.', '0', '0',                     /* Version: 4 bytes */
 };
 
-// We will populate these with the actual card size during initialization.
-static uint32_t card_block_size = 512;
-static uint32_t card_block_count = 0;
-static bool is_media_present = false;
-
-// This structure connects your functions and storage parameters to the USB MSC class.
+// This structure is now populated by msc_mem_pre_init()
 usbd_mem_cb usbd_storage_fops = {
     .mem_init      = mem_init,
     .mem_ready     = mem_ready,
@@ -60,15 +61,16 @@ usbd_mem_cb& get_msc_mem_fops() {
 
 void msc_mem_pre_init() {
 #if defined(USE_SD_CARD_MSC) && (USE_SD_CARD_MSC == 1)
+    printf("Pre-caching MSC drive properties...\n");
     // This is called once from main() before USB starts.
-    // It's safe to perform slow operations here.
     if ((sd_status() & STA_NOINIT) || (sd_status() & STA_NODISK)) {
+        printf("WARN: SD Card not ready for MSC.\n");
         is_media_present = false;
-        return; // Card not ready, leave the flag as false
+        return;
     }
 
-    // Get the actual card capacity and block size
     if (sd_ioctl(GET_SECTOR_COUNT, &card_block_count) != RES_OK || card_block_count == 0) {
+        printf("WARN: Failed to get SD card sector count.\n");
         is_media_present = false;
         return;
     }
@@ -79,9 +81,11 @@ void msc_mem_pre_init() {
     usbd_storage_fops.mem_block_len[0] = card_block_count;
     usbd_storage_fops.mem_block_size[0] = card_block_size;
     is_media_present = true;
+    printf("INFO: MSC properties cached successfully. Block count: %lu\n", card_block_count);
 #else
     // If SD card is disabled in the build, ensure we always report no media.
     is_media_present = false;
+    printf("INFO: MSC is disabled in this build.\n");
 #endif
 }
 
@@ -95,7 +99,6 @@ void msc_mem_pre_init() {
 */
 static int8_t mem_init (uint8_t lun) {
     (void)lun;
-    // This is a fast check. Returns OK if pre-init succeeded.
     return is_media_present ? 0 : -1;
 }
 
@@ -107,8 +110,6 @@ static int8_t mem_init (uint8_t lun) {
 */
 static int8_t mem_ready (uint8_t lun) {
     (void)lun;
-    // This is the key function. The host polls this.
-    // Return "not ready" if the media is not present.
     return is_media_present ? 0 : -1;
 }
 
@@ -121,12 +122,10 @@ static int8_t mem_ready (uint8_t lun) {
 static int8_t mem_protected (uint8_t lun) {
     (void)lun;
 #if defined(USE_SD_CARD_MSC) && (USE_SD_CARD_MSC == 1)
-    if (!is_media_present) {
-        return 1; // Report as protected if not present
-    }
+    if (!is_media_present) return 1;
     return (sd_status() & STA_PROTECT) ? 1 : 0;
 #else
-    return 1; // Always protected if disabled
+    return 1;
 #endif
 }
 
@@ -142,12 +141,11 @@ static int8_t mem_protected (uint8_t lun) {
 static int8_t mem_read (uint8_t lun, uint8_t *buf, uint32_t block_addr, uint16_t block_len) {
     (void)lun;
 #if defined(USE_SD_CARD_MSC) && (USE_SD_CARD_MSC == 1)
-    if (!is_media_present) {
-        return -1; // Fail if no media
-    }
+    if (!is_media_present) return -1;
     return (sd_read_blocks(buf, block_addr, block_len) == RES_OK) ? 0 : -1;
 #else
-    return -1; // Always fail if disabled
+    (void)buf; (void)block_addr; (void)block_len;
+    return -1;
 #endif
 }
 
@@ -163,12 +161,11 @@ static int8_t mem_read (uint8_t lun, uint8_t *buf, uint32_t block_addr, uint16_t
 static int8_t mem_write (uint8_t lun, const uint8_t *buf, uint32_t block_addr, uint16_t block_len) {
     (void)lun;
 #if defined(USE_SD_CARD_MSC) && (USE_SD_CARD_MSC == 1)
-    if (!is_media_present) {
-        return -1; // Fail if no media
-    }
+    if (!is_media_present) return -1;
     return (sd_write_blocks(buf, block_addr, block_len) == RES_OK) ? 0 : -1;
 #else
-    return -1; // Always fail if disabled
+    (void)buf; (void)block_addr; (void)block_len;
+    return -1;
 #endif
 }
 

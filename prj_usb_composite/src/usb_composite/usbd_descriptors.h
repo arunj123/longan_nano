@@ -36,11 +36,16 @@ const uint8_t custom_hid_report_descriptor[] = {
     0x16, 0x09, 0x06, 0x15, 0x00, 0x25, 0x01, 0x75, 0x01, 0x81, 0x02, 0x75, 0x07, 0x81, 0x03, 0xC0
 };
 
-/* Report descriptor lengths - LET THE COMPILER CALCULATE THE SIZE! */
+/* Report descriptor lengths */
 #define STD_HID_REPORT_DESC_LEN       sizeof(std_hid_report_descriptor)
 #define CUSTOM_HID_REPORT_DESC_LEN    sizeof(custom_hid_report_descriptor)
 
-/* Total size of the composite descriptor */
+/* Define a size for the configuration when MSC is disabled */
+#define HID_ONLY_CONFIG_DESC_SIZE     (sizeof(usb_desc_config) + \
+                                       sizeof(usb_desc_itf) + sizeof(usb::hid::DescHid) + sizeof(usb_desc_ep) + \
+                                       sizeof(usb_desc_itf) + sizeof(usb::hid::DescHid) + sizeof(usb_desc_ep) * 2)
+
+/* Total size of the full composite descriptor (remains the same) */
 #define COMPOSITE_CONFIG_DESC_SIZE    (sizeof(usb_desc_config) + \
                                        sizeof(usb_desc_itf) + sizeof(usb::hid::DescHid) + sizeof(usb_desc_ep) + \
                                        sizeof(usb_desc_itf) + sizeof(usb::hid::DescHid) + sizeof(usb_desc_ep) * 2 + \
@@ -73,8 +78,8 @@ typedef struct
     usb_desc_ep             msc_epin;
 } usb_composite_desc_config_set;
 
-extern const usb_desc_dev composite_dev_desc;
-extern const usb_composite_desc_config_set composite_config_desc;
+extern usb_desc_dev composite_dev_desc;
+extern usb_composite_desc_config_set composite_config_desc;
 extern void *const usbd_composite_strings[];
 
 #endif /* USBD_DESCRIPTORS_H */

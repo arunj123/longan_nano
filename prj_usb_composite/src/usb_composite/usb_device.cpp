@@ -8,6 +8,7 @@
 #include "usb_device.h"
 #include "usbd_msc_mem.h"
 #include <cstring>
+#include "board.h"
 
 // Forward declare C functions from the library that we will call
 extern "C" {
@@ -23,7 +24,7 @@ UsbDevice* UsbDevice::s_instance = nullptr;
 // Public Namespace Functions (The User's API)
 // ===================================================================
 
-void usb::init() { UsbDevice::getInstance().init(); }
+void usb::init(bool enable_msc) { UsbDevice::getInstance().init(enable_msc); }
 void usb::poll() { UsbDevice::getInstance().poll(); }
 bool usb::is_configured() { return UsbDevice::getInstance().is_configured(); }
 void usb::send_mouse_report(int8_t x, int8_t y, int8_t wheel, uint8_t buttons) { UsbDevice::getInstance().send_mouse_report(x, y, wheel, buttons); }
@@ -42,7 +43,7 @@ UsbDevice& UsbDevice::getInstance() {
     return *s_instance;
 }
 
-UsbDevice::UsbDevice() {
+UsbDevice::UsbDevice() : m_msc_enabled(false) {
     memset(&m_core_driver, 0, sizeof(usb_core_driver));
     memset(&m_class_core, 0, sizeof(usb_class_core));
     memset(&m_descriptors, 0, sizeof(usb_desc));
@@ -63,7 +64,17 @@ UsbDevice::UsbDevice() {
     serial_string_get((uint16_t*)m_descriptors.strings[usb::STR_IDX_SERIAL]);
 }
 
-void UsbDevice::init() {
+void UsbDevice::init(bool enable_msc) {
+    m_msc_enabled = enable_msc;
+
+    // --- Dynamic Descriptor Modification ---
+    if (!m_msc_enabled) {
+        // If MSC is disabled, modify the descriptor before initializing the core.
+        // The host will never see the MSC interface.
+        composite_config_desc.config.bNumInterfaces = 2; // Only HID interfaces
+        composite_config_desc.config.wTotalLength = HID_ONLY_CONFIG_DESC_SIZE;
+    }
+    
     eclic_global_interrupt_enable();
     eclic_priority_group_set(ECLIC_PRIGROUP_LEVEL2_PRIO2);
     usb_rcu_config();
@@ -118,10 +129,15 @@ uint8_t UsbDevice::_init_composite(uint8_t config_index) {
     (void)config_index;
     m_core_driver.dev.class_data[STD_HID_INTERFACE]    = &m_std_hid_handler;
     m_core_driver.dev.class_data[CUSTOM_HID_INTERFACE] = &m_custom_hid_handler;
-    m_core_driver.dev.class_data[MSC_INTERFACE]        = &m_msc_handler;
+    
     _std_hid_init();
     _custom_hid_init();
-    _msc_init();
+
+    if (m_msc_enabled) {
+        m_core_driver.dev.class_data[MSC_INTERFACE] = &m_msc_handler;
+        _msc_init();
+    }
+    
     return USBD_OK;
 }
 
@@ -129,7 +145,11 @@ uint8_t UsbDevice::_deinit_composite(uint8_t config_index) {
     (void)config_index;
     _std_hid_deinit();
     _custom_hid_deinit();
-    _msc_deinit();
+
+    if (m_msc_enabled) {
+        _msc_deinit();
+    }
+
     return USBD_OK;
 }
 
@@ -143,31 +163,35 @@ uint8_t UsbDevice::_req_handler(usb::UsbRequest *req) {
     uint8_t interface = static_cast<uint8_t>(req->wIndex & 0xFF);
 
     switch (interface) {
-        case STD_HID_INTERFACE:
-            return _std_hid_req_handler(req);
-
-        case CUSTOM_HID_INTERFACE:
-            return _custom_hid_req_handler(req);
-
+        case STD_HID_INTERFACE:    return _std_hid_req_handler(req);
+        case CUSTOM_HID_INTERFACE: return _custom_hid_req_handler(req);
         case MSC_INTERFACE:
-            return _msc_req_handler(req);
-
+            if (m_msc_enabled) {
+                return _msc_req_handler(req);
+            }
+            break; // Fall through to fail if MSC is not enabled
         default:
-            // If the request is for an unknown interface, stall.
-            return USBD_FAIL;
+            break;
     }
+    return USBD_FAIL;
 }
 
 uint8_t UsbDevice::_data_in(uint8_t ep_num) {
     if (ep_num == (STD_HID_IN_EP & 0x7F))    { _std_hid_data_in(); return USBD_OK; }
     if (ep_num == (CUSTOM_HID_IN_EP & 0x7F)) { _custom_hid_data_in(); return USBD_OK; }
-    if (ep_num == (MSC_IN_EP & 0x7F))        { _msc_data_in(); return USBD_OK; }
+    if (m_msc_enabled && (ep_num == (MSC_IN_EP & 0x7F))) {
+        _msc_data_in();
+        return USBD_OK;
+    }
     return USBD_FAIL;
 }
 
 uint8_t UsbDevice::_data_out(uint8_t ep_num) {
     if (ep_num == (CUSTOM_HID_OUT_EP & 0x7F)) { _custom_hid_data_out(); return USBD_OK; }
-    if (ep_num == (MSC_OUT_EP & 0x7F))        { _msc_data_out(); return USBD_OK; }
+    if (m_msc_enabled && (ep_num == (MSC_OUT_EP & 0x7F))) {
+        _msc_data_out();
+        return USBD_OK;
+    }
     return USBD_FAIL;
 }
 
@@ -268,8 +292,41 @@ uint8_t UsbDevice::_custom_hid_req_handler(usb::UsbRequest *req) {
 void UsbDevice::_custom_hid_data_in() { /* Optional: handle IN complete */ }
 
 void UsbDevice::_custom_hid_data_out() {
-    // Example: Toggle LEDs based on received report
-    // This logic should be adapted from your application's needs
+    // The host has sent us data. The received data is in m_custom_hid_handler.data.
+    // The format is [Report ID, Value].
+
+    // Get the report ID and value
+    uint8_t report_id = m_custom_hid_handler.data[0];
+    uint8_t value = m_custom_hid_handler.data[1];
+
+    // Control the RGB LEDs based on the report ID
+    switch (report_id) {
+        case 0x11: // Report ID for Red LED
+            if (value) {
+                gpio_bit_reset(LED_R_GPIO_PORT, LED_R_PIN); // Turn ON (active low)
+            } else {
+                gpio_bit_set(LED_R_GPIO_PORT, LED_R_PIN); // Turn OFF
+            }
+            break;
+
+        case 0x12: // Report ID for Green LED
+            if (value) {
+                gpio_bit_reset(LED_G_GPIO_PORT, LED_G_PIN); // Turn ON (active low)
+            } else {
+                gpio_bit_set(LED_G_GPIO_PORT, LED_G_PIN); // Turn OFF
+            }
+            break;
+
+        case 0x13: // Report ID for Blue LED
+             if (value) {
+                gpio_bit_reset(LED_B_GPIO_PORT, LED_B_PIN); // Turn ON (active low)
+            } else {
+                gpio_bit_set(LED_B_GPIO_PORT, LED_B_PIN); // Turn OFF
+            }
+            break;
+    }
+
+    // Re-arm the OUT endpoint to receive the next report from the host.
     usbd_ep_recev(&m_core_driver, CUSTOM_HID_OUT_EP, m_custom_hid_handler.data, 2U);
 }
 

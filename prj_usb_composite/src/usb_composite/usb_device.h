@@ -22,7 +22,7 @@ extern "C" {
 class UsbDevice;
 
 namespace usb {
-    void init();
+    void init(bool);
     void poll();
     bool is_configured();
 
@@ -54,7 +54,7 @@ private:
     UsbDevice(const UsbDevice&) = delete;
     void operator=(const UsbDevice&) = delete;
 
-    void init();
+    void init(bool enable_msc);
     void poll();
     bool is_configured();
 
@@ -122,15 +122,22 @@ private:
     usb_core_driver m_core_driver;
     usb_class_core  m_class_core;
     usb_desc        m_descriptors;
+    bool            m_msc_enabled;
 
     // State handlers for each class using correct C++ types
     usb::hid::StandardHidHandler m_std_hid_handler;
     usb::hid::CustomHidHandler   m_custom_hid_handler;
     usb::msc::MscHandler         m_msc_handler;
 
-    friend void usb::init();
+    // --- Friend Declarations ---
+    // Befriend the public namespace functions so they can call the private methods.
+    friend void usb::init(bool enable_msc);
     friend void usb::poll();
     friend bool usb::is_configured();
+    friend void usb::send_mouse_report(int8_t, int8_t, int8_t, uint8_t);
+    friend void usb::send_keyboard_report(uint8_t, uint8_t);
+    friend void usb::send_consumer_report(uint16_t);
+    friend void usb::send_custom_hid_report(uint8_t, uint8_t);
 };
 
 #endif // USB_DEVICE_H
