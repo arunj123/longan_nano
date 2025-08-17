@@ -134,40 +134,27 @@ uint8_t UsbDevice::_deinit_composite(uint8_t config_index) {
 }
 
 uint8_t UsbDevice::_req_handler(usb::UsbRequest *req) {
-    // Check the recipient of the request using the correct macro from usb_ch9_std.h
-    switch (req->bmRequestType & USB_RECPTYPE_MASK) {
-        case USB_RECPTYPE_DEV: // FIX: Use correct macro USB_RECPTYPE_DEV
-            // Most standard device requests are handled by the core library.
-            break;
+    /*
+     * This is the main dispatcher for class-specific and vendor-specific requests.
+     * The core USB library handles all standard requests (like GET_DESCRIPTOR,
+     * SET_CONFIGURATION, etc.) *before* calling this function. We only need to
+     * route the request to the correct interface handler based on wIndex.
+     */
+    uint8_t interface = static_cast<uint8_t>(req->wIndex & 0xFF);
 
-        case USB_RECPTYPE_ITF: // FIX: Use correct macro USB_RECPTYPE_ITF
-            // Handle standard interface requests first
-            if (req->bRequest == static_cast<uint8_t>(usb::StdReq::SET_INTERFACE)) {
-                // We only support alternate setting 0, so just acknowledge.
-                return USBD_OK;
-            }
-            break;
-
-        case USB_RECPTYPE_EP: // FIX: Use correct macro USB_RECPTYPE_EP
-            // Handle standard endpoint requests first
-            if (req->bRequest == static_cast<uint8_t>(usb::StdReq::CLEAR_FEATURE)) {
-                uint8_t ep_addr = static_cast<uint8_t>(req->wIndex);
-
-                // If an MSC endpoint is stalled, let the MSC handler deal with it.
-                if (((ep_addr & 0x7F) == (MSC_IN_EP & 0x7F)) || ((ep_addr & 0x7F) == (MSC_OUT_EP & 0x7F))) {
-                    return _msc_req_handler(req);
-                }
-            }
-            break;
-    }
-
-    // If not a standard request handled above, dispatch to the correct class-specific handler
-    uint8_t interface = static_cast<uint8_t>(req->wIndex);
     switch (interface) {
-        case STD_HID_INTERFACE:    return _std_hid_req_handler(req);
-        case CUSTOM_HID_INTERFACE: return _custom_hid_req_handler(req);
-        case MSC_INTERFACE:        return _msc_req_handler(req);
-        default:                   return USBD_FAIL; // Stall if interface is unknown
+        case STD_HID_INTERFACE:
+            return _std_hid_req_handler(req);
+
+        case CUSTOM_HID_INTERFACE:
+            return _custom_hid_req_handler(req);
+
+        case MSC_INTERFACE:
+            return _msc_req_handler(req);
+
+        default:
+            // If the request is for an unknown interface, stall.
+            return USBD_FAIL;
     }
 }
 
@@ -309,26 +296,27 @@ uint8_t UsbDevice::_msc_req_handler(usb::UsbRequest *req) {
                 m_msc_handler.max_lun = (uint8_t)get_msc_mem_fops().mem_maxlun();
                 transc->xfer_buf = &m_msc_handler.max_lun;
                 transc->remain_len = 1U;
-                return USBD_OK; // Success
+                return USBD_OK; // Success: Data is prepared and ready to send.
 
             case usb::msc::REQ_BBB_RESET:
                 _msc_bbb_reset();
-                return USBD_OK; // Success
+                return USBD_OK; // Success: Reset was performed.
 
             default:
-                break;
+                // Stall any other unknown class-specific interface requests.
+                return USBD_FAIL;
         }
     }
 
-    // Handle standard requests targeted to an MSC endpoint (e.g., clearing a stall)
+    // Handle standard requests targeted to an MSC endpoint (like clearing a stall)
     if ((req->bmRequestType & USB_RECPTYPE_MASK) == USB_RECPTYPE_EP) {
         if (req->bRequest == static_cast<uint8_t>(usb::StdReq::CLEAR_FEATURE)) {
             _msc_bbb_clrfeature(static_cast<uint8_t>(req->wIndex));
-            return USBD_OK; // Success
+            return USBD_OK; // Success: Stall was cleared.
         }
     }
 
-    // If the request is not recognized by this handler, fail it.
+    // If the request type doesn't match interface or endpoint, it's not for us.
     return USBD_FAIL;
 }
 

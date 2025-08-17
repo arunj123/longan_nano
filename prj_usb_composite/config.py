@@ -35,6 +35,7 @@ GLOBAL_C_DEFINES = [
     "-DGD32VF103",
     "-D__NUCLEI_N200",
     "-DGD32VF103C_START",
+    "-DUSE_SD_CARD_MSC=1",
 ]
 
 # --- CPU & ABI Flags ---
@@ -91,7 +92,7 @@ COMPONENTS = {
     },
     "sdcard": {
         "c_sources": [],
-        "cpp_sources": [r"src/sdcard/sd_card.cpp", r"src/sdcard/sd_test.cpp"],
+        "cpp_sources": [r"src/sdcard/sd_card.cpp"],
         "asm_sources": [],
         "include_paths": [r"-Isrc/sdcard"],
         "enabled": True,

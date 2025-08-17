@@ -15,7 +15,9 @@ int _write(int file, char *ptr, int len);
 #include "gpio.h"
 #include "usb.hpp"
 #include "board.h"
-#include "sd_card.h"
+#if defined(USE_SD_CARD_MSC) && (USE_SD_CARD_MSC == 1)
+    #include "sd_card.h"
+#endif
 #include "sd_test.hpp"
 #include "usbd_msc_mem.h"
 
@@ -46,38 +48,28 @@ int main(void)
     delay_1ms(100);
     printf("\n\n--- System Initialized ---\n");
 
-    // 2. Initialize the SD Card hardware
-    sd_init(); 
+    // 2. Conditionally initialize the SD Card hardware
+#if defined(USE_SD_CARD_MSC) && (USE_SD_CARD_MSC == 1)
+    printf("Attempting to initialize SD Card...\n");
+    if (sd_init() & STA_NOINIT) {
+        printf("WARN: SD Card initialization failed or card not present.\n");
+    } else {
+        printf("INFO: SD Card initialized.\n");
+    }
     
-    // 3. Run the diagnostics
-    SdCardTest sd_tester;
-    bool sd_card_ok = sd_tester.run_tests();
-
-    if (!sd_card_ok) {
-        printf("Halting due to SD card test failure.\n");
-        while(1) {
-            board_led_toggle();
-            delay_1ms(100);
-        }
-    }
-
-    // 4. --- NEW STEP ---
-    // Pre-cache the SD card properties for the MSC stack BEFORE starting USB.
+    // 3. Pre-cache MSC properties. This function now handles failure internally.
     printf("Pre-caching MSC drive properties...\n");
-    if (!msc_mem_pre_init()) {
-        printf("Failed to read SD card properties for MSC. Halting.\n");
-        while(1) {
-            board_led_toggle();
-            delay_1ms(100); // Fast blink for error
-        }
-    }
+    msc_mem_pre_init();
     printf("Done.\n");
+#else
+    printf("INFO: SD Card MSC feature is disabled in this build.\n");
+#endif
 
-    // 5. Now, it's safe to initialize the USB stack.
+    // 4. Always proceed with USB initialization
     printf("Proceeding with USB initialization...\n");
     usb::init();
 
-    // 6. Wait for configuration
+    // 5. Wait for configuration
     while (!usb::is_configured()) {
         board_led_toggle();
         delay_1ms(200);
@@ -85,7 +77,7 @@ int main(void)
     printf("USB device configured successfully!\n");
     board_led_on();
 
-    // 7. Main application loop
+    // 6. Main application loop
     while(1){
         usb::poll();
     }
