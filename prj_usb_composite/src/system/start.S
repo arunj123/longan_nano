@@ -8,7 +8,7 @@
  * -- after a processor reset.
  * --
  * -- RESPONSIBILITIES:
- * --   - Provides the interrupt vector table with weak default handlers.
+ * --   - Provides the interrupt vector table structure.
  * --   - Sets up core CSRs for exception and interrupt handling (ECLIC).
  * --   - Initializes the stack pointer (sp) and global pointer (gp).
  * --   - Initializes the C runtime environment by:
@@ -16,6 +16,9 @@
  * --     - Clearing the .bss section in SRAM.
  * --   - Calls the application's main() function.
  * --
+ * -- NOTE: The default implementations for the interrupt handlers are now
+ * --       provided via weak aliases in `init.c`. This file only contains
+ * --       the vector table itself.
  * -----------------------------------------------------------------------------
  */
 
@@ -26,80 +29,11 @@
 // Contains the startup code and interrupt vector table.
 // =============================================================================
     .section .init
+    .align 2
 
 // =============================================================================
-// Weak Alias Definitions for Interrupt Handlers
-//
-// Each peripheral interrupt handler is created as a weak alias for the
-// `_unassigned_interrupts_handler` function. The `.weakref` directive
-// instructs the linker to use the address of `_unassigned_interrupts_handler`
-// for any handler that is not explicitly defined with a strong symbol
-// elsewhere in the project. This is the correct and final fix.
+// Interrupt Vector Table for ECLIC
 // =============================================================================
-    .weakref  eclic_msip_handler, _unassigned_interrupts_handler
-    .weakref  eclic_mtip_handler, _unassigned_interrupts_handler
-    .weakref  eclic_bwei_handler, _unassigned_interrupts_handler
-    .weakref  eclic_pmovi_handler, _unassigned_interrupts_handler
-    .weakref  WWDGT_IRQHandler, _unassigned_interrupts_handler
-    .weakref  LVD_IRQHandler, _unassigned_interrupts_handler
-    .weakref  TAMPER_IRQHandler, _unassigned_interrupts_handler
-    .weakref  RTC_IRQHandler, _unassigned_interrupts_handler
-    .weakref  FMC_IRQHandler, _unassigned_interrupts_handler
-    .weakref  RCU_IRQHandler, _unassigned_interrupts_handler
-    .weakref  EXTI0_IRQHandler, _unassigned_interrupts_handler
-    .weakref  EXTI1_IRQHandler, _unassigned_interrupts_handler
-    .weakref  EXTI2_IRQHandler, _unassigned_interrupts_handler
-    .weakref  EXTI3_IRQHandler, _unassigned_interrupts_handler
-    .weakref  EXTI4_IRQHandler, _unassigned_interrupts_handler
-    .weakref  DMA0_Channel0_IRQHandler, _unassigned_interrupts_handler
-    .weakref  DMA0_Channel1_IRQHandler, _unassigned_interrupts_handler
-    .weakref  DMA0_Channel2_IRQHandler, _unassigned_interrupts_handler
-    .weakref  DMA0_Channel3_IRQHandler, _unassigned_interrupts_handler
-    .weakref  DMA0_Channel4_IRQHandler, _unassigned_interrupts_handler
-    .weakref  DMA0_Channel5_IRQHandler, _unassigned_interrupts_handler
-    .weakref  DMA0_Channel6_IRQHandler, _unassigned_interrupts_handler
-    .weakref  ADC0_1_IRQHandler, _unassigned_interrupts_handler
-    .weakref  CAN0_TX_IRQHandler, _unassigned_interrupts_handler
-    .weakref  CAN0_RX0_IRQHandler, _unassigned_interrupts_handler
-    .weakref  CAN0_RX1_IRQHandler, _unassigned_interrupts_handler
-    .weakref  CAN0_EWMC_IRQHandler, _unassigned_interrupts_handler
-    .weakref  EXTI5_9_IRQHandler, _unassigned_interrupts_handler
-    .weakref  TIMER0_BRK_IRQHandler, _unassigned_interrupts_handler
-    .weakref  TIMER0_UP_IRQHandler, _unassigned_interrupts_handler
-    .weakref  TIMER0_TRG_CMT_IRQHandler, _unassigned_interrupts_handler
-    .weakref  TIMER0_Channel_IRQHandler, _unassigned_interrupts_handler
-    .weakref  TIMER1_IRQHandler, _unassigned_interrupts_handler
-    .weakref  TIMER2_IRQHandler, _unassigned_interrupts_handler
-    .weakref  TIMER3_IRQHandler, _unassigned_interrupts_handler
-    .weakref  I2C0_EV_IRQHandler, _unassigned_interrupts_handler
-    .weakref  I2C0_ER_IRQHandler, _unassigned_interrupts_handler
-    .weakref  I2C1_EV_IRQHandler, _unassigned_interrupts_handler
-    .weakref  I2C1_ER_IRQHandler, _unassigned_interrupts_handler
-    .weakref  SPI0_IRQHandler, _unassigned_interrupts_handler
-    .weakref  SPI1_IRQHandler, _unassigned_interrupts_handler
-    .weakref  USART0_IRQHandler, _unassigned_interrupts_handler
-    .weakref  USART1_IRQHandler, _unassigned_interrupts_handler
-    .weakref  USART2_IRQHandler, _unassigned_interrupts_handler
-    .weakref  EXTI10_15_IRQHandler, _unassigned_interrupts_handler
-    .weakref  RTC_Alarm_IRQHandler, _unassigned_interrupts_handler
-    .weakref  USBFS_WKUP_IRQHandler, _unassigned_interrupts_handler
-    .weakref  TIMER4_IRQHandler, _unassigned_interrupts_handler
-    .weakref  SPI2_IRQHandler, _unassigned_interrupts_handler
-    .weakref  UART3_IRQHandler, _unassigned_interrupts_handler
-    .weakref  UART4_IRQHandler, _unassigned_interrupts_handler
-    .weakref  TIMER5_IRQHandler, _unassigned_interrupts_handler
-    .weakref  TIMER6_IRQHandler, _unassigned_interrupts_handler
-    .weakref  DMA1_Channel0_IRQHandler, _unassigned_interrupts_handler
-    .weakref  DMA1_Channel1_IRQHandler, _unassigned_interrupts_handler
-    .weakref  DMA1_Channel2_IRQHandler, _unassigned_interrupts_handler
-    .weakref  DMA1_Channel3_IRQHandler, _unassigned_interrupts_handler
-    .weakref  DMA1_Channel4_IRQHandler, _unassigned_interrupts_handler
-    .weakref  CAN1_TX_IRQHandler, _unassigned_interrupts_handler
-    .weakref  CAN1_RX0_IRQHandler, _unassigned_interrupts_handler
-    .weakref  CAN1_RX1_IRQHandler, _unassigned_interrupts_handler
-    .weakref  CAN1_EWMC_IRQHandler, _unassigned_interrupts_handler
-    .weakref  USBFS_IRQHandler, _unassigned_interrupts_handler
-
 // =============================================================================
 // Interrupt Vector Table for ECLIC
 //

@@ -2,7 +2,7 @@
     \file    usb_device.cpp
     \brief   Implementation of the C++ USB device abstraction layer
 
-    \version 2025-02-10, firmware for GD32VF103
+    \version 2025-02-10, V1.5.0, firmware for GD32VF103
 */
 
 #include "usb_device.h"
@@ -134,6 +134,27 @@ uint8_t UsbDevice::_deinit_composite(uint8_t config_index) {
 }
 
 uint8_t UsbDevice::_req_handler(usb::UsbRequest *req) {
+    // Handle standard requests that are not interface-specific first
+    if (req->bRequest == static_cast<uint8_t>(usb::StdReq::GET_DESCRIPTOR)) {
+        uint8_t desc_type = req->wValue >> 8;
+        uint8_t desc_index = req->wValue & 0xFF;
+
+        if (desc_type == USB_DESCTYPE_STR) {
+            if (desc_index < USB_STRING_COUNT) {
+                usb_transc *transc = &m_core_driver.dev.transc_in[0];
+                uint8_t* desc_buf = (uint8_t*)m_descriptors.strings[desc_index];
+                transc->xfer_buf = desc_buf;
+                transc->remain_len = desc_buf[0]; // The first byte of a string descriptor is its length
+                return static_cast<uint8_t>(usb::ReqStatus::REQ_SUPP);
+            }
+        }
+    } else if (req->bRequest == static_cast<uint8_t>(usb::StdReq::SET_INTERFACE)) {
+        // This is a standard request, but we can just acknowledge it.
+        // The alternate setting is already 0, which is what the host is requesting.
+        return USBD_OK;
+    }
+
+    // If not a handled standard request, dispatch to class-specific handlers
     uint8_t interface = static_cast<uint8_t>(req->wIndex & 0xFF);
     switch (interface) {
         case STD_HID_INTERFACE:    return _std_hid_req_handler(req);

@@ -15,6 +15,7 @@ int _write(int file, char *ptr, int len);
 #include "gpio.h"
 #include "usb.hpp"
 #include "board.h"
+#include "sd_card.h"
 
 
 // Create instances of the Led class for the onboard LEDs
@@ -40,28 +41,31 @@ int main(void)
     board_led_init();
     board_key_init();
 
-    // Configure USART0 with the correct pins and parameters.
+    // Configure USART0 for printf debugging
     usart0_config();
-    delay_1ms(100);
+    printf("System init complete.\n");
 
-    // 2. Initialize the entire USB stack
+    // 2. Initialize the SD Card here, BEFORE USB
+    DSTATUS sd_status = sd_init();
+    if (sd_status & STA_NOINIT) {
+        printf("SD card initialization failed!\n");
+    } else {
+        printf("SD card initialized successfully.\n");
+    }
+    
+    // 3. NOW initialize the entire USB stack
     usb::init();
 
-    // 3. Wait until the device is configured by the host
-    //    Blink the LED while waiting to show the MCU is running.
+    // 4. Wait until the device is configured by the host
     while (!usb::is_configured()) {
         board_led_toggle();
-        delay_1ms(200); // Requires a delay implementation
+        delay_1ms(200);
     }
     printf("USB device configured successfully!\n");
-    board_led_on(); // Turn on the LED to indicate success
-    uint32_t counter = 0;
+    board_led_on();
+
     while(1){
-        // Print a message with a counter to show the program is running.
-
-        // Handle periodic USB tasks
         usb::poll();
-
     }
 }
 

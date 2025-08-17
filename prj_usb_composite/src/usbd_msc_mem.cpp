@@ -56,7 +56,7 @@ usbd_mem_cb& get_msc_mem_fops()
 // --- IMPLEMENTATION OF THE CALLBACK FUNCTIONS ---
 
 /*!
-    \brief      initialize the memory media and get its properties
+    \brief      initialize the memory media (NOW NON-BLOCKING)
     \param[in]  lun: logical unit number
     \param[out] none
     \retval     status (0 for OK, -1 for fail)
@@ -64,10 +64,11 @@ usbd_mem_cb& get_msc_mem_fops()
 static int8_t mem_init (uint8_t lun) {
     (void)lun; // Unused parameter
 
-    DSTATUS status = sd_init();
-
-    if (status & STA_NOINIT) {
-        return -1; // Initialization failed
+    // The main SD card initialization is now done in main().
+    // We will just get the card parameters here if it's already initialized.
+    
+    if (sd_status() & STA_NOINIT) {
+        return -1; // Report that it's not ready
     }
 
     // Get the actual card capacity and block size
@@ -78,7 +79,7 @@ static int8_t mem_init (uint8_t lun) {
     usbd_storage_fops.mem_block_len[lun] = card_block_count;
     usbd_storage_fops.mem_block_size[lun] = card_block_size;
 
-    return 0;
+    return 0; // Return OK
 }
 
 /*!
@@ -89,6 +90,7 @@ static int8_t mem_init (uint8_t lun) {
 */
 static int8_t mem_ready (uint8_t lun) {
     (void)lun;
+    // This now correctly reports the status determined during startup.
     return (sd_status() & STA_NOINIT) ? -1 : 0;
 }
 

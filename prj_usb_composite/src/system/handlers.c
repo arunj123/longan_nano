@@ -45,8 +45,3 @@ __attribute__((weak)) uintptr_t handle_trap(uintptr_t mcause, uintptr_t sp)
   _exit(mcause);
   return 0;
 }
-
-
-
-
-

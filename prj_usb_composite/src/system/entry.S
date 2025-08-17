@@ -1,35 +1,26 @@
 /*
- * Copyright (c) 2019 Nuclei Limited. All rights reserved.
- * Copyright (c) 2024, GigaDevice Semiconductor Inc.
- *
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the License); you may
- * not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an AS IS BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * -----------------------------------------------------------------------------
+ * -- FILE: entry.S
+ * -----------------------------------------------------------------------------
+ * --
+ * -- DESCRIPTION:
+ * -- Low-level entry points for exceptions (traps) and interrupts for the
+ * -- GD32VF103 MCU, which uses a Nuclei N200 series RISC-V core.
+ * --
+ * -- This file provides the assembly-level "trampoline" code that:
+ * --   1. Saves the CPU context (registers) upon entering an exception or ISR.
+ * --   2. Calls the appropriate high-level C/C++ handler.
+ * --   3. Restores the CPU context before returning to the interrupted code.
+ * --
+ * -----------------------------------------------------------------------------
  */
-
-/*
- * This file provides the low-level entry points for exceptions (traps) and
- * interrupts for the GD32VF103 MCU. It is adapted for the Nuclei N200 series
- * RISC-V core, which includes an Enhancement Core-Local Interrupt Controller (ECLIC).
- */
-
-#ifndef ENTRY_S
-#define ENTRY_S
 
 #include "riscv_encoding.h"
 #include "riscv_bits.h"
 #include "n200_eclic.h"
-#include "n200_timer.h"
+
+#ifndef ENTRY_S
+#define ENTRY_S
 
 // =============================================================================
 // MACRO: DISABLE_MIE
@@ -41,15 +32,22 @@
 .endm
 
 
-// =============================================================================
-// MACRO: SAVE_CONTEXT
-// Saves the caller-saved general-purpose and floating-point registers
-// to the stack, as defined by the RISC-V ABI. This preserves the state
-// of the interrupted code.
-// =============================================================================
+/*
+ * =============================================================================
+ * MACRO: SAVE_CONTEXT
+ *
+ * Saves all caller-saved general-purpose and floating-point registers to the
+ * current stack, as defined by the RISC-V calling convention. This is
+ * essential to preserve the state of the code that was interrupted.
+ * =============================================================================
+ */
 .macro SAVE_CONTEXT
-  // Allocate stack space for the registers.
-  // The space required depends on whether the FPU extension is present.
+    /*
+     * Allocate stack space for all registers that need to be saved.
+     * The RISC-V ABI defines registers t0-t6 and a0-a7 as "caller-saved",
+     * meaning an interrupt handler must preserve their values.
+     * We also save `ra` (x1) and `tp` (x4).
+     */
 #ifdef __riscv_flen
   #if (__riscv_flen==64)
     // Allocate space for 20 GP registers and 20 FP registers for RV64D
@@ -115,12 +113,15 @@
 .endm
 
 
-// =============================================================================
-// MACRO: RESTORE_CONTEXT
-// Restores all the registers that were saved by SAVE_CONTEXT from the stack.
-// =============================================================================
+/*
+ * =============================================================================
+ * MACRO: RESTORE_CONTEXT
+ *
+ * Restores all registers that were saved by the SAVE_CONTEXT macro.
+ * =============================================================================
+ */
 .macro RESTORE_CONTEXT
-  // Restore general-purpose registers
+  // Restore general-purpose registers from the stack
   LOAD x1, 0*REGBYTES(sp)
 	LOAD x4, 1*REGBYTES(sp)
 	LOAD x5, 2*REGBYTES(sp)
@@ -211,11 +212,14 @@
 
 ###############################################
 ###############################################
-// =============================================================================
-// MACRO: SAVE_EPC_STATUS
-// Saves critical CSRs (mepc, mstatus, msubm) to the stack. These are
-// essential for correctly returning from an exception or interrupt.
-// =============================================================================
+/*
+ * =============================================================================
+ * MACRO: SAVE_EPC_STATUS
+ *
+ * Saves critical Control and Status Registers (CSRs) to the stack. These
+ * are required to correctly return from an exception or interrupt.
+ * =============================================================================
+ */
 .macro SAVE_EPC_STATUS
   csrr x5, CSR_MEPC      // Read Machine Exception Program Counter
   STORE x5,  16*REGBYTES(sp)
@@ -225,10 +229,13 @@
   STORE x5,  18*REGBYTES(sp)
 .endm
 
-// =============================================================================
-// MACRO: RESTORE_EPC_STATUS
-// Restores the critical CSRs (mepc, mstatus, msubm) from the stack.
-// =============================================================================
+/*
+ * =============================================================================
+ * MACRO: RESTORE_EPC_STATUS
+ *
+ * Restores the critical CSRs from the stack.
+ * =============================================================================
+ */
 .macro RESTORE_EPC_STATUS
   LOAD x5,  16*REGBYTES(sp)
   csrw CSR_MEPC, x5      // Write Machine Exception Program Counter
@@ -238,11 +245,15 @@
   csrw CSR_MSUBM, x5     // Write Machine Sub-mode Register
 .endm
 
-
-// =============================================================================
-// SECTION: .text.trap
-// Contains the entry point for synchronous exceptions (traps).
-// =============================================================================
+/*
+ * =============================================================================
+ * SECTION: .text.trap
+ *
+ * Entry point for synchronous exceptions (e.g., illegal instruction,
+ * memory access fault). This is a non-vectored handler; the address of
+ * `trap_entry` is placed in the MTVEC CSR during startup.
+ * =============================================================================
+ */
   .section .text.trap
   .align 6 // Align to a 64-byte boundary, required by ECLIC in vectored mode.
   .global trap_entry
@@ -271,10 +282,14 @@ trap_entry:
   mret
 
 
-// =============================================================================
-// SECTION: .text.irq
-// Contains the common entry point for ECLIC interrupts in non-vectored mode.
-// =============================================================================
+/*
+ * =============================================================================
+ * SECTION: .text.irq
+ *
+ * Common entry point for ECLIC interrupts in non-vectored mode. The address
+ * of `irq_entry` is placed in the MTVT2 CSR during startup.
+ * =============================================================================
+ */
   .section .text.irq
   .align 2
   .global irq_entry
