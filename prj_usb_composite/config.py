@@ -91,7 +91,7 @@ COMPONENTS = {
     },
     "sdcard": {
         "c_sources": [],
-        "cpp_sources": [r"src/sdcard/sd_card.cpp",],
+        "cpp_sources": [r"src/sdcard/sd_card.cpp", r"src/sdcard/sd_test.cpp"],
         "asm_sources": [],
         "include_paths": [r"-Isrc/sdcard"],
         "enabled": True,

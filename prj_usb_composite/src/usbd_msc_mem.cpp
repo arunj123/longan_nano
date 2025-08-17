@@ -48,6 +48,25 @@ usbd_mem_cb usbd_storage_fops = {
     .mem_block_len    = {card_block_count}
 };
 
+bool msc_mem_pre_init()
+{
+    // This function is called once from main() before USB starts.
+    // It's safe to perform slow operations here.
+    if (sd_status() & STA_NOINIT) {
+        return false; // Card not ready
+    }
+
+    // Get the actual card capacity and block size
+    sd_ioctl(GET_SECTOR_COUNT, &card_block_count);
+    sd_ioctl(GET_SECTOR_SIZE, &card_block_size);
+
+    // Directly populate the fops structure with the correct, pre-cached values
+    usbd_storage_fops.mem_block_len[0] = card_block_count;
+    usbd_storage_fops.mem_block_size[0] = card_block_size;
+    
+    return card_block_count > 0;
+}
+
 usbd_mem_cb& get_msc_mem_fops()
 {
     return usbd_storage_fops;
@@ -56,7 +75,7 @@ usbd_mem_cb& get_msc_mem_fops()
 // --- IMPLEMENTATION OF THE CALLBACK FUNCTIONS ---
 
 /*!
-    \brief      initialize the memory media (NOW NON-BLOCKING)
+    \brief      Initialize the memory media (NOW A FAST, NON-BLOCKING STUB)
     \param[in]  lun: logical unit number
     \param[out] none
     \retval     status (0 for OK, -1 for fail)
@@ -64,22 +83,16 @@ usbd_mem_cb& get_msc_mem_fops()
 static int8_t mem_init (uint8_t lun) {
     (void)lun; // Unused parameter
 
-    // The main SD card initialization is now done in main().
-    // We will just get the card parameters here if it's already initialized.
+    // All slow initialization is now done in msc_mem_pre_init().
+    // This callback, which is in a time-critical path, now just
+    // checks the pre-cached status.
     
-    if (sd_status() & STA_NOINIT) {
-        return -1; // Report that it's not ready
+    // If block count is 0, it means pre-init failed or wasn't run.
+    if (usbd_storage_fops.mem_block_len[0] == 0) {
+        return -1;
     }
-
-    // Get the actual card capacity and block size
-    sd_ioctl(GET_SECTOR_COUNT, &card_block_count);
-    sd_ioctl(GET_SECTOR_SIZE, &card_block_size);
-
-    // Update the fops structure with the correct values
-    usbd_storage_fops.mem_block_len[lun] = card_block_count;
-    usbd_storage_fops.mem_block_size[lun] = card_block_size;
-
-    return 0; // Return OK
+    
+    return 0; // Always return OK if pre-init was successful.
 }
 
 /*!

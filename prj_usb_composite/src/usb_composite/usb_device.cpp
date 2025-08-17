@@ -134,33 +134,40 @@ uint8_t UsbDevice::_deinit_composite(uint8_t config_index) {
 }
 
 uint8_t UsbDevice::_req_handler(usb::UsbRequest *req) {
-    // Handle standard requests that are not interface-specific first
-    if (req->bRequest == static_cast<uint8_t>(usb::StdReq::GET_DESCRIPTOR)) {
-        uint8_t desc_type = req->wValue >> 8;
-        uint8_t desc_index = req->wValue & 0xFF;
+    // Check the recipient of the request using the correct macro from usb_ch9_std.h
+    switch (req->bmRequestType & USB_RECPTYPE_MASK) {
+        case USB_RECPTYPE_DEV: // FIX: Use correct macro USB_RECPTYPE_DEV
+            // Most standard device requests are handled by the core library.
+            break;
 
-        if (desc_type == USB_DESCTYPE_STR) {
-            if (desc_index < USB_STRING_COUNT) {
-                usb_transc *transc = &m_core_driver.dev.transc_in[0];
-                uint8_t* desc_buf = (uint8_t*)m_descriptors.strings[desc_index];
-                transc->xfer_buf = desc_buf;
-                transc->remain_len = desc_buf[0]; // The first byte of a string descriptor is its length
-                return static_cast<uint8_t>(usb::ReqStatus::REQ_SUPP);
+        case USB_RECPTYPE_ITF: // FIX: Use correct macro USB_RECPTYPE_ITF
+            // Handle standard interface requests first
+            if (req->bRequest == static_cast<uint8_t>(usb::StdReq::SET_INTERFACE)) {
+                // We only support alternate setting 0, so just acknowledge.
+                return USBD_OK;
             }
-        }
-    } else if (req->bRequest == static_cast<uint8_t>(usb::StdReq::SET_INTERFACE)) {
-        // This is a standard request, but we can just acknowledge it.
-        // The alternate setting is already 0, which is what the host is requesting.
-        return USBD_OK;
+            break;
+
+        case USB_RECPTYPE_EP: // FIX: Use correct macro USB_RECPTYPE_EP
+            // Handle standard endpoint requests first
+            if (req->bRequest == static_cast<uint8_t>(usb::StdReq::CLEAR_FEATURE)) {
+                uint8_t ep_addr = static_cast<uint8_t>(req->wIndex);
+
+                // If an MSC endpoint is stalled, let the MSC handler deal with it.
+                if (((ep_addr & 0x7F) == (MSC_IN_EP & 0x7F)) || ((ep_addr & 0x7F) == (MSC_OUT_EP & 0x7F))) {
+                    return _msc_req_handler(req);
+                }
+            }
+            break;
     }
 
-    // If not a handled standard request, dispatch to class-specific handlers
-    uint8_t interface = static_cast<uint8_t>(req->wIndex & 0xFF);
+    // If not a standard request handled above, dispatch to the correct class-specific handler
+    uint8_t interface = static_cast<uint8_t>(req->wIndex);
     switch (interface) {
         case STD_HID_INTERFACE:    return _std_hid_req_handler(req);
         case CUSTOM_HID_INTERFACE: return _custom_hid_req_handler(req);
         case MSC_INTERFACE:        return _msc_req_handler(req);
-        default:                   return USBD_FAIL;
+        default:                   return USBD_FAIL; // Stall if interface is unknown
     }
 }
 
@@ -295,26 +302,34 @@ void UsbDevice::_msc_deinit() {
 uint8_t UsbDevice::_msc_req_handler(usb::UsbRequest *req) {
     usb_transc *transc = &m_core_driver.dev.transc_in[0];
 
-    if (req->bRequest == usb::msc::REQ_GET_MAX_LUN) {
-        m_msc_handler.max_lun = (uint8_t)get_msc_mem_fops().mem_maxlun();
-        transc->xfer_buf = &m_msc_handler.max_lun;
-        transc->remain_len = 1U;
-    } 
+    // Handle class-specific requests targeted to the MSC interface
+    if ((req->bmRequestType & USB_RECPTYPE_MASK) == USB_RECPTYPE_ITF) {
+        switch (req->bRequest) {
+            case usb::msc::REQ_GET_MAX_LUN:
+                m_msc_handler.max_lun = (uint8_t)get_msc_mem_fops().mem_maxlun();
+                transc->xfer_buf = &m_msc_handler.max_lun;
+                transc->remain_len = 1U;
+                return USBD_OK; // Success
 
-    // Use an if/else if chain for clarity and robustness
-    if (req->bRequest == usb::msc::REQ_GET_MAX_LUN) {
-        m_msc_handler.max_lun = (uint8_t)get_msc_mem_fops().mem_maxlun();
-        transc->xfer_buf = &m_msc_handler.max_lun;
-        transc->remain_len = 1U;
-    } else if (req->bRequest == usb::msc::REQ_BBB_RESET) {
-        _msc_bbb_reset();
-    } else if (req->bRequest == static_cast<uint8_t>(usb::StdReq::CLEAR_FEATURE)) {
-        _msc_bbb_clrfeature((uint8_t)req->wIndex);
-    } else {
-        return USBD_FAIL; // Request not supported, causes STALL
+            case usb::msc::REQ_BBB_RESET:
+                _msc_bbb_reset();
+                return USBD_OK; // Success
+
+            default:
+                break;
+        }
     }
 
-    return USBD_OK; // Request was handled successfully
+    // Handle standard requests targeted to an MSC endpoint (e.g., clearing a stall)
+    if ((req->bmRequestType & USB_RECPTYPE_MASK) == USB_RECPTYPE_EP) {
+        if (req->bRequest == static_cast<uint8_t>(usb::StdReq::CLEAR_FEATURE)) {
+            _msc_bbb_clrfeature(static_cast<uint8_t>(req->wIndex));
+            return USBD_OK; // Success
+        }
+    }
+
+    // If the request is not recognized by this handler, fail it.
+    return USBD_FAIL;
 }
 
 void UsbDevice::_msc_data_in() { _msc_bbb_data_in(); }

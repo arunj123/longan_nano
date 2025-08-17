@@ -1,12 +1,13 @@
 /*!
     \file    sd_card.cpp
-    \brief   Low-level SD card driver for Longan Nano using SPI and DMA
+    \brief   Low-level SD card driver for Longan Nano using polling. (Production Clean)
 
-    \version 2025-02-10, V1.5.0, firmware for GD32VF103
+    \version 2025-02-10, V1.5.3
 */
 
 #include "sd_card.h"
 #include "gd32vf103.h"
+#include <cstdio>
 
 // Use C-style linkage for ISR
 extern "C" void TIMER3_IRQHandler(void);
@@ -29,13 +30,6 @@ using WORD  = uint16_t;
 #define SDCARD_MISO_PIN         GPIO_PIN_14
 #define SDCARD_MOSI_PIN         GPIO_PIN_15
 
-// DMA channels for SPI1
-#define SDCARD_DMA_PORT         DMA0
-#define SDCARD_DMA_CLK          RCU_DMA0
-#define SDCARD_DMA_RX_CH        DMA_CH1
-#define SDCARD_DMA_TX_CH        DMA_CH2
-
-// SPI speed control
 #define FCLK_SLOW() { SPI_CTL0(SDCARD_SPI_PORT) = (SPI_CTL0(SDCARD_SPI_PORT) & ~SPI_CTL0_PSC) | SPI_PSC_256; }
 #define FCLK_FAST() { SPI_CTL0(SDCARD_SPI_PORT) = (SPI_CTL0(SDCARD_SPI_PORT) & ~SPI_CTL0_PSC) | SPI_PSC_2; }
 
@@ -70,132 +64,44 @@ enum SdCommand : uint8_t {
 
 // Module-level variables
 volatile DSTATUS Stat = STA_NOINIT;
-volatile UINT Timer1, Timer2; // 1kHz decrement timers
+volatile UINT Timer1, Timer2;
 BYTE CardType;
-
-// --- Forward Declarations ---
-static void timer3_config(void);
-static BYTE xchg_spi(BYTE data);
-static void spi_dma_read(BYTE *buff, UINT btr);
-static void spi_dma_write(const BYTE *buff, UINT btr);
-static int xmit_datablock(const BYTE *buff, BYTE token);
-static BYTE send_cmd(BYTE cmd, DWORD arg);
-static int wait_ready(UINT wt);
-static void deselect(void);
-static int _select(void);
-static int rcvr_datablock(BYTE *buff, UINT btr);
-
-// --- Timer Implementation ---
-void timer3_config(void) {
-    timer_parameter_struct timer_initpara;
-    rcu_periph_clock_enable(RCU_TIMER3);
-    eclic_irq_enable(TIMER3_IRQn, 2, 0);
-
-    timer_deinit(TIMER3);
-    timer_initpara.prescaler         = (rcu_clock_freq_get(CK_APB1) / 1000U) - 1U; // 1kHz tick
-    timer_initpara.period            = 0; // Interrupt every tick
-    timer_initpara.alignedmode       = TIMER_COUNTER_EDGE;
-    timer_initpara.counterdirection  = TIMER_COUNTER_UP;
-    timer_initpara.clockdivision     = TIMER_CKDIV_DIV1;
-    timer_initpara.repetitioncounter = 0;
-    timer_init(TIMER3, &timer_initpara);
-
-    timer_interrupt_enable(TIMER3, TIMER_INT_UP);
-    timer_enable(TIMER3);
-}
-
-extern "C" void TIMER3_IRQHandler(void) {
-    if (RESET != timer_interrupt_flag_get(TIMER3, TIMER_INT_UP)) {
-        timer_interrupt_flag_clear(TIMER3, TIMER_INT_UP);
-        UINT t1 = Timer1; if (t1) Timer1 = --t1;
-        UINT t2 = Timer2; if (t2) Timer2 = --t2;
-    }
-}
-
-// --- SPI and DMA Implementation ---
-static void spi1_dma_config(void) {
-    dma_parameter_struct dma_init_struct;
-    rcu_periph_clock_enable(SDCARD_DMA_CLK);
-
-    // RX Channel (DMA0 CH1)
-    dma_deinit(SDCARD_DMA_PORT, SDCARD_DMA_RX_CH);
-    dma_struct_para_init(&dma_init_struct);
-    dma_init_struct.periph_addr  = (uint32_t)&SPI_DATA(SDCARD_SPI_PORT);
-    dma_init_struct.periph_width = DMA_PERIPHERAL_WIDTH_8BIT;
-    dma_init_struct.periph_inc   = DMA_PERIPH_INCREASE_DISABLE;
-    dma_init_struct.memory_width = DMA_MEMORY_WIDTH_8BIT;
-    dma_init_struct.memory_inc   = DMA_MEMORY_INCREASE_ENABLE;
-    dma_init_struct.direction    = DMA_PERIPHERAL_TO_MEMORY;
-    dma_init_struct.priority     = DMA_PRIORITY_HIGH;
-    dma_init(SDCARD_DMA_PORT, SDCARD_DMA_RX_CH, &dma_init_struct);
-
-    // TX Channel (DMA0 CH2)
-    dma_deinit(SDCARD_DMA_PORT, SDCARD_DMA_TX_CH);
-    dma_struct_para_init(&dma_init_struct);
-    dma_init_struct.periph_addr  = (uint32_t)&SPI_DATA(SDCARD_SPI_PORT);
-    dma_init_struct.periph_width = DMA_PERIPHERAL_WIDTH_8BIT;
-    dma_init_struct.periph_inc   = DMA_PERIPH_INCREASE_DISABLE;
-    dma_init_struct.memory_width = DMA_MEMORY_WIDTH_8BIT;
-    dma_init_struct.memory_inc   = DMA_MEMORY_INCREASE_ENABLE;
-    dma_init_struct.direction    = DMA_MEMORY_TO_PERIPHERAL;
-    dma_init_struct.priority     = DMA_PRIORITY_HIGH;
-    dma_init(SDCARD_DMA_PORT, SDCARD_DMA_TX_CH, &dma_init_struct);
-
-    spi_dma_enable(SDCARD_SPI_PORT, SPI_DMA_RECEIVE);
-    spi_dma_enable(SDCARD_SPI_PORT, SPI_DMA_TRANSMIT);
-}
-
-static void spi_dma_read(BYTE *buff, UINT btr) {
-    static const BYTE dummy_tx = 0xFF;
-
-    dma_channel_disable(SDCARD_DMA_PORT, SDCARD_DMA_RX_CH);
-    dma_channel_disable(SDCARD_DMA_PORT, SDCARD_DMA_TX_CH);
-
-    dma_memory_address_config(SDCARD_DMA_PORT, SDCARD_DMA_RX_CH, (uint32_t)buff);
-    dma_transfer_number_config(SDCARD_DMA_PORT, SDCARD_DMA_RX_CH, btr);
-    
-    dma_memory_address_config(SDCARD_DMA_PORT, SDCARD_DMA_TX_CH, (uint32_t)&dummy_tx);
-    dma_transfer_number_config(SDCARD_DMA_PORT, SDCARD_DMA_TX_CH, btr);
-    dma_memory_increase_disable(SDCARD_DMA_PORT, SDCARD_DMA_TX_CH);
-
-    dma_channel_enable(SDCARD_DMA_PORT, SDCARD_DMA_RX_CH);
-    dma_channel_enable(SDCARD_DMA_PORT, SDCARD_DMA_TX_CH);
-
-    while (RESET == dma_flag_get(SDCARD_DMA_PORT, SDCARD_DMA_RX_CH, DMA_FLAG_FTF));
-    dma_flag_clear(SDCARD_DMA_PORT, SDCARD_DMA_RX_CH, DMA_FLAG_G);
-    dma_flag_clear(SDCARD_DMA_PORT, SDCARD_DMA_TX_CH, DMA_FLAG_G);
-}
-
-static void spi_dma_write(const BYTE *buff, UINT btr) {
-    static BYTE dummy_rx;
-
-    dma_channel_disable(SDCARD_DMA_PORT, SDCARD_DMA_RX_CH);
-    dma_channel_disable(SDCARD_DMA_PORT, SDCARD_DMA_TX_CH);
-
-    dma_memory_address_config(SDCARD_DMA_PORT, SDCARD_DMA_RX_CH, (uint32_t)&dummy_rx);
-    dma_transfer_number_config(SDCARD_DMA_PORT, SDCARD_DMA_RX_CH, btr);
-    dma_memory_increase_disable(SDCARD_DMA_PORT, SDCARD_DMA_RX_CH);
-
-    dma_memory_address_config(SDCARD_DMA_PORT, SDCARD_DMA_TX_CH, (uint32_t)buff);
-    dma_transfer_number_config(SDCARD_DMA_PORT, SDCARD_DMA_TX_CH, btr);
-    dma_memory_increase_enable(SDCARD_DMA_PORT, SDCARD_DMA_TX_CH);
-
-    dma_channel_enable(SDCARD_DMA_PORT, SDCARD_DMA_RX_CH);
-    dma_channel_enable(SDCARD_DMA_PORT, SDCARD_DMA_TX_CH);
-
-    while (RESET == dma_flag_get(SDCARD_DMA_PORT, SDCARD_DMA_TX_CH, DMA_FLAG_FTF));
-    dma_flag_clear(SDCARD_DMA_PORT, SDCARD_DMA_RX_CH, DMA_FLAG_G);
-    dma_flag_clear(SDCARD_DMA_PORT, SDCARD_DMA_TX_CH, DMA_FLAG_G);
-}
 
 static BYTE xchg_spi(BYTE data) {
     while (RESET == spi_i2s_flag_get(SDCARD_SPI_PORT, SPI_FLAG_TBE));
     spi_i2s_data_transmit(SDCARD_SPI_PORT, data);
     while (RESET == spi_i2s_flag_get(SDCARD_SPI_PORT, SPI_FLAG_RBNE));
-    return (BYTE)spi_i2s_data_receive(SDCARD_SPI_PORT);
+    return static_cast<BYTE>(spi_i2s_data_receive(SDCARD_SPI_PORT));
 }
 
-// --- SD Card Protocol Functions (adapted from tf_card.c) ---
+static void rcvr_spi_polling(BYTE *buff, UINT btr) {
+    do {
+        *buff++ = xchg_spi(0xFF);
+    } while (--btr);
+}
+
+static void xmit_spi_polling(const BYTE *buff, UINT btr) {
+    do {
+        xchg_spi(*buff++);
+    } while (--btr);
+}
+
+static void timer3_config(void) {
+    timer_parameter_struct timer_initpara;
+    rcu_periph_clock_enable(RCU_TIMER3);
+    eclic_irq_enable(TIMER3_IRQn, 2, 0);
+    timer_deinit(TIMER3);
+    timer_initpara.prescaler         = static_cast<uint16_t>((rcu_clock_freq_get(CK_APB1) / 1000U) - 1U);
+    timer_initpara.period            = 0;
+    timer_initpara.alignedmode       = TIMER_COUNTER_EDGE;
+    timer_initpara.counterdirection  = TIMER_COUNTER_UP;
+    timer_initpara.clockdivision     = TIMER_CKDIV_DIV1;
+    timer_initpara.repetitioncounter = 0;
+    timer_init(TIMER3, &timer_initpara);
+    timer_interrupt_enable(TIMER3, TIMER_INT_UP);
+    timer_enable(TIMER3);
+}
+
 static int wait_ready(UINT wt) {
     BYTE d;
     Timer2 = wt;
@@ -223,9 +129,11 @@ static int rcvr_datablock(BYTE *buff, UINT btr) {
     do {
         token = xchg_spi(0xFF);
     } while ((token == 0xFF) && Timer1);
+
     if (token != 0xFE) return 0;
-    spi_dma_read(buff, btr);
-    xchg_spi(0xFF); xchg_spi(0xFF); // Discard CRC
+
+    rcvr_spi_polling(buff, btr);
+    xchg_spi(0xFF); xchg_spi(0xFF);
     return 1;
 }
 
@@ -234,8 +142,8 @@ static int xmit_datablock(const BYTE *buff, BYTE token) {
     if (!wait_ready(500)) return 0;
     xchg_spi(token);
     if (token != 0xFD) {
-        spi_dma_write(buff, 512);
-        xchg_spi(0xFF); xchg_spi(0xFF); // Dummy CRC
+        xmit_spi_polling(buff, 512);
+        xchg_spi(0xFF); xchg_spi(0xFF);
         resp = xchg_spi(0xFF);
         if ((resp & 0x1F) != 0x05) return 0;
     }
@@ -254,10 +162,8 @@ static BYTE send_cmd(BYTE cmd, DWORD arg) {
         if (!_select()) return 0xFF;
     }
     xchg_spi(0x40 | cmd);
-    xchg_spi((BYTE)(arg >> 24));
-    xchg_spi((BYTE)(arg >> 16));
-    xchg_spi((BYTE)(arg >> 8));
-    xchg_spi((BYTE)arg);
+    xchg_spi((BYTE)(arg >> 24)); xchg_spi((BYTE)(arg >> 16));
+    xchg_spi((BYTE)(arg >> 8)); xchg_spi((BYTE)arg);
     n = (cmd == CMD0) ? 0x95 : ((cmd == CMD8) ? 0x87 : 0x01);
     xchg_spi(n);
     if (cmd == CMD12) xchg_spi(0xFF);
@@ -268,13 +174,22 @@ static BYTE send_cmd(BYTE cmd, DWORD arg) {
     return res;
 }
 
-} // anonymous namespace
+} // End of anonymous namespace
 
+extern "C" void TIMER3_IRQHandler(void) {
+    if (RESET != timer_interrupt_flag_get(TIMER3, TIMER_INT_UP)) {
+        timer_interrupt_flag_clear(TIMER3, TIMER_INT_UP);
+        UINT t1 = Timer1; if (t1) Timer1 = --t1;
+        UINT t2 = Timer2; if (t2) Timer2 = --t2;
+    }
+}
+
+// =================================================================================
 // --- Public API Implementation ---
+// =================================================================================
+
 DSTATUS sd_init(void) {
     BYTE n, cmd, ty, ocr[4];
-
-    // Initialize SPI peripheral
     rcu_periph_clock_enable(SDCARD_GPIO_CLK);
     rcu_periph_clock_enable(SDCARD_SPI_CLK);
     gpio_init(SDCARD_GPIO_PORT, GPIO_MODE_AF_PP, GPIO_OSPEED_50MHZ, SDCARD_SCK_PIN | SDCARD_MOSI_PIN);
@@ -287,14 +202,15 @@ DSTATUS sd_init(void) {
     spi_init_struct.trans_mode = SPI_TRANSMODE_FULLDUPLEX;
     spi_init_struct.device_mode = SPI_MASTER;
     spi_init_struct.frame_size = SPI_FRAMESIZE_8BIT;
-    spi_init_struct.clock_polarity_phase = SPI_CK_PL_LOW_PH_1EDGE; // Mode 0 for SD cards
+    spi_init_struct.clock_polarity_phase = SPI_CK_PL_HIGH_PH_2EDGE; // SPI Mode 3
     spi_init_struct.nss = SPI_NSS_SOFT;
-    spi_init_struct.prescale = SPI_PSC_256; // Slow clock for init
+    spi_init_struct.prescale = SPI_PSC_256;
     spi_init_struct.endian = SPI_ENDIAN_MSB;
     spi_init(SDCARD_SPI_PORT, &spi_init_struct);
+    
     spi_enable(SDCARD_SPI_PORT);
+    (void)SPI_DATA(SDCARD_SPI_PORT);
 
-    spi1_dma_config();
     timer3_config();
 
     if (Stat & STA_NODISK) return Stat;
@@ -315,11 +231,8 @@ DSTATUS sd_init(void) {
                 }
             }
         } else {
-            if (send_cmd(ACMD41, 0) <= 1) {
-                ty = CT_SD1; cmd = ACMD41;
-            } else {
-                ty = CT_MMC; cmd = CMD1;
-            }
+            if (send_cmd(ACMD41, 0) <= 1) { ty = CT_SD1; cmd = ACMD41; } 
+            else { ty = CT_MMC; cmd = CMD1; }
             while (Timer1 && send_cmd(cmd, 0));
             if (!Timer1 || send_cmd(CMD16, 512) != 0) ty = 0;
         }
@@ -328,12 +241,13 @@ DSTATUS sd_init(void) {
     deselect();
 
     if (ty) {
+        printf("[INFO] sd_init: Card type detected: 0x%02X. Initialization successful.\n", ty);
         FCLK_FAST();
         Stat &= ~STA_NOINIT;
     } else {
+        printf("[ERROR] sd_init: Card initialization failed.\n");
         Stat = STA_NOINIT;
     }
-
     return Stat;
 }
 
@@ -361,7 +275,6 @@ DRESULT sd_read_blocks(uint8_t *buff, uint32_t sector, uint32_t count) {
         }
     }
     deselect();
-
     return count ? RES_ERROR : RES_OK;
 }
 
@@ -387,18 +300,15 @@ DRESULT sd_write_blocks(const uint8_t *buff, uint32_t sector, uint32_t count) {
         }
     }
     deselect();
-
     return count ? RES_ERROR : RES_OK;
 }
 
 DRESULT sd_ioctl(uint8_t cmd, void *buff) {
-    DRESULT res;
+    DRESULT res = RES_ERROR;
     BYTE n, csd[16];
     DWORD csize;
 
     if (Stat & STA_NOINIT) return RES_NOTRDY;
-
-    res = RES_ERROR;
 
     switch (cmd) {
         case CTRL_SYNC:
@@ -414,8 +324,9 @@ DRESULT sd_ioctl(uint8_t cmd, void *buff) {
                     csize = csd[9] + ((DWORD)csd[8] << 8) + ((DWORD)(csd[7] & 63) << 16) + 1;
                     *(DWORD*)buff = csize << 10;
                 } else { // SDC ver 1.XX or MMC
-                    n = (csd[5] & 15) + ((csd[10] & 128) >> 7) + ((csd[9] & 3) << 1) + 2;
-                    csize = (csd[8] >> 6) + ((WORD)csd[7] << 2) + ((WORD)(csd[6] & 3) << 10) + 1;
+                    // WARNING FIX: Explicitly cast parts of the calculation to avoid sign/conversion warnings
+                    n = static_cast<BYTE>((csd[5] & 15) + ((csd[10] & 128) >> 7) + ((csd[9] & 3) << 1) + 2);
+                    csize = static_cast<DWORD>((csd[8] >> 6) + ((WORD)csd[7] << 2) + ((WORD)(csd[6] & 3) << 10) + 1);
                     *(DWORD*)buff = csize << (n - 9);
                 }
                 res = RES_OK;
@@ -423,20 +334,20 @@ DRESULT sd_ioctl(uint8_t cmd, void *buff) {
             break;
 
         case GET_SECTOR_SIZE:
-            *(WORD*)buff = 512; // Sector size is fixed at 512 bytes for our purpose
+            *(WORD*)buff = 512;
             res = RES_OK;
             break;
 
-        case GET_BLOCK_SIZE: // Returns erase block size in sectors
-            if (CardType & CT_SD2) { // SDC ver 2.00
-                *(DWORD*)buff = 128; // Default erase block size (64KB)
+        case GET_BLOCK_SIZE:
+            if (CardType & CT_SD2) {
+                *(DWORD*)buff = 128;
                 res = RES_OK;
-            } else { // SDC ver 1.XX or MMC
+            } else {
                 if ((send_cmd(CMD9, 0) == 0) && rcvr_datablock(csd, 16)) {
-                    if (CardType & CT_SD1) { // SDC ver 1.XX
-                        *(DWORD*)buff = (((csd[10] & 63) << 1) + ((WORD)(csd[11] & 128) >> 7) + 1) << ((csd[13] >> 6) - 1);
-                    } else { // MMC
-                        *(DWORD*)buff = ((WORD)((csd[10] & 124) >> 2) + 1) * (((csd[11] & 3) << 3) + ((csd[11] & 224) >> 5) + 1);
+                    if (CardType & CT_SD1) {
+                        *(DWORD*)buff = static_cast<DWORD>(((csd[10] & 63) << 1) + ((WORD)(csd[11] & 128) >> 7) + 1) << ((csd[13] >> 6) - 1);
+                    } else {
+                        *(DWORD*)buff = static_cast<DWORD>(((WORD)((csd[10] & 124) >> 2) + 1) * (((csd[11] & 3) << 3) + ((csd[11] & 224) >> 5) + 1));
                     }
                     res = RES_OK;
                 }

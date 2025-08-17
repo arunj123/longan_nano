@@ -31,4 +31,11 @@ typedef struct {
 // Use a function to get the fops structure, preventing static init order issues.
 usbd_mem_cb& get_msc_mem_fops();
 
+/**
+ * @brief Performs the one-time, slow initialization of the SD card properties.
+ * This must be called from main() before the USB stack is initialized.
+ * @return true on success, false on failure.
+ */
+bool msc_mem_pre_init();
+
 #endif /* USBD_MSC_MEM_H */
