@@ -57,9 +57,7 @@ LINKER_SCRIPT = r"src/system/GD32VF103xB.lds"
 # Enable or disable parts of the firmware by toggling the 'enabled' flag.
 
 gd32_components = {}
-for component_name in ['riscv_drivers', 'syscall_stubs', 'gd32_std_peripheral_lib',
-                       'usb_driver_core', 'usb_driver_device', 'usb_device_core',
-                       'usb_device_ustd',]:
+for component_name in ['riscv_drivers', 'syscall_stubs', 'gd32_std_peripheral_lib']:
     gd32_components[component_name] = gd32[component_name].copy()
     gd32_components[component_name]['module'] = "gd32"
 
@@ -79,18 +77,9 @@ COMPONENTS = {
         "include_paths": [r"-Isrc/system"],
         "enabled": True,
     },
-    "usb_composite": {
-        "c_sources": [],
-        "cpp_sources": [r"src/usb_composite/gd32vf103_it.cpp",
-                        r"src/usb_composite/usb_device.cpp",
-                        r"src/usb_composite/usbd_descriptors.cpp",],
-        "asm_sources": [],
-        "include_paths": [r"-Isrc/usb_composite"],
-        "enabled": True,
-    },
     "application": {
-        "c_sources": [r"src/gd32vf103_hw.c",],
-        "cpp_sources": [r"src/main.cpp", r"src/usbd_msc_mem.cpp", r"src/board.cpp",],
+        "c_sources": [],
+        "cpp_sources": [r"src/main.cpp"],
         "asm_sources": [],
         "include_paths": [r"-Isrc"],
         "enabled": True

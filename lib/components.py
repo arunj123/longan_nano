@@ -6,4 +6,11 @@ components = {
         "include_paths": [r"-Isdcard"],
         "enabled": True,
     },
+    "debug_uart0": {
+        "c_sources": [],
+        "cpp_sources": [],
+        "asm_sources": [r"debug_uart0/debug_write.cpp"],
+        "include_paths": [],
+        "enabled": True,
+    },
 }
