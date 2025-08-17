@@ -12,7 +12,9 @@ sys.path.insert(0, _ROOT)
 # Import the toolchain configuration from the 'tools' directory at the project root.
 # This now works because we've added the project root to the system path above.
 from tools import config
-from gd32.components import components
+from gd32.components import components as gd32
+from lib.components import components as lib
+
 
 # ==============================================================================
 # Project & Target Configuration
@@ -46,7 +48,7 @@ CPU_FLAGS = [
 
 # --- Linker Script ---
 # Path to the linker script specific to this MCU's memory layout.
-LINKER_SCRIPT = r"src/system/GD32VF103xB.lds"
+LINKER_SCRIPT = r"lib/system/GD32VF103xB.lds"
 
 # ==============================================================================
 # Project Components
@@ -57,20 +59,17 @@ gd32_components = {}
 for component_name in ['riscv_drivers', 'syscall_stubs', 'gd32_std_peripheral_lib',
                        'usb_driver_core', 'usb_driver_device', 'usb_device_core',
                        'usb_class_cdc', 'usb_device_ustd',]:
-    gd32_components[component_name] = components[component_name].copy()
-    gd32_components[component_name]['enabled'] = True
+    gd32_components[component_name] = gd32[component_name].copy()
     gd32_components[component_name]['module'] = "gd32"
+
+lib_components = {}
+for component_name in ['sdcard', 'system', 'debug_uart0',]:
+    lib_components[component_name] = lib[component_name].copy()
+    lib_components[component_name]['module'] = 'lib'
 
 COMPONENTS = { 
     **gd32_components,
-    "core_startup": {
-        "c_sources": [r"src/system/system_gd32vf103.c", r"src/system/init.c",
-                       r"src/system/handlers.c", r"src/system/systick.c"],
-        "cpp_sources": [],
-        "asm_sources": [r"src/system/entry.S", r"src/system/start.S"],
-        "include_paths": [r"-Isrc/system"],
-        "enabled": True,
-    },
+    **lib_components,
     "usb_serial": {
         "c_sources": [
             r"src/usb_serial/interrupts.c",

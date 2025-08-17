@@ -179,7 +179,7 @@ class Builder:
         self.asflags = self.config.CPU_FLAGS + [self.config.OPTIMIZATION] + self.include_paths + self.config.GLOBAL_C_DEFINES
 
         # Linker Flags
-        linker_script_path = os.path.join(self.project_name, self.config.LINKER_SCRIPT)
+        linker_script_path = self.config.LINKER_SCRIPT
         self.ldflags = self.config.CPU_FLAGS + [
             "-nostartfiles",
             f"-T{linker_script_path}",

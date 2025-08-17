@@ -49,7 +49,7 @@ CPU_FLAGS = [
 
 # --- Linker Script ---
 # Path to the linker script specific to this MCU's memory layout.
-LINKER_SCRIPT = r"src/system/GD32VF103xB.lds"
+LINKER_SCRIPT = r"lib/system/GD32VF103xB.lds"
 
 # ==============================================================================
 # Project Components
@@ -64,21 +64,13 @@ for component_name in ['riscv_drivers', 'syscall_stubs', 'gd32_std_peripheral_li
     gd32_components[component_name]['module'] = "gd32"
 
 lib_components = {}
-for component_name in ['sdcard', 'debug_uart0',]:
+for component_name in ['sdcard', 'system', 'debug_uart0',]:
     lib_components[component_name] = lib[component_name].copy()
     lib_components[component_name]['module'] = 'lib'
 
 COMPONENTS = { 
     **gd32_components,
     **lib_components,
-    "core_startup": {
-        "c_sources": [r"src/system/system_gd32vf103.c", r"src/system/init.c",
-                       r"src/system/handlers.c", r"src/system/systick.c",],
-        "cpp_sources": [],
-        "asm_sources": [r"src/system/entry.S", r"src/system/start.S"],
-        "include_paths": [r"-Isrc/system"],
-        "enabled": True,
-    },
     "usb_composite": {
         "c_sources": [],
         "cpp_sources": [r"src/usb_composite/gd32vf103_it.cpp",
