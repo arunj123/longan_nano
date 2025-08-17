@@ -2,13 +2,19 @@
     \file    sd_card.h
     \brief   Header for the low-level SD card driver for Longan Nano
 
-    \version 2025-02-10, V1.5.0, firmware for GD32VF103
+    \version 2025-02-10, V1.5.2
 */
 
 #ifndef SD_CARD_H
 #define SD_CARD_H
 
 #include <cstdint>
+
+// This wrapper is essential for linking C++ code with this C-style API.
+// It tells the C++ compiler to use C linkage for these function declarations.
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 // FatFs-compatible status definitions
 typedef uint8_t DSTATUS;
@@ -24,22 +30,24 @@ typedef enum {
 	RES_PARERR		/* 4: Invalid Parameter */
 } DRESULT;
 
-/*
- * ===================================================================
- * Command codes for disk_ioctl function
- * ===================================================================
-*/
-#define CTRL_SYNC			0	/* Complete pending write process (needed at _FS_READONLY == 0) */
-#define GET_SECTOR_COUNT	1	/* Get media size (needed at _USE_MKFS == 1) */
-#define GET_SECTOR_SIZE		2	/* Get sector size (needed at _MAX_SS != _MIN_SS) */
-#define GET_BLOCK_SIZE		3	/* Get erase block size (needed at _USE_ERASE == 1) */
-#define CTRL_TRIM			4	/* Inform device that the data on the block of sectors is no longer used (needed at _USE_ERASE == 1) */
+/* Command codes for disk_ioctl function */
+#define CTRL_SYNC			0	/* Complete pending write process */
+#define GET_SECTOR_COUNT	1	/* Get media size in sectors */
+#define GET_SECTOR_SIZE		2	/* Get sector size in bytes */
+#define GET_BLOCK_SIZE		3	/* Get erase block size in sectors */
 
-/* Public functions */
+/* --- Public API --- */
+
 DSTATUS sd_init(void);
 DSTATUS sd_status(void);
 DRESULT sd_read_blocks(uint8_t *buff, uint32_t sector, uint32_t count);
 DRESULT sd_write_blocks(const uint8_t *buff, uint32_t sector, uint32_t count);
+DRESULT sd_read_blocks_dma(uint8_t *buff, uint32_t sector, uint32_t count);
+DRESULT sd_write_blocks_dma(const uint8_t *buff, uint32_t sector, uint32_t count);
 DRESULT sd_ioctl(uint8_t cmd, void *buff);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // SD_CARD_H

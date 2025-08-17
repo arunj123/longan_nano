@@ -29,9 +29,6 @@ static Led led_green(GPIOA, GPIO_PIN_1);
 // LEDB (Blue LED) is on GPIOA, PIN_2 and is active high
 static Led led_blue(GPIOA, GPIO_PIN_2);
 
-// Function prototypes
-void usart0_config(void);
-
 /*!
     \brief      main function
     \param[in]  none
@@ -43,7 +40,7 @@ int main(void)
     // 1. Initialize board-specific hardware and basic peripherals
     board_led_init();
     board_key_init();
-    usart0_config();
+
     delay_1ms(100);
     printf("\n\n--- System Initialized ---\n");
 

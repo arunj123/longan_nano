@@ -110,3 +110,18 @@ bool SdCardTest::run_read_write_test() {
 
     return true;
 }
+
+#if 0
+// This file uses the C++ API, so it should call the C++ version of sd_ioctl
+// No dummy function is needed if we call the correct type.
+// For example, in a test function you might add:
+void SdCardTest::run_ioctl_test() {
+    uint32_t sector_count = 0;
+    DRESULT res = sd_ioctl(IOCTL_CMD::GET_SECTOR_COUNT, &sector_count);
+    if (res == DRESULT::RES_OK) {
+        printf("IOCTL Test: Sector count = %lu\n", (unsigned long)sector_count);
+    } else {
+        printf("IOCTL Test: Failed to get sector count.\n");
+    }
+}
+#endif
