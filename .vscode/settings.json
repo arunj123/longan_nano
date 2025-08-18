@@ -8,6 +8,7 @@
         "filesystem": "cpp",
         "xlocale": "cpp",
         "xlocmon": "cpp",
-        "complex": "c"
+        "complex": "c",
+        "systick.h": "c"
     }
 }

@@ -21,4 +21,11 @@ components = {
         "include_paths": [r"-Isystem"],
         "enabled": True,
     },
+    "gd32_lcd":{
+        "c_sources": [r"gd32v_lcd/src/lcd.c"],
+        "cpp_sources": [],
+        "asm_sources": [],
+        "include_paths": [r"-Igd32v_lcd/include"],
+        "enabled": True,
+    },
 }
