@@ -2,7 +2,7 @@
     \file    sd_card.cpp
     \brief   Low-level SD card driver logic with Polling and DMA.
 
-    \version 2025-02-10, V1.5.8
+    \version 2025-02-10, V1.7.0
 */
 
 #include "sd_card.h"
@@ -20,9 +20,9 @@ using WORD  = uint16_t;
 
 // SD command definitions
 enum class SdCommand : uint8_t {
-    CMD0   = 0, CMD1   = 1, CMD8   = 8, CMD9   = 9, CMD12  = 12,
-    CMD16  = 16, CMD17  = 17, CMD18  = 18, CMD24  = 24, CMD25  = 25,
-    CMD55  = 55, CMD58  = 58, ACMD23 = 0x80 + 23, ACMD41 = 0x80 + 41
+    CMD0 = 0, CMD1 = 1, CMD8 = 8, CMD9 = 9, CMD12 = 12,
+    CMD16 = 16, CMD17 = 17, CMD18 = 18, CMD24 = 24, CMD25 = 25,
+    CMD55 = 55, CMD58 = 58, ACMD23 = 0x80 + 23, ACMD41 = 0x80 + 41
 };
 
 // Card type flags
@@ -35,6 +35,8 @@ constexpr BYTE CT_BLOCK = 0x08;
 // Module-level variables
 volatile DSTATUS Stat = STA_NOINIT;
 BYTE CardType;
+// Flag to track if the last DMA operation was a multi-block write
+bool is_multi_block_write = false;
 
 // --- SD Card Protocol Helper Functions (Internal to this file) ---
 
@@ -51,68 +53,12 @@ void deselect(void) {
     hal_spi_xchg(0xFF);
 }
 
-static int _select(void) {
+int _select(void) {
     hal_cs_low();
-    // *** THE FIX: Call the public HAL function ***
-    hal_spi_flush_fifo(); 
-
+    hal_spi_flush_fifo();
     if (wait_ready(500)) return 1;
-    
     deselect();
     return 0;
-}
-
-int rcvr_datablock_polling(BYTE *buff, UINT btr) {
-    BYTE token;
-    hal_timer_start(200);
-    do {
-        token = hal_spi_xchg(0xFF);
-    } while ((token == 0xFF) && !hal_timer_is_expired());
-
-    if (token != 0xFE) return 0;
-
-    hal_spi_read_polling(buff, btr);
-    hal_spi_xchg(0xFF); hal_spi_xchg(0xFF); // Discard CRC
-    return 1;
-}
-
-int xmit_datablock_polling(const BYTE *buff, BYTE token) {
-    BYTE resp;
-    if (!wait_ready(500)) return 0;
-    hal_spi_xchg(token);
-    if (token != 0xFD) {
-        for(UINT i = 0; i < 512; i++) hal_spi_xchg(buff[i]);
-        hal_spi_xchg(0xFF); hal_spi_xchg(0xFF);
-        resp = hal_spi_xchg(0xFF);
-        if ((resp & 0x1F) != 0x05) return 0;
-    }
-    return 1;
-}
-
-int rcvr_datablock_dma(BYTE *buff, UINT btr) {
-    BYTE token;
-    hal_timer_start(200);
-    do {
-        token = hal_spi_xchg(0xFF);
-    } while ((token == 0xFF) && !hal_timer_is_expired());
-    if (token != 0xFE) return 0;
-
-    hal_spi_dma_read(buff, btr);
-    hal_spi_xchg(0xFF); hal_spi_xchg(0xFF);
-    return 1;
-}
-
-int xmit_datablock_dma(const BYTE *buff, BYTE token, UINT btr) {
-    BYTE resp;
-    if (!wait_ready(500)) return 0;
-    hal_spi_xchg(token);
-    if (token != 0xFD) {
-        hal_spi_dma_write(buff, btr);
-        hal_spi_xchg(0xFF); hal_spi_xchg(0xFF);
-        resp = hal_spi_xchg(0xFF);
-        if ((resp & 0x1F) != 0x05) return 0;
-    }
-    return 1;
 }
 
 BYTE send_cmd(SdCommand cmd, DWORD arg) {
@@ -134,35 +80,54 @@ BYTE send_cmd(SdCommand cmd, DWORD arg) {
     n = (cmd == SdCommand::CMD0) ? 0x95 : ((cmd == SdCommand::CMD8) ? 0x87 : 0x01);
     hal_spi_xchg(n);
     if (cmd == SdCommand::CMD12) hal_spi_xchg(0xFF);
-
-    // Use a timer for a more robust timeout instead of a fixed loop
-    hal_timer_start(500); // 500ms timeout for command response
+    
+    hal_timer_start(500);
     do {
         res = hal_spi_xchg(0xFF);
     } while ((res & 0x80) && !hal_timer_is_expired());
     return res;
 }
 
-} // End anonymous namespace
+int rcvr_datablock_polling(BYTE *buff, UINT btr) {
+    BYTE token;
+    hal_timer_start(200);
+    do {
+        token = hal_spi_xchg(0xFF);
+    } while ((token == 0xFF) && !hal_timer_is_expired());
+    if (token != 0xFE) return 0;
+    hal_spi_read_polling(buff, btr);
+    hal_spi_xchg(0xFF); hal_spi_xchg(0xFF);
+    return 1;
+}
 
+int xmit_datablock_polling(const BYTE *buff, BYTE token) {
+    BYTE resp;
+    if (!wait_ready(500)) return 0;
+    hal_spi_xchg(token);
+    if (token != 0xFD) {
+        for(UINT i = 0; i < 512; i++) hal_spi_xchg(buff[i]);
+        hal_spi_xchg(0xFF); hal_spi_xchg(0xFF);
+        resp = hal_spi_xchg(0xFF);
+        if ((resp & 0x1F) != 0x05) return 0;
+    }
+    return 1;
+}
+
+} // End of anonymous namespace
+
+// =================================================================================
+// --- Public API Implementation (wrapped in extern "C") ---
+// =================================================================================
 extern "C" {
 
 DSTATUS sd_init(void) {
     BYTE n, cmd_int, ty, ocr[4];
-
     hal_spi_init();
     hal_cs_high();
-
-    // *** THE FIX: Add a power-on delay ***
-    // Give the card time to power up and stabilize before sending commands.
     hal_delay_ms(10);
-
     if (Stat & STA_NODISK) return Stat;
-
     hal_spi_set_speed(SdHalSpeed::LOW);
     for (n = 10; n; n--) hal_spi_xchg(0xFF);
-
-    // ... (rest of the sd_init function is identical) ...
     ty = 0;
     if (send_cmd(SdCommand::CMD0, 0) == 1) {
         hal_timer_start(1000);
@@ -187,7 +152,6 @@ DSTATUS sd_init(void) {
     }
     CardType = ty;
     deselect();
-
     if (ty) {
         printf("[INFO] sd_init: Card type detected: 0x%02X. Initialization successful.\n", ty);
         hal_spi_set_speed(SdHalSpeed::HIGH);
@@ -199,19 +163,13 @@ DSTATUS sd_init(void) {
     return Stat;
 }
 
-DSTATUS sd_status(void) {
-    return Stat;
-}
+DSTATUS sd_status(void) { return Stat; }
 
 DRESULT sd_read_blocks(uint8_t *buff, uint32_t sector, uint32_t count) {
-    if (!count) return RES_PARERR;
-    if (Stat & STA_NOINIT) return RES_NOTRDY;
+    if (!count || (Stat & STA_NOINIT)) return RES_NOTRDY;
     if (!(CardType & CT_BLOCK)) sector *= 512;
-
     if (count == 1) {
-        if ((send_cmd(SdCommand::CMD17, sector) == 0) && rcvr_datablock_polling(buff, 512)) {
-            count = 0;
-        }
+        if ((send_cmd(SdCommand::CMD17, sector) == 0) && rcvr_datablock_polling(buff, 512)) count = 0;
     } else {
         if (send_cmd(SdCommand::CMD18, sector) == 0) {
             do {
@@ -226,15 +184,11 @@ DRESULT sd_read_blocks(uint8_t *buff, uint32_t sector, uint32_t count) {
 }
 
 DRESULT sd_write_blocks(const uint8_t *buff, uint32_t sector, uint32_t count) {
-    if (!count) return RES_PARERR;
-    if (Stat & STA_NOINIT) return RES_NOTRDY;
+    if (!count || (Stat & STA_NOINIT)) return RES_NOTRDY;
     if (Stat & STA_PROTECT) return RES_WRPRT;
     if (!(CardType & CT_BLOCK)) sector *= 512;
-
     if (count == 1) {
-        if ((send_cmd(SdCommand::CMD24, sector) == 0) && xmit_datablock_polling(buff, 0xFE)) {
-            count = 0;
-        }
+        if ((send_cmd(SdCommand::CMD24, sector) == 0) && xmit_datablock_polling(buff, 0xFE)) count = 0;
     } else {
         if (CardType & CT_SDC) send_cmd(SdCommand::ACMD23, count);
         if (send_cmd(SdCommand::CMD25, sector) == 0) {
@@ -249,66 +203,70 @@ DRESULT sd_write_blocks(const uint8_t *buff, uint32_t sector, uint32_t count) {
     return count ? RES_ERROR : RES_OK;
 }
 
-DRESULT sd_read_blocks_dma(uint8_t *buff, uint32_t sector, uint32_t count) {
+DRESULT sd_read_blocks_dma_start(uint8_t *buff, uint32_t sector, uint32_t count) {
     if (!count || (Stat & STA_NOINIT)) return RES_NOTRDY;
     if (!(CardType & CT_BLOCK)) sector *= 512;
-
-    DRESULT res = RES_ERROR;
+    is_multi_block_write = false; // It's a read
     SdCommand cmd = (count > 1) ? SdCommand::CMD18 : SdCommand::CMD17;
-
-    if (send_cmd(cmd, sector) == 0) {
-        if(rcvr_datablock_dma(buff, 512 * count)) {
-            res = RES_OK;
-        }
+    if (send_cmd(cmd, sector) != 0) return RES_ERROR;
+    BYTE token;
+    hal_timer_start(200);
+    do {
+        token = hal_spi_xchg(0xFF);
+    } while ((token == 0xFF) && !hal_timer_is_expired());
+    if (token != 0xFE) {
+        deselect();
+        return RES_ERROR;
     }
-
-    if (count > 1) {
-        send_cmd(SdCommand::CMD12, 0);
-    }
-    
-    deselect();
-    return res;
+    hal_spi_dma_read_start(buff, 512 * count);
+    return RES_OK;
 }
 
-DRESULT sd_write_blocks_dma(const uint8_t *buff, uint32_t sector, uint32_t count) {
+DRESULT sd_write_blocks_dma_start(const uint8_t *buff, uint32_t sector, uint32_t count) {
     if (!count || (Stat & STA_NOINIT)) return RES_NOTRDY;
     if (Stat & STA_PROTECT) return RES_WRPRT;
     if (!(CardType & CT_BLOCK)) sector *= 512;
-
-    if (count == 1) {
-        if ((send_cmd(SdCommand::CMD24, sector) == 0) && xmit_datablock_dma(buff, 0xFE, 512)) {
-            count = 0;
-        }
-    } else {
+    is_multi_block_write = (count > 1);
+    if (is_multi_block_write) {
         if (CardType & CT_SDC) send_cmd(SdCommand::ACMD23, count);
-        if (send_cmd(SdCommand::CMD25, sector) == 0) {
-            do {
-                if (!xmit_datablock_dma(buff, 0xFC, 512)) break;
-                buff += 512;
-            } while (--count);
-            if (!xmit_datablock_polling(nullptr, 0xFD)) count = 1; // Send stop token with polling
-        }
+        if (send_cmd(SdCommand::CMD25, sector) != 0) return RES_ERROR;
+        hal_spi_dma_write_start(buff, 512 * count);
+    } else {
+        if (send_cmd(SdCommand::CMD24, sector) != 0) return RES_ERROR;
+        hal_spi_dma_write_start(buff, 512);
     }
+    return RES_OK;
+}
 
-    deselect();
-    return count ? RES_ERROR : RES_OK;
+DRESULT sd_dma_transfer_status(void) {
+    HalDmaStatus status = hal_dma_get_status();
+    switch(status) {
+        case HalDmaStatus::BUSY:
+            return RES_NOTRDY;
+        case HalDmaStatus::SUCCESS:
+            if (is_multi_block_write) {
+                xmit_datablock_polling(nullptr, 0xFD); // Send stop token
+            }
+            deselect();
+            is_multi_block_write = false; // Reset flag
+            return RES_OK;
+        case HalDmaStatus::ERROR:
+        default:
+            deselect();
+            is_multi_block_write = false; // Reset flag
+            return RES_ERROR;
+    }
 }
 
 DRESULT sd_ioctl(uint8_t cmd, void *buff) {
     DRESULT res = RES_ERROR;
     BYTE n, csd[16];
     DWORD csize;
-
     if (Stat & STA_NOINIT) return RES_NOTRDY;
-
     switch (cmd) {
         case CTRL_SYNC:
-            if (_select()) {
-                deselect();
-                res = RES_OK;
-            }
+            if (_select()) { deselect(); res = RES_OK; }
             break;
-
         case GET_SECTOR_COUNT:
             if ((send_cmd(SdCommand::CMD9, 0) == 0) && rcvr_datablock_polling(csd, 16)) {
                 if ((csd[0] >> 6) == 1) {
@@ -322,12 +280,10 @@ DRESULT sd_ioctl(uint8_t cmd, void *buff) {
                 res = RES_OK;
             }
             break;
-
         case GET_SECTOR_SIZE:
             *(WORD*)buff = 512;
             res = RES_OK;
             break;
-
         case GET_BLOCK_SIZE:
             if (CardType & CT_SD2) {
                 *(DWORD*)buff = 128;
@@ -343,13 +299,11 @@ DRESULT sd_ioctl(uint8_t cmd, void *buff) {
                 }
             }
             break;
-
         default:
             res = RES_PARERR;
     }
-
     deselect();
     return res;
 }
 
-} // End of extern "C"
+} // End extern "C"
