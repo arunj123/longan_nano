@@ -9,6 +9,8 @@
         "xlocale": "cpp",
         "xlocmon": "cpp",
         "complex": "c",
-        "systick.h": "c"
+        "systick.h": "c",
+        "future": "cpp",
+        "diskio.h": "c"
     }
 }

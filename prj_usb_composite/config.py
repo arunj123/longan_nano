@@ -37,7 +37,7 @@ GLOBAL_C_DEFINES = [
     "-DGD32VF103",
     "-D__NUCLEI_N200",
     "-DGD32VF103C_START",
-    "-DUSE_SD_CARD_MSC=1",
+    "-DUSE_SD_CARD_MSC=0",
 ]
 
 # --- CPU & ABI Flags ---

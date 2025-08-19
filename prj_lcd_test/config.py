@@ -71,7 +71,7 @@ COMPONENTS = {
     **lib_components,
     "application": {
         "c_sources": [],
-        "cpp_sources": [r"src/main.c"],
+        "cpp_sources": [r"src/main.c", r"src/font.c", r"src/font_big.c"],
         "asm_sources": [],
         "include_paths": [r"-Isrc"],
         "enabled": True

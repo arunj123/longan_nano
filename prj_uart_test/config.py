@@ -70,8 +70,8 @@ COMPONENTS = {
     **gd32_components,
     **lib_components,
     "application": {
-        "c_sources": [ ],#r"src/tf_card.c", ],
-        "cpp_sources": [r"src/main.cpp",],
+        "c_sources": [],
+        "cpp_sources": [r"src/main.c"],
         "asm_sources": [],
         "include_paths": [r"-Isrc"],
         "enabled": True

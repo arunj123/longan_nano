@@ -1,5 +1,7 @@
 #include "gd32vf103.h"
 #include "lcd.h"
+#include "font.h"
+#include "font_big.h"
 
 // ------------------------------------------------------------------------
 // Framebuffer and other globals.
@@ -75,6 +77,17 @@ int main(void)
             else
                 *pfb++ = bgcolxy(x, y);
         }
+
+            // Set text color
+    uint16_t textColor = 0xFFFF; // White
+
+    // Draw text on the screen
+    draw_string(10, 10, "Hello, Gemini!", textColor);
+    draw_string(10, 30, "This is a test.", textColor);
+
+    // Draw text on the screen using the big font
+    draw_string_big(8, 10, "HELLO!", textColor);
+    draw_string_big(8, 40, "GEMINI", textColor);
 
         // Trigger framebuffer upload. We rely on the upload being faster than
         // our framebuffer writes in the loop above so that we can render the

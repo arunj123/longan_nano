@@ -6,6 +6,10 @@ This repository contains a collection of bare-metal firmware projects for the **
 
 This repository is structured to support multiple independent firmware applications. Each project resides in its own directory in the project root, and its name must be prefixed with `prj_`.
 
+### `prj_uart_test`
+
+This projet uses the debug_uart0 library to verify the uart configuration works.
+
 ### `prj_usb_serial`
 
 This project configures the Longan Nano as a USB CDC (Virtual COM Port) device.
