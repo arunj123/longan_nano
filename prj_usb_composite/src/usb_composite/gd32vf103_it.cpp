@@ -7,6 +7,8 @@
 
 #include "usb_device.h"
 #include "board.h"
+#include "rotary_encoder.h"
+#include <cstdio>
 extern "C" {
 #include "systick.h" // For delay_1ms
 }
@@ -34,6 +36,21 @@ void EXTI5_9_IRQHandler(void) {
         user_key_pressed = true; // Set the flag to indicate the key was pressed
 
         exti_interrupt_flag_clear(USER_KEY_EXTI_LINE);
+    }
+}
+
+// This handler for the button press on PB0 is the same as it was for PA0.
+void EXTI0_IRQHandler(void) {
+    if (RESET != exti_interrupt_flag_get(EXTI_0)) {
+        encoder::key_isr();
+    }
+}
+
+// ADD this new handler for pins 10 through 15.
+// We check that it was specifically our pin (EXTI_10) that triggered it.
+void EXTI10_15_IRQHandler(void) {
+    if (RESET != exti_interrupt_flag_get(EXTI_10)) {
+        encoder::rotation_isr();
     }
 }
 

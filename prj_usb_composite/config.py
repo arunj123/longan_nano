@@ -82,7 +82,7 @@ COMPONENTS = {
     },
     "application": {
         "c_sources": [r"src/gd32vf103_hw.c",],
-        "cpp_sources": [r"src/main.cpp", r"src/usbd_msc_mem.cpp", r"src/board.cpp",],
+        "cpp_sources": [r"src/main.cpp", r"src/usbd_msc_mem.cpp", r"src/board.cpp", r"src/rotary_encoder.cpp"],
         "asm_sources": [],
         "include_paths": [r"-Isrc"],
         "enabled": True

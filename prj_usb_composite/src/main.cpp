@@ -18,6 +18,16 @@ extern "C" {
 #endif
 #include "sd_test.hpp"
 #include "usbd_msc_mem.h"
+#include "rotary_encoder.h" // Add the new header
+
+// Define some helpful consumer control usage codes
+namespace hid_consumer {
+    constexpr uint16_t VOLUME_UP   = 0x00E9;
+    constexpr uint16_t VOLUME_DOWN = 0x00EA;
+    constexpr uint16_t MUTE        = 0x00E2;
+    constexpr uint16_t PLAY_PAUSE  = 0x00CD;
+    constexpr uint16_t NO_KEY      = 0x0000;
+}
 
 extern volatile bool user_key_pressed;
 
@@ -40,6 +50,7 @@ int main(void)
     // 1. Initialize board-specific hardware and basic peripherals
     board_led_init();
     board_key_init();
+    encoder::init();  // Initialize our new rotary encoder
 
     delay_1ms(100);
     printf("\n\n--- System Initialized ---\n");
@@ -125,15 +136,29 @@ int main(void)
             usb::send_custom_hid_report(0x15, custom_report_counter++);
             // This uses a different endpoint, so it does not interfere with the standard HID endpoint.
 
-
             user_key_pressed = false; // Reset the key press flag
         }
 
-        // Add a slow heartbeat to show the main loop is not blocked
-        delay_1ms(100);
-        if(loop_counter % 10 == 0) {
-            printf("Main loop heartbeat: %lu\n", loop_counter);
+        int8_t rotation = encoder::get_rotation();
+        if (rotation > 0) {
+            printf("Encoder: Volume Up\n");
+            usb::send_consumer_report(hid_consumer::VOLUME_UP);
+            delay_1ms(20);
+            usb::send_consumer_report(hid_consumer::NO_KEY);
+        } else if (rotation < 0) {
+            printf("Encoder: Volume Down\n");
+            usb::send_consumer_report(hid_consumer::VOLUME_DOWN);
+            delay_1ms(20);
+            usb::send_consumer_report(hid_consumer::NO_KEY);
         }
-        loop_counter++;
+
+        if (encoder::is_pressed()) {
+            printf("Encoder: Mute Toggled\n");
+            usb::send_consumer_report(hid_consumer::MUTE);
+            delay_1ms(20);
+            usb::send_consumer_report(hid_consumer::NO_KEY);
+        }
+
+        delay_1ms(10); // Keep this delay!
     }
 }
