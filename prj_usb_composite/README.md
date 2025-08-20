@@ -1,7 +1,3 @@
-Of course. Here is a comprehensive README file for your project, detailing its features, setup, usage, and the technical concepts involved. You can save this as `README.md` in the root of your project directory.
-
----
-
 # Longan Nano - Composite USB HID & MSC Device
 
 This project transforms the Sipeed Longan Nano (GD32VF103) board into a powerful, multi-function composite USB device. It serves as an excellent example of advanced USB development, interrupt handling, and hardware interfacing on the RISC-V platform.
@@ -50,9 +46,8 @@ Connect the rotary encoder to the Longan Nano using the following conflict-free 
 
 ### Prerequisites
 
-1.  A RISC-V development toolchain (e.g., PlatformIO with the GD32V platform, or a manual `make` setup).
-2.  A C++ compiler that supports C++11 or later.
-3.  For the host script: Python 3 and the `hidapi` library.
+1.  For the host script: Python 3 and the `hidapi` library.
+2.  A RISC-V development toolchain (will be automatically setup on Windows by python build scripts).
 
 ### Building the Firmware
 
@@ -63,6 +58,7 @@ Connect the rotary encoder to the Longan Nano using the following conflict-free 
     ```
 2.  **(Optional) Enable Mass Storage:**
     To include the SD card functionality, open `main.cpp` and ensure the `USE_SD_CARD_MSC` macro is defined and set to `1`.
+    Note: This feature is not working now.
     ```cpp
     #define USE_SD_CARD_MSC 1
     ```
@@ -71,11 +67,11 @@ Connect the rotary encoder to the Longan Nano using the following conflict-free 
 3.  **Build and Upload:**
     Using a tool like PlatformIO, the commands are straightforward:
     ```sh
-    # Build the project
-    pio run
+    # Build the project (from root directory of repository)
+    python .\bldmgr\build.py prj_usb_composite
 
     # Upload the firmware to the Longan Nano
-    pio run -t upload
+    python .\bldmgr\build.py prj_usb_composite flash
     ```
 
 ## How to Use
@@ -111,9 +107,8 @@ The Python script (`test_custom_hid.py`) allows you to interact with the Custom 
 - `src/main.cpp`: The main application entry point. Handles initialization and the main loop, which polls the encoder and button states and sends USB reports.
 - `src/usb_device.cpp / .h`: The core of the USB abstraction layer. Implements the `UsbDevice` singleton, manages the composite device descriptors, and dispatches USB events to the correct handlers (HID, MSC).
 - `src/rotary_encoder.cpp / .h`: A self-contained driver for the rotary encoder. It uses interrupts and software debouncing for reliable, efficient input processing.
-- `src/gd32vf103_it.cpp`: Contains the interrupt service routines (ISRs) that link hardware events (like USB interrupts and GPIO pin changes) to the C++ handler functions.
-- `lib/`: Contains the GigaDevice firmware libraries for the USB core, peripherals, etc.
-- `tools/test_custom_hid.py`: The Python script for communicating with the Custom HID interface.
+- `src/usb_composite/gd32vf103_it.cpp`: Contains the interrupt service routines (ISRs) that link hardware events (like USB interrupts and GPIO pin changes) to the C++ handler functions.
+- `../tools/test_custom_hid.py`: The Python script for communicating with the Custom HID interface.
 
 ## Technical Deep Dive: Key Concepts
 
