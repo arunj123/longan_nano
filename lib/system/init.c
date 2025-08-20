@@ -107,15 +107,12 @@ void USBFS_IRQHandler(void)         WEAK_ALIAS(USBFS_IRQHandler);
  *         before `main()`. It is responsible for essential low-level hardware
  *         setup required for the C runtime and application to function correctly.
  *         This includes:
- *         - Initializing the system clock via `SystemInit()`.
  *         - Configuring the Core-Local Interrupt Controller (ECLIC).
  *         - Disabling performance counters to conserve power.
  *         - Updating the global `SystemCoreClock` variable.
  */
 void _init(void)
 {
-	SystemInit();
-
 	// Initialize the Core-Local Interrupt Controller (ECLIC)
 	eclic_init(ECLIC_NUM_INTERRUPTS);
 	eclic_mode_enable();
@@ -125,10 +122,8 @@ void _init(void)
 	// by default for this application.
 	//pmp_open_all_space();
 	//switch_m2u_mode();
-	
-	// Disable machine cycle and instruction-retired counters by default to save power.
-	disable_mcycle_minstret();
 
+	// Update the global SystemCoreClock variable to reflect the current system clock frequency.
 	SystemCoreClockUpdate();
 
 	initialise_debug_uart();
