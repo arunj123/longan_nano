@@ -132,7 +132,8 @@ int main(void)
         // Add a slow heartbeat to show the main loop is not blocked
         delay_1ms(100);
         if(loop_counter % 10 == 0) {
-            printf("Main loop heartbeat: %lu\n", loop_counter++);
+            printf("Main loop heartbeat: %lu\n", loop_counter);
         }
+        loop_counter++;
     }
 }

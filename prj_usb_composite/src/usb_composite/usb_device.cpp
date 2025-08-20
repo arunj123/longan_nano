@@ -98,7 +98,7 @@ void UsbDevice::timer_isr() { usb_timer_irq(); }
 void UsbDevice::send_mouse_report(int8_t x, int8_t y, int8_t wheel, uint8_t buttons) {
     uint8_t report[5] = {REPORT_ID_MOUSE, buttons, (uint8_t)x, (uint8_t)y, (uint8_t)wheel};
     if (m_std_hid_handler.prev_transfer_complete) {
-        m_std_hid_handler.prev_transfer_complete = 0;
+        m_std_hid_handler.prev_transfer_complete = 0; // Mark endpoint as busy
         usbd_ep_send(&m_core_driver, STD_HID_IN_EP, report, 5);
     }
 }
@@ -120,8 +120,11 @@ void UsbDevice::send_consumer_report(uint16_t usage_code) {
 }
 
 void UsbDevice::send_custom_hid_report(uint8_t report_id, uint8_t data) {
-    uint8_t report[2] = {report_id, data};
-    usbd_ep_send(&m_core_driver, CUSTOM_HID_IN_EP, report, 2);
+    if (m_custom_hid_handler.prev_transfer_complete) {
+        m_custom_hid_handler.prev_transfer_complete = 0; // Mark as busy
+        uint8_t report[2] = {report_id, data};
+        usbd_ep_send(&m_core_driver, CUSTOM_HID_IN_EP, report, 2);
+    }
 }
 
 // --- Composite Dispatcher Methods ---
@@ -254,6 +257,7 @@ void UsbDevice::_custom_hid_init() {
     usbd_ep_setup(&m_core_driver, &(composite_config_desc.custom_hid_epin));
     usbd_ep_setup(&m_core_driver, &(composite_config_desc.custom_hid_epout));
     usbd_ep_recev(&m_core_driver, CUSTOM_HID_OUT_EP, m_custom_hid_handler.data, 2U);
+    m_custom_hid_handler.prev_transfer_complete = 1U;
 }
 
 void UsbDevice::_custom_hid_deinit() {
@@ -289,7 +293,9 @@ uint8_t UsbDevice::_custom_hid_req_handler(usb::UsbRequest *req) {
     return USBD_OK;
 }
 
-void UsbDevice::_custom_hid_data_in() { /* Optional: handle IN complete */ }
+void UsbDevice::_custom_hid_data_in() {
+    m_custom_hid_handler.prev_transfer_complete = 1U; // Mark as ready for next transfer
+}
 
 void UsbDevice::_custom_hid_data_out() {
     // The host has sent us data. The received data is in m_custom_hid_handler.data.

@@ -100,6 +100,7 @@ namespace hid {
         uint8_t reportID;
         uint8_t idlestate;
         uint8_t protocol;
+        volatile uint8_t prev_transfer_complete;
     };
 } // namespace hid
 
