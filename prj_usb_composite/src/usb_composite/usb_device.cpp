@@ -9,6 +9,16 @@
 #include "usbd_msc_mem.h"
 #include <cstring>
 #include "board.h"
+#include <cstring>
+#include <cstdio>
+#include "lcd.h"
+#include "shared_defs.h"
+
+// --- Reference the shared double buffers and state variables from main.cpp ---
+extern uint8_t g_framebuffers[2][QUADRANT_BYTES];
+extern volatile bool quadrant_ready_for_dma;
+extern volatile int dma_buffer_idx;
+extern volatile int usb_buffer_idx;
 
 // Forward declare C functions from the library that we will call
 extern "C" {
@@ -17,8 +27,24 @@ extern "C" {
     void serial_string_get(uint16_t *unicode_str);
 }
 
-// Define the static instance for the singleton
-UsbDevice* UsbDevice::s_instance = nullptr;
+// --- State machine for image transfer ---
+enum class ImageTransferState {
+    IDLE,
+    RECEIVING_IMAGE
+};
+static volatile ImageTransferState image_state = ImageTransferState::IDLE;
+static volatile uint32_t image_bytes_received = 0;
+volatile int g_current_quadrant_idx = 0; // Track which quadrant we are receiving
+
+// --- Flag for the main loop ---
+// This tells the main loop when it's time to draw the new frame.
+volatile bool is_new_frame_ready = false;
+
+// --- Define our simple protocol commands ---
+#define CMD_START_TRANSFER  0x01
+#define CMD_IMAGE_DATA      0x02
+#define CMD_END_TRANSFER    0x03 // Optional, for verification
+#define CMD_START_QUADRANT_TRANSFER  0x05
 
 // ===================================================================
 // Public Namespace Functions (The User's API)
@@ -31,16 +57,21 @@ void usb::send_mouse_report(int8_t x, int8_t y, int8_t wheel, uint8_t buttons) {
 void usb::send_keyboard_report(uint8_t modifier, uint8_t key) { UsbDevice::getInstance().send_keyboard_report(modifier, key); }
 void usb::send_consumer_report(uint16_t usage_code) { UsbDevice::getInstance().send_consumer_report(usage_code); }
 void usb::send_custom_hid_report(uint8_t report_id, uint8_t data) { UsbDevice::getInstance().send_custom_hid_report(report_id, data); }
+bool usb::is_std_hid_transfer_complete() { return UsbDevice::getInstance().is_std_hid_transfer_complete(); }
 
 // ===================================================================
 // UsbDevice Class Implementation
 // ===================================================================
 
+#if not defined(USE_SD_CARD_MSC) || (USE_SD_CARD_MSC == 0)
+usbd_mem_cb& get_msc_mem_fops() {
+    return *(usbd_mem_cb*)(0);
+}
+#endif
+
 UsbDevice& UsbDevice::getInstance() {
-    if (!s_instance) {
-        s_instance = new UsbDevice();
-    }
-    return *s_instance;
+    static UsbDevice instance; // Guaranteed to be destroyed, instantiated on first use
+    return instance;
 }
 
 UsbDevice::UsbDevice() : m_msc_enabled(false) {
@@ -126,6 +157,11 @@ void UsbDevice::send_custom_hid_report(uint8_t report_id, uint8_t data) {
         usbd_ep_send(&m_core_driver, CUSTOM_HID_IN_EP, report, 2);
     }
 }
+
+bool UsbDevice::is_std_hid_transfer_complete() {
+    return m_std_hid_handler.prev_transfer_complete;
+}
+
 
 // --- Composite Dispatcher Methods ---
 uint8_t UsbDevice::_init_composite(uint8_t config_index) {
@@ -256,7 +292,7 @@ void UsbDevice::_std_hid_data_in() {
 void UsbDevice::_custom_hid_init() {
     usbd_ep_setup(&m_core_driver, &(composite_config_desc.custom_hid_epin));
     usbd_ep_setup(&m_core_driver, &(composite_config_desc.custom_hid_epout));
-    usbd_ep_recev(&m_core_driver, CUSTOM_HID_OUT_EP, m_custom_hid_handler.data, 2U);
+    usbd_ep_recev(&m_core_driver, CUSTOM_HID_OUT_EP, m_custom_hid_handler.data, 64U);
     m_custom_hid_handler.prev_transfer_complete = 1U;
 }
 
@@ -298,42 +334,71 @@ void UsbDevice::_custom_hid_data_in() {
 }
 
 void UsbDevice::_custom_hid_data_out() {
-    // The host has sent us data. The received data is in m_custom_hid_handler.data.
-    // The format is [Report ID, Value].
+    uint32_t received_count = usbd_rxcount_get(&m_core_driver, CUSTOM_HID_OUT_EP);
 
-    // Get the report ID and value
-    uint8_t report_id = m_custom_hid_handler.data[0];
-    uint8_t value = m_custom_hid_handler.data[1];
+    // This debug print is okay for now, but in production, even this should be removed from the ISR.
+    // printf("DEBUG RX: size=%lu, data[0]=0x%02X, data[1]=0x%02X\n", ...);
 
-    // Control the RGB LEDs based on the report ID
-    switch (report_id) {
-        case 0x11: // Report ID for Red LED
-            if (value) {
-                gpio_bit_reset(LED_R_GPIO_PORT, LED_R_PIN); // Turn ON (active low)
-            } else {
-                gpio_bit_set(LED_R_GPIO_PORT, LED_R_PIN); // Turn OFF
+    if (received_count == 0) {
+        usbd_ep_recev(&m_core_driver, CUSTOM_HID_OUT_EP, m_custom_hid_handler.data, 64U);
+        return;
+    }
+
+    uint8_t command = m_custom_hid_handler.data[0];
+    uint8_t value   = m_custom_hid_handler.data[1];
+
+    switch (command) {
+        case CMD_START_QUADRANT_TRANSFER: {
+            g_current_quadrant_idx = value;
+            // Removed the slow printf from here
+            image_bytes_received = 0;
+            break;
+        }
+
+        case CMD_IMAGE_DATA: {
+            uint32_t data_len = received_count - 2;
+            uint8_t* dest_ptr = g_framebuffers[usb_buffer_idx] + image_bytes_received;
+
+            if ((QUADRANT_BYTES - image_bytes_received) < data_len) {
+                // If we receive more data than expected, ignore the excess (padding bytes)
+                data_len = QUADRANT_BYTES - image_bytes_received;
+            }
+
+            memcpy(dest_ptr, &m_custom_hid_handler.data[1], data_len);
+            image_bytes_received += data_len;
+
+            if (image_bytes_received >= QUADRANT_BYTES) {
+                // --- FIX: This is the critical change ---
+                // NO printf() here. Just update the flags for the main loop.
+                dma_buffer_idx = usb_buffer_idx;
+                quadrant_ready_for_dma = true;
+                
+                usb_buffer_idx = 1 - usb_buffer_idx;
+                image_bytes_received = 0; 
             }
             break;
+        }
 
-        case 0x12: // Report ID for Green LED
-            if (value) {
-                gpio_bit_reset(LED_G_GPIO_PORT, LED_G_PIN); // Turn ON (active low)
-            } else {
-                gpio_bit_set(LED_G_GPIO_PORT, LED_G_PIN); // Turn OFF
-            }
+        // LED control logic uses 'value' which is data[1]
+        case 0x11: {
+            if (value) gpio_bit_reset(LED_R_GPIO_PORT, LED_R_PIN);
+            else gpio_bit_set(LED_R_GPIO_PORT, LED_R_PIN);
             break;
-
-        case 0x13: // Report ID for Blue LED
-             if (value) {
-                gpio_bit_reset(LED_B_GPIO_PORT, LED_B_PIN); // Turn ON (active low)
-            } else {
-                gpio_bit_set(LED_B_GPIO_PORT, LED_B_PIN); // Turn OFF
-            }
+        }
+        case 0x12: {
+            if (value) gpio_bit_reset(LED_G_GPIO_PORT, LED_G_PIN);
+            else gpio_bit_set(LED_G_GPIO_PORT, LED_G_PIN);
             break;
+        }
+        case 0x13: {
+             if (value) gpio_bit_reset(LED_B_GPIO_PORT, LED_B_PIN);
+             else gpio_bit_set(LED_B_GPIO_PORT, LED_B_PIN);
+            break;
+        }
     }
 
     // Re-arm the OUT endpoint to receive the next report from the host.
-    usbd_ep_recev(&m_core_driver, CUSTOM_HID_OUT_EP, m_custom_hid_handler.data, 2U);
+    usbd_ep_recev(&m_core_driver, CUSTOM_HID_OUT_EP, m_custom_hid_handler.data, 64U);
 }
 
 // --- MSC Implementation ---

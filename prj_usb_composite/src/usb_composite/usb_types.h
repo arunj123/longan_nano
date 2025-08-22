@@ -96,7 +96,7 @@ namespace hid {
     };
 
     struct CustomHidHandler {
-        uint8_t data[2];
+        uint8_t data[64];
         uint8_t reportID;
         uint8_t idlestate;
         uint8_t protocol;

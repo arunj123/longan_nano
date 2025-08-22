@@ -8,17 +8,23 @@
 extern "C" {
 #include "gd32vf103.h"
 #include "systick.h"
+#include "lcd.h"
 }
+#include "usb_device.h"
 #include <stdio.h>
 #include "gpio.h"
 #include "usb.hpp"
 #include "board.h"
+#include "rotary_encoder.h" // Add the new header
+#include <math.h>
+#include "shared_defs.h" 
+
 #if defined(USE_SD_CARD_MSC) && (USE_SD_CARD_MSC == 1)
     #include "sd_card.h"
+    #include "sd_test.hpp"
+    #include "usbd_msc_mem.h"
 #endif
-#include "sd_test.hpp"
-#include "usbd_msc_mem.h"
-#include "rotary_encoder.h" // Add the new header
+
 
 // Define some helpful consumer control usage codes
 namespace hid_consumer {
@@ -29,6 +35,24 @@ namespace hid_consumer {
     constexpr uint16_t NO_KEY      = 0x0000;
 }
 
+// --- State machine for sending HID actions ---
+enum class HidActionState {
+    IDLE,
+    WAITING_FOR_PRESS_CONFIRM,
+    WAITING_FOR_RELEASE_CONFIRM
+};
+static HidActionState hid_state = HidActionState::IDLE;
+
+// --- Define the two quarter-sized framebuffers ---
+uint8_t g_framebuffers[2][QUADRANT_BYTES];
+
+// --- State variables for double buffering ---
+volatile bool quadrant_ready_for_dma = false;
+volatile int dma_buffer_idx = 0; // The buffer that is ready to be sent to the LCD
+volatile int usb_buffer_idx = 0; // The buffer that USB is currently writing to
+
+extern volatile bool is_new_frame_ready;
+extern volatile int g_current_quadrant_idx;
 extern volatile bool user_key_pressed;
 
 // Create instances of the Led class for the onboard LEDs
@@ -47,19 +71,19 @@ static Led led_blue(GPIOA, GPIO_PIN_2);
 */
 int main(void)
 {
-    // 1. Initialize board-specific hardware and basic peripherals
+    // 1. All initializations are the same
     board_led_init();
     board_key_init();
-    encoder::init();  // Initialize our new rotary encoder
+    encoder::init();
+    lcd_init();
 
     delay_1ms(100);
-    printf("\n\n--- System Initialized ---\n");
+    printf("\n\n--- System Initialized with Polling Architecture ---\n");
 
     bool sd_card_is_ok = false;
 
-    // 2. Conditionally initialize the SD Card hardware
+// The preprocessor will now skip this whole block
 #if defined(USE_SD_CARD_MSC) && (USE_SD_CARD_MSC == 1)
-    // 2. Initialize the SD Card hardware
     printf("Attempting to initialize SD Card...\n");
     if (!(sd_init() & STA_NOINIT)) {
         printf("INFO: SD Card initialized successfully.\n");
@@ -68,7 +92,6 @@ int main(void)
         printf("WARN: SD Card initialization failed or card not present.\n");
     }
     
-    // 3. Pre-cache MSC properties (only if card is ok)
     if (sd_card_is_ok) {
         msc_mem_pre_init();
     }
@@ -76,10 +99,12 @@ int main(void)
     printf("INFO: SD Card MSC feature is disabled in this build.\n");
 #endif
 
-    // 4. Initialize the USB stack, telling it whether to enable the MSC interface.
+    // The call to usb::init will now always get `false`, correctly
+    // configuring a 2-interface (HID-only) device.
     printf("Proceeding with USB initialization...\n");
     usb::init(sd_card_is_ok);
-
+    printf("USB initialization complete.\n");
+    
     // 5. Wait for configuration
     printf("Waiting for USB configuration from host...\n");
     while (!usb::is_configured()) {
@@ -89,76 +114,69 @@ int main(void)
     printf("USB device configured successfully!\n");
     board_led_on();
 
-    // 6. Main application loop
-    uint32_t loop_counter = 0;
+    // --- Variables for periodic event processing ---
+    uint32_t last_action_time = 0;
+
+    // 6. Main application loop with non-blocking state machine
     while(1){
         usb::poll();
 
-        if (usb::is_configured() and user_key_pressed) {
-            delay_1ms(50); 
+        // Check if a quadrant has been fully received AND if the DMA is not busy
+        if (quadrant_ready_for_dma/* && !lcd_is_dma_busy()*/) {
+            printf("INFO: Quadrant %d received. Drawing to buffer %d.\n", g_current_quadrant_idx, dma_buffer_idx);
+            // Calculate the Y coordinate for this quadrant
+            int quadrant_y = g_current_quadrant_idx * QUADRANT_HEIGHT;
+            printf("MAIN: DMA ready. Drawing quadrant %d to Y=%d\n", g_current_quadrant_idx, quadrant_y);
 
-            static uint8_t custom_report_counter = 0;
-
-            // --- 1. Standard HID Demo ---
-
-            // Action 1: Type 'H'
-            usb::send_keyboard_report(0x02, 0x0B); // Press Shift + 'h'
-            delay_1ms(20);                         // Wait for transfer to complete
-            usb::send_keyboard_report(0x00, 0x00); // Release all keys
-            delay_1ms(20);                         // Wait for transfer to complete
-
-            // Action 2: Type 'i'
-            usb::send_keyboard_report(0x00, 0x0C); // Press 'i'
-            delay_1ms(20);                         // Wait for transfer to complete
-            usb::send_keyboard_report(0x00, 0x00); // Release all keys
-            delay_1ms(20);                         // Wait for transfer to complete
-
-            // Action 3: Type '!'
-            usb::send_keyboard_report(0x02, 0x1E); // Press Shift + '1'
-            delay_1ms(20);                         // Wait for transfer to complete
-            usb::send_keyboard_report(0x00, 0x00); // Release all keys
-            delay_1ms(20);                         // Wait for transfer to complete
-
-            // Action 4: Move Mouse
-            usb::send_mouse_report(10, 10, 0, 0);
-            delay_1ms(20);                         // Wait for transfer to complete
-            // Mouse movement is relative, so no "release" report is needed.
-
-            // Action 5: Volume Down
-            usb::send_consumer_report(0x00EA); // Press Volume Down
-            delay_1ms(20);                         // Wait for transfer to complete
-            usb::send_consumer_report(0x0000); // Release Volume Down
-            delay_1ms(20);                         // Wait for transfer to complete
-
-            // --- 2. Custom HID Demo ---
-
-            // Action 6: Send Custom Report
-            usb::send_custom_hid_report(0x15, custom_report_counter++);
-            // This uses a different endpoint, so it does not interfere with the standard HID endpoint.
-
-            user_key_pressed = false; // Reset the key press flag
+            // Start a non-blocking DMA transfer from the completed buffer
+            lcd_write_u16(0, quadrant_y, QUADRANT_WIDTH, QUADRANT_HEIGHT, g_framebuffers[dma_buffer_idx]);
+            
+            quadrant_ready_for_dma = false;
+        } else if(quadrant_ready_for_dma) {
+            printf("INFO: Quadrant %d ready but DMA is busy. Skipping draw.\n", g_current_quadrant_idx);
         }
 
-        int8_t rotation = encoder::get_rotation();
-        if (rotation > 0) {
-            printf("Encoder: Volume Up\n");
-            usb::send_consumer_report(hid_consumer::VOLUME_UP);
-            delay_1ms(20);
-            usb::send_consumer_report(hid_consumer::NO_KEY);
-        } else if (rotation < 0) {
-            printf("Encoder: Volume Down\n");
-            usb::send_consumer_report(hid_consumer::VOLUME_DOWN);
-            delay_1ms(20);
-            usb::send_consumer_report(hid_consumer::NO_KEY);
+        // Step 1: Check for new user input only when idle.
+        if (hid_state == HidActionState::IDLE) {
+            int8_t rotation = encoder::get_rotation();
+            uint16_t action_key = hid_consumer::NO_KEY;
+
+            if (rotation > 0) {
+                printf("Action: Sending Volume Up...\n");
+                action_key = hid_consumer::VOLUME_UP;
+            } else if (rotation < 0) {
+                printf("Action: Sending Volume Down...\n");
+                action_key = hid_consumer::VOLUME_DOWN;
+            } else if (encoder::is_pressed()) {
+                printf("Action: Sending Mute...\n");
+                action_key = hid_consumer::MUTE;
+            }
+
+            // If an action was detected, send it and change state.
+            if (action_key != hid_consumer::NO_KEY) {
+                usb::send_consumer_report(action_key);
+                hid_state = HidActionState::WAITING_FOR_PRESS_CONFIRM;
+            }
+        }
+        
+        // Step 2: If we sent a "press", wait for it to complete before sending the "release".
+        else if (hid_state == HidActionState::WAITING_FOR_PRESS_CONFIRM) {
+            if (usb::is_std_hid_transfer_complete()) {
+                printf("Action: Press confirmed. Sending Release.\n");
+                usb::send_consumer_report(hid_consumer::NO_KEY);
+                hid_state = HidActionState::WAITING_FOR_RELEASE_CONFIRM; // Now wait for the release to complete
+            }
         }
 
-        if (encoder::is_pressed()) {
-            printf("Encoder: Mute Toggled\n");
-            usb::send_consumer_report(hid_consumer::MUTE);
-            delay_1ms(20);
-            usb::send_consumer_report(hid_consumer::NO_KEY);
+        // Step 3: If we sent a "release", wait for it to complete before returning to idle.
+        else if (hid_state == HidActionState::WAITING_FOR_RELEASE_CONFIRM) {
+            if (usb::is_std_hid_transfer_complete()) {
+                printf("Action: Release confirmed. Returning to Idle.\n");
+                hid_state = HidActionState::IDLE; // Ready for new input
+            }
         }
 
-        delay_1ms(10); // Keep this delay!
+        // A minimal, non-blocking delay is still good practice to yield CPU time.
+        delay_1ms(1);
     }
 }

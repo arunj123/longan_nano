@@ -27,6 +27,7 @@ namespace usb {
     bool is_configured();
 
     // Public API for sending reports
+    bool is_std_hid_transfer_complete();
     void send_mouse_report(int8_t x, int8_t y, int8_t wheel, uint8_t buttons);
     void send_keyboard_report(uint8_t modifier, uint8_t key);
     void send_consumer_report(uint16_t usage_code);
@@ -43,6 +44,7 @@ public:
     void timer_isr();
 
     // Public methods for the application
+    bool is_std_hid_transfer_complete();
     void send_mouse_report(int8_t x, int8_t y, int8_t wheel, uint8_t buttons);
     void send_keyboard_report(uint8_t modifier, uint8_t key);
     void send_consumer_report(uint16_t usage_code);

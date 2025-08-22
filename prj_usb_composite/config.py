@@ -64,7 +64,7 @@ for component_name in ['riscv_drivers', 'syscall_stubs', 'gd32_std_peripheral_li
     gd32_components[component_name]['module'] = "gd32"
 
 lib_components = {}
-for component_name in ['sdcard', 'system', 'debug_uart0',]:
+for component_name in ['sdcard', 'system', 'debug_uart0', 'gd32_lcd']:
     lib_components[component_name] = lib[component_name].copy()
     lib_components[component_name]['module'] = 'lib'
 
@@ -82,7 +82,7 @@ COMPONENTS = {
     },
     "application": {
         "c_sources": [r"src/gd32vf103_hw.c",],
-        "cpp_sources": [r"src/main.cpp", r"src/usbd_msc_mem.cpp", r"src/board.cpp", r"src/rotary_encoder.cpp"],
+        "cpp_sources": [r"src/main.cpp", r"src/board.cpp", r"src/rotary_encoder.cpp"],
         "asm_sources": [],
         "include_paths": [r"-Isrc"],
         "enabled": True

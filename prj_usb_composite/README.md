@@ -38,7 +38,7 @@ Connect the rotary encoder to the Longan Nano using the following conflict-free 
 | :----------------- | :-------------- | :------------- |
 | `S1` (or CLK)      | **PB10**        | 21             |
 | `S2` (or DT)       | **PB11**        | 22             |
-| `KEY` (or SW)      | **PB0**         | 18             |
+| `KEY` (or SW)      | **PB12**        | 23             |
 | `+` (or 5V)        | **3.3V**        |                |
 | `GND`              | **GND**         |                |
 

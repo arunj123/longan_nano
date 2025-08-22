@@ -6,8 +6,8 @@
             "type": "cortex-debug",
             "request": "launch",
             "servertype": "openocd",
-            "cwd": "${workspaceFolder}/prj_sdcard_test",
-            "executable": "${workspaceFolder}/build/prj_sdcard_test/firmware.elf",
+            "cwd": "${workspaceFolder}/prj_usb_composite",
+            "executable": "${workspaceFolder}/build/prj_usb_composite/firmware.elf",
             "gdbPath": "${workspaceFolder}/tools/xpack-riscv-none-elf-gcc-14.2.0-3/bin/riscv-none-elf-gdb-py3.exe",
             "serverpath": "${workspaceFolder}/tools/OpenOCD_0.12.0/bin/openocd.exe",
             "configFiles": [

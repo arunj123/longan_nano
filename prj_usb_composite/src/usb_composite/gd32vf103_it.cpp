@@ -39,18 +39,15 @@ void EXTI5_9_IRQHandler(void) {
     }
 }
 
-// This handler for the button press on PB0 is the same as it was for PA0.
-void EXTI0_IRQHandler(void) {
-    if (RESET != exti_interrupt_flag_get(EXTI_0)) {
-        encoder::key_isr();
-    }
-}
-
-// ADD this new handler for pins 10 through 15.
-// We check that it was specifically our pin (EXTI_10) that triggered it.
 void EXTI10_15_IRQHandler(void) {
+    // Check if the rotation pin (PB10) triggered the interrupt
     if (RESET != exti_interrupt_flag_get(EXTI_10)) {
         encoder::rotation_isr();
+    }
+    
+    // Check if the key press pin (PB12) triggered the interrupt
+    if (RESET != exti_interrupt_flag_get(EXTI_12)) {
+        encoder::key_isr();
     }
 }
 
