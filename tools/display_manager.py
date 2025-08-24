@@ -1,6 +1,7 @@
 import sys
 import time
 import hid
+import os
 from PIL import Image, ImageDraw, ImageFont, ImageChops
 
 # -----------------------------------------------------------------------------
@@ -12,36 +13,35 @@ REPORT_LENGTH = 64
 REPORT_ID = 0x00
 
 # Commands must match the firmware
-CMD_START_QUADRANT_TRANSFER = 0x05
+# CMD_START_QUADRANT_TRANSFER is removed
 CMD_IMAGE_DATA = 0x02
 CMD_DRAW_RECT = 0x06
+
+# --- NEW: Buffer configuration matching the device ---
+DEVICE_BUFFER_SIZE = 4096
+# Max pixels per transfer = 4096 bytes / 2 bytes_per_pixel
+MAX_PIXELS_PER_CHUNK = DEVICE_BUFFER_SIZE // 2
 
 # -----------------------------------------------------------------------------
 # -- IMAGE & FONT CONFIGURATION
 # -----------------------------------------------------------------------------
 LCD_WIDTH = 160
 LCD_HEIGHT = 80
-STATE_IMAGE_PATH = "current_display.png"  # Stores the last sent image
-OUTPUT_BIN_PATH = "image_160x80.bin"      # For full transfers
-UPDATE_BIN_PATH = "update.bin"            # For partial transfers
+STATE_IMAGE_PATH = "current_display.png"
 
 try:
     FONT_LARGE = ImageFont.truetype("FreeSans.ttf", 16)
     FONT_SMALL = ImageFont.truetype("Ubuntu-L.ttf", 11)
 except IOError:
-    print("Error: Font file 'DejaVuSans.ttf' not found.")
+    print("Error: Font file 'FreeSans.ttf' or 'Ubuntu-L.ttf' not found.")
     sys.exit(1)
 
-# -----------------------------------------------------------------------------
-# -- IMAGE GENERATION & DIFFERENCE DETECTION
-# -----------------------------------------------------------------------------
 def create_image(counter):
     """Generates the display image. The counter makes the content dynamic."""
     bg_color = (10, 20, 40)
     image = Image.new('RGB', (LCD_WIDTH, LCD_HEIGHT), color=bg_color)
     draw = ImageDraw.Draw(image)
 
-    # Display a dynamic temperature value
     temp = 23.5 + (counter % 10) / 10.0
     text = f"Temp: {temp:.1f} C"
     
@@ -57,15 +57,12 @@ def get_image_diff(img1, img2):
     bbox = diff.getbbox()
     return bbox
 
-# -----------------------------------------------------------------------------
-# -- USB HID COMMUNICATION
-# -----------------------------------------------------------------------------
 class DeviceManager:
     def __init__(self):
         self.device = None
+        self.sequence_number = 0
 
     def connect(self):
-        """Finds and connects to the Custom HID device."""
         if self.device:
             return True
         try:
@@ -74,6 +71,8 @@ class DeviceManager:
                     print(f"Found device at path: {device_dict['path']}")
                     self.device = hid.device()
                     self.device.open_path(device_dict['path'])
+                    self.device.set_nonblocking(1) 
+                    self.sequence_number = 0
                     print("--- Device Connected ---")
                     return True
             print("Device not found. Retrying...", end='\r')
@@ -83,57 +82,52 @@ class DeviceManager:
             self.device = None
             return False
 
+    def wait_for_ack(self, timeout_ms=2000):
+        """Waits for a specific ACK report from the device."""
+        start_time = time.time()
+        while (time.time() - start_time) * 1000 < timeout_ms:
+            # <-- CRITICAL FIX: The timeout is the second POSITIONAL argument.
+            report = self.device.read(64, 10) 
+            if report:
+                # Check for our ACK: Report ID 1, Data 0xAC (172)
+                if report[0] == 1 and report[1] == 0xAC:
+                    return True
+        print("Error: Timed out waiting for ACK from device.")
+        return False
+
+    # (send_data_payload and send_rect_update from the previous turn are correct)
     def send_data_payload(self, data):
         """Sends a raw data payload in chunks."""
         bytes_sent = 0
-        chunk_size = REPORT_LENGTH - 2  # Report ID (1) + Command (1)
+        chunk_size = REPORT_LENGTH - 1
         while bytes_sent < len(data):
             chunk = data[bytes_sent : bytes_sent + chunk_size]
-            packet = bytearray([REPORT_ID, CMD_IMAGE_DATA])
+            packet = bytearray([0, CMD_IMAGE_DATA])
             packet.extend(chunk)
-            if len(packet) < REPORT_LENGTH:
-                packet.extend([0] * (REPORT_LENGTH - len(packet)))
+            packet.extend([0] * (REPORT_LENGTH - len(packet)))
             self.device.write(packet)
             bytes_sent += len(chunk)
-            # A small delay is crucial for some USB host controllers
             time.sleep(0.001)
 
-    def send_full_image(self, image):
-        """Sends the entire image to the device using the quadrant method."""
-        print("\n--- Sending Full Image (4 Quadrants) ---")
-        image_data = image.tobytes("raw", "RGB")
-        
-        # Convert RGB888 to RGB565
-        rgb565_data = bytearray()
-        for i in range(0, len(image_data), 3):
-            r, g, b = image_data[i:i+3]
-            pixel = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3)
-            rgb565_data.extend(pixel.to_bytes(2, 'little'))
-
-        quadrant_bytes = LCD_WIDTH * (LCD_HEIGHT // 4) * 2
-        for i in range(4):
-            print(f"Sending Quadrant {i}...")
-            # Command packet: [ID, CMD, quadrant_index]
-            cmd_packet = bytearray([REPORT_ID, CMD_START_QUADRANT_TRANSFER, i])
-            cmd_packet.extend([0] * (REPORT_LENGTH - len(cmd_packet)))
-            self.device.write(cmd_packet)
-            time.sleep(0.05)
-            
-            start = i * quadrant_bytes
-            end = start + quadrant_bytes
-            self.send_data_payload(rgb565_data[start:end])
-        print("--- Full Image Sent ---")
-
-    def send_partial_update(self, image, bbox):
-        """Sends only the changed portion of the image."""
+    def send_rect_update(self, image, bbox):
+        if not bbox: return
         x1, y1, x2, y2 = bbox
         w, h = x2 - x1, y2 - y1
-        print(f"\n--- Sending Partial Update at ({x1},{y1}) size {w}x{h} ---")
+
+        if w <= 0 or h <= 0: return
+
+        if w * h > MAX_PIXELS_PER_CHUNK:
+            rows_per_chunk = MAX_PIXELS_PER_CHUNK // w
+            if rows_per_chunk == 0: rows_per_chunk = 1
+            for y_offset in range(0, h, rows_per_chunk):
+                chunk_h = min(rows_per_chunk, h - y_offset)
+                chunk_bbox = (x1, y1 + y_offset, x2, y1 + y_offset + chunk_h)
+                self.send_rect_update(image, chunk_bbox)
+            return
+
+        print(f"--- Sending Tile #{self.sequence_number} at ({x1},{y1}) size {w}x{h} ---")
         
-        # Crop the changed area from the new image
         cropped_image = image.crop(bbox)
-        
-        # Convert cropped image data to RGB565
         image_data = cropped_image.tobytes("raw", "RGB")
         rgb565_data = bytearray()
         for i in range(0, len(image_data), 3):
@@ -141,14 +135,20 @@ class DeviceManager:
             pixel = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3)
             rgb565_data.extend(pixel.to_bytes(2, 'little'))
             
-        # Command packet: [ID, CMD, x, y, w, h]
-        cmd_packet = bytearray([REPORT_ID, CMD_DRAW_RECT, x1, y1, w, h])
+        seq_lsb = self.sequence_number & 0xFF
+        seq_msb = (self.sequence_number >> 8) & 0xFF
+        payload = bytearray([x1, y1, w, h, seq_lsb, seq_msb])
+        cmd_packet = bytearray([0, CMD_DRAW_RECT])
+        cmd_packet.extend(payload)
         cmd_packet.extend([0] * (REPORT_LENGTH - len(cmd_packet)))
+
         self.device.write(cmd_packet)
-        time.sleep(0.05)
-        
         self.send_data_payload(rgb565_data)
-        print("--- Partial Update Sent ---")
+        
+        #if not self.wait_for_ack():
+        #    raise IOError(f"Device failed to acknowledge tile #{self.sequence_number}")
+
+        self.sequence_number = (self.sequence_number + 1) & 0xFFFF
 
     def close(self):
         if self.device:
@@ -156,46 +156,41 @@ class DeviceManager:
             print("--- Device Disconnected ---")
 
 
-# -----------------------------------------------------------------------------
-# -- MAIN WORKFLOW
-# -----------------------------------------------------------------------------
+# (The main workflow remains the same)
 if __name__ == "__main__":
+    if os.path.exists(STATE_IMAGE_PATH):
+        os.remove(STATE_IMAGE_PATH)
+        print("Removed old state file to force a full initial transfer.")
+
     manager = DeviceManager()
     update_counter = 0
     try:
         while not manager.connect():
             time.sleep(2)
 
-        # Load the previous state, if it exists
-        try:
-            previous_image = Image.open(STATE_IMAGE_PATH)
-        except FileNotFoundError:
-            previous_image = None
-            print("No previous state found. A full image transfer will be performed.")
-
+        previous_image = None
         while True:
-            # 1. Generate the new, dynamic image content
             new_image = create_image(update_counter)
             
-            # 2. Compare with the previous state to decide on update type
             if not previous_image:
-                # No previous state, must do a full transfer
-                manager.send_full_image(new_image)
+                print("\n--- Sending Full Image (as synchronized tiles) ---")
+                tile_w, tile_h = 40, 40
+                for y in range(0, LCD_HEIGHT, tile_h):
+                    for x in range(0, LCD_WIDTH, tile_w):
+                        right = min(x + tile_w, LCD_WIDTH)
+                        bottom = min(y + tile_h, LCD_HEIGHT)
+                        bbox = (x, y, right, bottom)
+                        manager.send_rect_update(new_image, bbox)
             else:
                 bbox = get_image_diff(previous_image, new_image)
                 if bbox:
-                    # Changes were found, do a partial update
-                    manager.send_partial_update(new_image, bbox)
-                else:
-                    # No changes, do nothing
-                    print("No changes detected. Skipping update.", end='\r')
+                    manager.send_rect_update(new_image, bbox)
 
-            # 3. Save the new image as the current state for the next iteration
             previous_image = new_image
             previous_image.save(STATE_IMAGE_PATH)
             
             update_counter += 1
-            time.sleep(2) # Wait before generating the next update
+            time.sleep(2)
 
     except KeyboardInterrupt:
         print("\nExiting.")

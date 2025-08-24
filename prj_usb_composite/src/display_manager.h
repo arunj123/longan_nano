@@ -4,26 +4,28 @@
 #include <cstdint>
 #include <array>
 #include <variant>
+#include <cstddef>
 
 namespace display {
 
 /**
- * @brief Contains compile-time constants related to the LCD geometry.
+ * @brief Contains compile-time constants for the display and buffer management.
  */
 namespace constants {
-    constexpr int LcdWidth = 160;
-    constexpr int LcdHeight = 80;
-    constexpr int NumQuadrants = 4;
-    constexpr int QuadrantHeight = LcdHeight / NumQuadrants;
-    constexpr int QuadrantPixels = LcdWidth * QuadrantHeight;
-    constexpr int QuadrantBytes = QuadrantPixels * 2;
+    constexpr size_t LcdWidth = 160;
+    constexpr size_t LcdHeight = 80;
+
+    // Buffer configuration ---
+    constexpr size_t NumBuffers = 4;
+    constexpr size_t BufferSizeBytes = 4096;
+    constexpr size_t MaxPixelsPerBuffer = BufferSizeBytes / 2; // Each pixel is 2 bytes (RGB555)
 }
 
 /**
  * @brief Type-safe enumeration for commands received from the host.
+ *        CMD_START_QUADRANT_TRANSFER has been removed.
  */
 enum class HostCommand : uint8_t {
-    START_QUADRANT_TRANSFER = 0x05,
     IMAGE_DATA = 0x02,
     DRAW_RECT = 0x06,
 };
@@ -35,23 +37,25 @@ struct Rect {
     uint8_t x, y, w, h;
 };
 
-/**
- * @brief Represents a task to draw a full quadrant.
- */
-struct QuadrantUpdate {
-    int quadrant_index;
+// State for each slot in the circular buffer ---
+enum class BufferState {
+    EMPTY,
+    RECEIVING,
+    READY_TO_DRAW
 };
 
-/**
- * @brief Represents a task to draw a partial rectangle.
- */
-struct PartialUpdate {
-    Rect region;
+// Structure to hold all metadata for a single draw task ---
+struct DrawTask {
+    BufferState state = BufferState::EMPTY;
+    Rect region = {0, 0, 0, 0};
+    uint32_t bytes_received = 0;
+    uint32_t total_bytes_expected = 0;
+    uint16_t sequence_number = 0;
 };
 
 /**
  * @class DisplayManager
- * @brief Manages the LCD framebuffers, USB data reception, and drawing tasks.
+ * @brief Manages the LCD framebuffers, USB data reception, and drawing tasks using a circular buffer.
  */
 class DisplayManager {
 public:
@@ -63,23 +67,22 @@ public:
     void processDrawTasks();
 
 private:
-    // --- FIX: All member variables are now correctly placed INSIDE the class definition ---
     DisplayManager() = default;
 
-    // The single-element queue for the next draw task.
-    std::variant<std::monostate, QuadrantUpdate, PartialUpdate> m_draw_task;
+    // Replaced single task with a circular buffer of tasks and framebuffers ---
+    
+    // An array of tasks, one for each buffer slot
+    std::array<DrawTask, constants::NumBuffers> m_draw_tasks;
 
-    // Synchronization flag between ISR and main loop.
-    volatile bool m_task_is_ready = false;
+    // The framebuffers, one for each task slot
+    std::array<std::array<uint8_t, constants::BufferSizeBytes>, constants::NumBuffers> m_framebuffers;
 
-    // Double framebuffers.
-    std::array<std::array<uint8_t, constants::QuadrantBytes>, 2> m_framebuffers;
-    volatile int m_usb_buffer_idx = 0;
-    volatile int m_dma_buffer_idx = 0;
-
-    // State for the current data reception process (only accessed by ISR).
-    uint32_t m_bytes_received = 0;
-    std::variant<std::monostate, QuadrantUpdate, PartialUpdate> m_current_rx_task;
+    // Volatile indices for safe ISR/main-loop interaction
+    volatile uint8_t m_usb_head_idx = 0; // Index for the ISR to write to
+    volatile uint8_t m_dma_tail_idx = 0; // Index for the main loop to draw from
+    
+    // Sequence number tracking ---
+    uint16_t m_expected_sequence_num = 0;
 };
 
 } // namespace display
