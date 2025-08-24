@@ -133,3 +133,7 @@ This project solves several common challenges in embedded USB development:
 - **Interrupt Stability:** The final rotary encoder driver is a case study in stable interrupt design. By triggering on a single edge and using a timer for debouncing, it solves the critical problem of **stack overflow** that can occur when interrupts fire too frequently from a noisy mechanical source.
 - **Race Condition Prevention:** The standard HID and Custom HID send functions use a `prev_transfer_complete` flag. This acts as a semaphore to prevent the main loop from trying to write to a USB endpoint while it's still busy transmitting the previous packet, which would otherwise corrupt the USB driver's state and cause a crash.
 - **Dynamic Interface Configuration:** The USB MSC interface is included or excluded at runtime based on the successful initialization of the SD card. The USB descriptors are dynamically modified *before* the USB core is initialized if the SD card is not present.
+
+## Fonts Used
+
+The Python-based `display_manager` tool uses open-source fonts, which are located in the `tools/display_manager/fonts` directory. For more details on the specific fonts and their licenses, please see the `README.md` file within that folder.

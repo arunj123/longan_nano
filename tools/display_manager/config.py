@@ -4,6 +4,7 @@ Configuration file for the LCD Display Manager.
 This version introduces multiple color themes and randomly selects one at startup.
 """
 import random # Import the random module
+import os
 
 # -- Device Configuration --
 VID = 0x28E9
@@ -25,14 +26,18 @@ WEATHER_UPDATE_INTERVAL_SECONDS = 15 * 60
 # -- UI Layout and Fonts --
 try:
     from PIL import ImageFont
-    FONT_PATH_BOLD = "FreeSansBold.ttf"
-    FONT_PATH_REGULAR = "Ubuntu-L.ttf"
+
+    # Get the absolute path of the directory containing this config file.
+    _CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+    # Construct paths to the font files relative to this script's location.
+    FONT_PATH_BOLD = os.path.join(_CURRENT_DIR, "fonts", "FreeSansBold.ttf")
+    FONT_PATH_REGULAR = os.path.join(_CURRENT_DIR, "fonts", "Ubuntu-L.ttf")
     
     FONT_TIME = ImageFont.truetype(FONT_PATH_BOLD, 32)
     FONT_TEMP = ImageFont.truetype(FONT_PATH_BOLD, 22)
     FONT_DATE = ImageFont.truetype(FONT_PATH_REGULAR, 16)
 except IOError:
-    raise IOError("Error: Font files not found. Make sure 'FreeSansBold.ttf' and 'Ubuntu-L.ttf' are in the same directory.")
+    raise IOError("Error: Font files not found. Make sure 'FreeSansBold.ttf' and 'Ubuntu-L.ttf' are in the 'fonts' subdirectory.")
 
 # -----------------------------------------------------------------------------
 # -- NEW: COLOR THEME PALETTE
