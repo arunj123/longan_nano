@@ -11,6 +11,7 @@
         "complex": "c",
         "systick.h": "c",
         "future": "cpp",
-        "diskio.h": "c"
+        "diskio.h": "c",
+        "xutility": "cpp"
     }
 }

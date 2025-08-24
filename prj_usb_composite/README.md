@@ -14,14 +14,13 @@ The device enumerates as three distinct USB interfaces simultaneously:
     - Rotating the knob sends **Volume Up/Down** commands to the host computer.
     - Pressing the knob sends a **Mute** command.
 - **Onboard Button Input:** The onboard `USER` button (PA8) is configured to type "Hi!" to demonstrate keyboard functionality.
-- **Custom HID Communication:**
-    - The device can send custom data packets to a host application (e.g., when the `USER` button is pressed).
-    - A host application can send data packets to the device to control the onboard RGB LED.
+- **Custom HID Communication:** A generic HID interface allows for bidirectional communication with host applications, used for both simple commands (like controlling the RGB LED) and complex data streaming.
+- **Dynamic LCD Display:** A Python tool (`tools/display_manager`) streams a dynamically generated UI to the device's LCD via Custom HID, showing time, date, and live weather data.
 - **Optional SD Card Mass Storage:** When enabled, the device appears as a USB drive, allowing direct access to the SD card from the host OS.
 - **Robust Interrupt-Driven Logic:**
     - All user inputs (rotary encoder, buttons) are handled via interrupts for maximum efficiency.
     - Includes robust software debouncing for both button presses and encoder rotation to prevent crashes and false inputs.
-- **Resilient Host Application:** A companion Python script is provided to demonstrate communication with the Custom HID interface. It's designed to automatically handle device disconnections and reconnections.
+- **Resilient Host Applications:** Companion Python scripts are provided to demonstrate communication with the Custom HID interface. They are designed to automatically handle device disconnections and reconnections.
 
 ## Hardware Required
 
@@ -86,21 +85,37 @@ Once the firmware is flashed and the device is connected to your computer, it wi
 
 ### Host-Side Python Script
 
-The Python script (`test_custom_hid.py`) allows you to interact with the Custom HID interface.
+This project includes two host-side Python scripts to demonstrate the Custom HID capabilities.
+
+#### 1. Dynamic Display Manager (`display_manager.py`)
+
+This is the primary host application that turns the Longan Nano into a mini information display. It generates a UI with the current time, date, and weather, and streams it to the device's LCD.
+
+![Live Display UI](display.png)
 
 1.  **Install the required library:**
     ```sh
-    pip install hidapi
+    pip install hidapi Pillow requests
     ```
+2.  **(Optional) Configure Location:**
+    Edit `tools/display_manager/config.py` and set your latitude and longitude to get local weather.
 2.  **Run the script:**
+    Navigate to the `tools/display_manager` directory and run the script.
     ```sh
-    python test_custom_hid.py
+    python display_manager.py
     ```
 3.  **Interact:**
     - The script will automatically find and connect to the device.
-    - It will begin sending commands to cycle the onboard RGB LED (Red -> Green -> Blue).
-    - When you press the onboard `USER` button, you will see a "Received data" message printed in the terminal, showing the counter value sent from the device.
-    - If you unplug or reset the device, the script will detect the disconnection and automatically attempt to reconnect.
+    - It performs an initial full-screen update and then sends only partial updates for changed areas (e.g., the clock changing every minute).
+
+#### 2. Basic Image Transfer Test (`test_custom_hid.py`)
+
+This is a simpler script for testing the raw image data transfer capability over Custom HID. It reads a pre-compiled binary image file and sends it to the device.
+
+To run it, navigate to the `tools` directory and execute:
+```sh
+python test_custom_hid.py
+```
 
 ## Code Structure
 
@@ -108,7 +123,7 @@ The Python script (`test_custom_hid.py`) allows you to interact with the Custom 
 - `src/usb_device.cpp / .h`: The core of the USB abstraction layer. Implements the `UsbDevice` singleton, manages the composite device descriptors, and dispatches USB events to the correct handlers (HID, MSC).
 - `src/rotary_encoder.cpp / .h`: A self-contained driver for the rotary encoder. It uses interrupts and software debouncing for reliable, efficient input processing.
 - `src/usb_composite/gd32vf103_it.cpp`: Contains the interrupt service routines (ISRs) that link hardware events (like USB interrupts and GPIO pin changes) to the C++ handler functions.
-- `../tools/test_custom_hid.py`: The Python script for communicating with the Custom HID interface.
+- `tools/display_manager/`: The Python application for the dynamic LCD display.
 
 ## Technical Deep Dive: Key Concepts
 
