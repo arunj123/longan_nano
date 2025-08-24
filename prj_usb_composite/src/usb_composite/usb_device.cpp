@@ -13,12 +13,7 @@
 #include <cstdio>
 #include "lcd.h"
 #include "shared_defs.h"
-
-// --- Reference the shared double buffers and state variables from main.cpp ---
-extern uint8_t g_framebuffers[2][QUADRANT_BYTES];
-extern volatile bool quadrant_ready_for_dma;
-extern volatile int dma_buffer_idx;
-extern volatile int usb_buffer_idx;
+#include "display_manager.h"
 
 // Forward declare C functions from the library that we will call
 extern "C" {
@@ -26,25 +21,6 @@ extern "C" {
     void usb_timer_irq(void);
     void serial_string_get(uint16_t *unicode_str);
 }
-
-// --- State machine for image transfer ---
-enum class ImageTransferState {
-    IDLE,
-    RECEIVING_IMAGE
-};
-static volatile ImageTransferState image_state = ImageTransferState::IDLE;
-static volatile uint32_t image_bytes_received = 0;
-volatile int g_current_quadrant_idx = 0; // Track which quadrant we are receiving
-
-// --- Flag for the main loop ---
-// This tells the main loop when it's time to draw the new frame.
-volatile bool is_new_frame_ready = false;
-
-// --- Define our simple protocol commands ---
-#define CMD_START_TRANSFER  0x01
-#define CMD_IMAGE_DATA      0x02
-#define CMD_END_TRANSFER    0x03 // Optional, for verification
-#define CMD_START_QUADRANT_TRANSFER  0x05
 
 // ===================================================================
 // Public Namespace Functions (The User's API)
@@ -344,41 +320,13 @@ void UsbDevice::_custom_hid_data_out() {
         return;
     }
 
+    // We pass the raw data directly to the DisplayManager.
+    display::DisplayManager::getInstance().handleUsbPacket(m_custom_hid_handler.data, received_count);
+
     uint8_t command = m_custom_hid_handler.data[0];
     uint8_t value   = m_custom_hid_handler.data[1];
 
     switch (command) {
-        case CMD_START_QUADRANT_TRANSFER: {
-            g_current_quadrant_idx = value;
-            // Removed the slow printf from here
-            image_bytes_received = 0;
-            break;
-        }
-
-        case CMD_IMAGE_DATA: {
-            uint32_t data_len = received_count - 2;
-            uint8_t* dest_ptr = g_framebuffers[usb_buffer_idx] + image_bytes_received;
-
-            if ((QUADRANT_BYTES - image_bytes_received) < data_len) {
-                // If we receive more data than expected, ignore the excess (padding bytes)
-                data_len = QUADRANT_BYTES - image_bytes_received;
-            }
-
-            memcpy(dest_ptr, &m_custom_hid_handler.data[1], data_len);
-            image_bytes_received += data_len;
-
-            if (image_bytes_received >= QUADRANT_BYTES) {
-                // --- FIX: This is the critical change ---
-                // NO printf() here. Just update the flags for the main loop.
-                dma_buffer_idx = usb_buffer_idx;
-                quadrant_ready_for_dma = true;
-                
-                usb_buffer_idx = 1 - usb_buffer_idx;
-                image_bytes_received = 0; 
-            }
-            break;
-        }
-
         // LED control logic uses 'value' which is data[1]
         case 0x11: {
             if (value) gpio_bit_reset(LED_R_GPIO_PORT, LED_R_PIN);
