@@ -33,8 +33,6 @@ namespace hid_consumer {
     constexpr uint16_t NO_KEY      = 0x0000;
 }
 
-extern volatile bool user_key_pressed;
-
 // --- State machine for sending HID actions ---
 enum class HidActionState {
     IDLE,
@@ -137,6 +135,7 @@ int main(void)
             }
         }
 
+        extern volatile bool user_key_pressed;
         if(user_key_pressed) {
             printf("User button pressed!\n");
             board_led_toggle();

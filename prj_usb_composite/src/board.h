@@ -37,6 +37,7 @@ void board_led_on(void);
 void board_led_off(void);
 void board_led_toggle(void);
 void board_key_init(void);
+void board_key_isr(void);
 
 // New helper function for toggling a GPIO pin
 void gpio_bit_toggle(uint32_t gpio_periph, uint32_t pin);

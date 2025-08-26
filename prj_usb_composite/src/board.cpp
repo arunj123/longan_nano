@@ -7,6 +7,8 @@
 
 #include "board.h"
 
+volatile bool user_key_pressed = false; // Flag to indicate key press to the application
+
 /*!
     \brief      efficiently toggles the specified GPIO pin
     \param[in]  gpio_periph: where x can be (A, B, C, D, E)
@@ -63,4 +65,19 @@ void board_key_init(void) {
     exti_interrupt_flag_clear(USER_KEY_EXTI_LINE);
 
     eclic_irq_enable(USER_KEY_EXTI_IRQn, 1, 0);
+}
+
+void board_key_isr(void) {
+    // Perform software debouncing using a static timer.
+    static volatile uint64_t last_key_press_time = 0;
+    const uint32_t DEBOUNCE_TIME_MS = 50;
+    uint64_t now = get_timer_value();
+
+    // Only execute the action if the debounce time has passed.
+    if ((now - last_key_press_time) > DEBOUNCE_TIME_MS) {
+        last_key_press_time = now; // Update the timer for the *next* valid press
+        user_key_pressed = true;   // Set the application flag
+    }
+
+    exti_interrupt_flag_clear(USER_KEY_EXTI_LINE);
 }

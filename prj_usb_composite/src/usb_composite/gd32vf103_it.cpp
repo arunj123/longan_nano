@@ -13,8 +13,6 @@ extern "C" {
 #include "systick.h" // For delay_1ms
 }
 
-volatile bool user_key_pressed = false;
-
 extern "C" {
 
 void USBFS_IRQHandler(void) {
@@ -32,9 +30,7 @@ void TIMER2_IRQHandler(void) {
 // This ISR now handles the single user key on the Longan Nano (PA8)
 void EXTI5_9_IRQHandler(void) {
     if (RESET != exti_interrupt_flag_get(USER_KEY_EXTI_LINE)) {
-        
-        user_key_pressed = true; // Set the flag to indicate the key was pressed
-
+        board_key_isr(); // Call the debounced key handler
         exti_interrupt_flag_clear(USER_KEY_EXTI_LINE);
     }
 }
