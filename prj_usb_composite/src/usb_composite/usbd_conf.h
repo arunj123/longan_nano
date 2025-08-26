@@ -49,7 +49,7 @@
 /* Custom HID Class Endpoints */
 #define CUSTOM_HID_IN_EP                   EP_IN(2U)
 #define CUSTOM_HID_OUT_EP                  EP_OUT(2U)
-#define CUSTOM_HID_IN_PACKET               2U
+#define CUSTOM_HID_IN_PACKET               64U
 #define CUSTOM_HID_OUT_PACKET              64U
 
 /* Mass Storage Class Endpoints & Configuration */
