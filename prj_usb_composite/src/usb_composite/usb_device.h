@@ -32,6 +32,7 @@ namespace usb {
     void send_keyboard_report(uint8_t modifier, uint8_t key);
     void send_consumer_report(uint16_t usage_code);
     void send_custom_hid_report(uint8_t report_id, uint8_t data);
+    bool is_in_transfer_complete(); 
 }
 
 class UsbDevice {
@@ -49,6 +50,7 @@ public:
     void send_keyboard_report(uint8_t modifier, uint8_t key);
     void send_consumer_report(uint16_t usage_code);
     void send_custom_hid_report(uint8_t report_id, uint8_t data);
+    bool is_in_transfer_complete();
 
 private:
     UsbDevice();
@@ -121,6 +123,9 @@ private:
 
     static UsbDevice* s_instance;
 
+    // A single, global flag to prevent concurrent IN transfers
+    volatile bool m_in_transfer_complete;
+
     usb_core_driver m_core_driver;
     usb_class_core  m_class_core;
     usb_desc        m_descriptors;
@@ -140,6 +145,7 @@ private:
     friend void usb::send_keyboard_report(uint8_t, uint8_t);
     friend void usb::send_consumer_report(uint16_t);
     friend void usb::send_custom_hid_report(uint8_t, uint8_t);
+    friend bool usb::is_std_hid_transfer_complete();
 };
 
 #endif // USB_DEVICE_H

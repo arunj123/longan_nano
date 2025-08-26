@@ -17,6 +17,7 @@
 
 // Forward declare C functions from the library that we will call
 extern "C" {
+    #include "usbd_transc.h"
     void usbd_isr(usb_core_driver *udev);
     void usb_timer_irq(void);
     void serial_string_get(uint16_t *unicode_str);
@@ -33,8 +34,7 @@ void usb::send_mouse_report(int8_t x, int8_t y, int8_t wheel, uint8_t buttons) {
 void usb::send_keyboard_report(uint8_t modifier, uint8_t key) { UsbDevice::getInstance().send_keyboard_report(modifier, key); }
 void usb::send_consumer_report(uint16_t usage_code) { UsbDevice::getInstance().send_consumer_report(usage_code); }
 void usb::send_custom_hid_report(uint8_t report_id, uint8_t data) { UsbDevice::getInstance().send_custom_hid_report(report_id, data); }
-bool usb::is_std_hid_transfer_complete() { return UsbDevice::getInstance().is_std_hid_transfer_complete(); }
-
+bool usb::is_std_hid_transfer_complete() { return UsbDevice::getInstance().is_in_transfer_complete(); }
 // ===================================================================
 // UsbDevice Class Implementation
 // ===================================================================
@@ -50,7 +50,7 @@ UsbDevice& UsbDevice::getInstance() {
     return instance;
 }
 
-UsbDevice::UsbDevice() : m_msc_enabled(false) {
+UsbDevice::UsbDevice() : m_msc_enabled(false), m_in_transfer_complete(true) {
     memset(&m_core_driver, 0, sizeof(usb_core_driver));
     memset(&m_class_core, 0, sizeof(usb_class_core));
     memset(&m_descriptors, 0, sizeof(usb_desc));
@@ -69,6 +69,10 @@ UsbDevice::UsbDevice() : m_msc_enabled(false) {
     m_descriptors.strings = usbd_composite_strings;
 
     serial_string_get((uint16_t*)m_descriptors.strings[usb::STR_IDX_SERIAL]);
+}
+
+bool UsbDevice::is_in_transfer_complete() {
+    return m_in_transfer_complete;
 }
 
 void UsbDevice::init(bool enable_msc) {
@@ -104,38 +108,48 @@ void UsbDevice::timer_isr() { usb_timer_irq(); }
 // --- Report Sending Methods ---
 void UsbDevice::send_mouse_report(int8_t x, int8_t y, int8_t wheel, uint8_t buttons) {
     uint8_t report[5] = {REPORT_ID_MOUSE, buttons, (uint8_t)x, (uint8_t)y, (uint8_t)wheel};
-    if (m_std_hid_handler.prev_transfer_complete) {
-        m_std_hid_handler.prev_transfer_complete = 0; // Mark endpoint as busy
+    if (m_in_transfer_complete) {
+        m_in_transfer_complete = false;
+        
+        // Flush and re-arm the Custom HID OUT endpoint to kick the driver
+        // out of its unstable idle state before starting a new IN transfer.
+        usbd_fifo_flush(&m_core_driver, CUSTOM_HID_OUT_EP);
+        usbd_ep_recev(&m_core_driver, CUSTOM_HID_OUT_EP, m_custom_hid_handler.data, 64U);
+
         usbd_ep_send(&m_core_driver, STD_HID_IN_EP, report, 5);
     }
 }
 
 void UsbDevice::send_keyboard_report(uint8_t modifier, uint8_t key) {
     uint8_t report[9] = {REPORT_ID_KEYBOARD, modifier, 0, key, 0, 0, 0, 0, 0};
-    if (m_std_hid_handler.prev_transfer_complete) {
-        m_std_hid_handler.prev_transfer_complete = 0;
+    if (m_in_transfer_complete) {
+        m_in_transfer_complete = false;
+        usbd_fifo_flush(&m_core_driver, CUSTOM_HID_OUT_EP);
+        usbd_ep_recev(&m_core_driver, CUSTOM_HID_OUT_EP, m_custom_hid_handler.data, 64U);
         usbd_ep_send(&m_core_driver, STD_HID_IN_EP, report, 9);
     }
 }
 
 void UsbDevice::send_consumer_report(uint16_t usage_code) {
     uint8_t report[3] = {REPORT_ID_CONSUMER, (uint8_t)(usage_code & 0xFF), (uint8_t)(usage_code >> 8)};
-    if (m_std_hid_handler.prev_transfer_complete) {
-        m_std_hid_handler.prev_transfer_complete = 0;
+    if (m_in_transfer_complete) {
+        m_in_transfer_complete = false;
+        usbd_fifo_flush(&m_core_driver, CUSTOM_HID_OUT_EP);
+        usbd_ep_recev(&m_core_driver, CUSTOM_HID_OUT_EP, m_custom_hid_handler.data, 64U);
         usbd_ep_send(&m_core_driver, STD_HID_IN_EP, report, 3);
     }
 }
 
 void UsbDevice::send_custom_hid_report(uint8_t report_id, uint8_t data) {
-    if (m_custom_hid_handler.prev_transfer_complete) {
-        m_custom_hid_handler.prev_transfer_complete = 0; // Mark as busy
+    if (m_in_transfer_complete) {
+        m_in_transfer_complete = false;
         uint8_t report[2] = {report_id, data};
         usbd_ep_send(&m_core_driver, CUSTOM_HID_IN_EP, report, 2);
     }
 }
 
 bool UsbDevice::is_std_hid_transfer_complete() {
-    return m_std_hid_handler.prev_transfer_complete;
+    return m_in_transfer_complete;
 }
 
 
@@ -192,12 +206,25 @@ uint8_t UsbDevice::_req_handler(usb::UsbRequest *req) {
 }
 
 uint8_t UsbDevice::_data_in(uint8_t ep_num) {
-    if (ep_num == (STD_HID_IN_EP & 0x7F))    { _std_hid_data_in(); return USBD_OK; }
-    if (ep_num == (CUSTOM_HID_IN_EP & 0x7F)) { _custom_hid_data_in(); return USBD_OK; }
+    bool processed = false;
+    if (ep_num == (STD_HID_IN_EP & 0x7F)) { 
+        // This endpoint completion signifies a transfer is done
+        processed = true;
+    }
+    if (ep_num == (CUSTOM_HID_IN_EP & 0x7F)) {
+        // This endpoint completion also signifies a transfer is done
+        processed = true;
+    }
     if (m_msc_enabled && (ep_num == (MSC_IN_EP & 0x7F))) {
         _msc_data_in();
+        return USBD_OK; // MSC has its own complex state machine
+    }
+
+    if (processed) {
+        m_in_transfer_complete = 1U; // Release the global mutex
         return USBD_OK;
     }
+    
     return USBD_FAIL;
 }
 
@@ -232,36 +259,51 @@ void UsbDevice::_std_hid_deinit() {
 }
 
 uint8_t UsbDevice::_std_hid_req_handler(usb::UsbRequest *req) {
+    // Get the pointer to the control IN transaction state
     usb_transc *transc = &m_core_driver.dev.transc_in[0];
+
     switch(static_cast<usb::hid::HidReq>(req->bRequest)) {
-        case usb::hid::HidReq::GET_REPORT: break;
+        case usb::hid::HidReq::GET_REPORT: 
+            break;
+
         case usb::hid::HidReq::GET_IDLE:
+            // Step 1: Prepare the transaction data
             transc->xfer_buf = (uint8_t *)&m_std_hid_handler.idle_state;
             transc->remain_len = 1U;
+            // Step 2: Initiate the control send
+            usbd_ctl_send(&m_core_driver);
             break;
+
         case usb::hid::HidReq::GET_PROTOCOL:
             transc->xfer_buf = (uint8_t *)&m_std_hid_handler.protocol;
             transc->remain_len = 1U;
+            usbd_ctl_send(&m_core_driver);
             break;
-        case usb::hid::HidReq::SET_REPORT: break;
-        case usb::hid::HidReq::SET_IDLE: m_std_hid_handler.idle_state = (uint8_t)(req->wValue >> 8); break;
-        case usb::hid::HidReq::SET_PROTOCOL: m_std_hid_handler.protocol = (uint8_t)(req->wValue); break;
+
+        case usb::hid::HidReq::SET_REPORT: 
+            break;
+
+        case usb::hid::HidReq::SET_IDLE: 
+            m_std_hid_handler.idle_state = (uint8_t)(req->wValue >> 8); 
+            break;
+            
+        case usb::hid::HidReq::SET_PROTOCOL: 
+            m_std_hid_handler.protocol = (uint8_t)(req->wValue); 
+            break;
+
         default:
-            // Handle standard requests like GET_DESCRIPTOR for REPORT
             if (req->bRequest == static_cast<uint8_t>(usb::StdReq::GET_DESCRIPTOR)) {
                 if(usb::hid::DESC_TYPE_REPORT == (req->wValue >> 8)) {
                     transc->remain_len = USB_MIN(STD_HID_REPORT_DESC_LEN, req->wLength);
                     transc->xfer_buf = (uint8_t *)std_hid_report_descriptor;
-                    return static_cast<uint8_t>(usb::ReqStatus::REQ_SUPP);
+                    usbd_ctl_send(&m_core_driver);
                 }
+            } else {
+                return USBD_FAIL;
             }
             break;
     }
     return USBD_OK;
-}
-
-void UsbDevice::_std_hid_data_in() {
-    m_std_hid_handler.prev_transfer_complete = 1U;
 }
 
 // --- Custom HID Implementation ---
@@ -278,35 +320,50 @@ void UsbDevice::_custom_hid_deinit() {
 }
 
 uint8_t UsbDevice::_custom_hid_req_handler(usb::UsbRequest *req) {
+    // Get the pointer to the control IN transaction state
     usb_transc *transc = &m_core_driver.dev.transc_in[0];
+
     switch(static_cast<usb::hid::HidReq>(req->bRequest)) {
-        case usb::hid::HidReq::GET_REPORT: break;
+        case usb::hid::HidReq::GET_REPORT: 
+            break;
+
         case usb::hid::HidReq::GET_IDLE:
             transc->xfer_buf = (uint8_t *)&m_custom_hid_handler.idlestate;
             transc->remain_len = 1U;
+            usbd_ctl_send(&m_core_driver);
             break;
+
         case usb::hid::HidReq::GET_PROTOCOL:
             transc->xfer_buf = (uint8_t *)&m_custom_hid_handler.protocol;
             transc->remain_len = 1U;
+            usbd_ctl_send(&m_core_driver);
             break;
-        case usb::hid::HidReq::SET_REPORT: m_custom_hid_handler.reportID = (uint8_t)(req->wValue); break;
-        case usb::hid::HidReq::SET_IDLE: m_custom_hid_handler.idlestate = (uint8_t)(req->wValue >> 8); break;
-        case usb::hid::HidReq::SET_PROTOCOL: m_custom_hid_handler.protocol = (uint8_t)(req->wValue); break;
+
+        case usb::hid::HidReq::SET_REPORT: 
+            m_custom_hid_handler.reportID = (uint8_t)(req->wValue); 
+            break;
+
+        case usb::hid::HidReq::SET_IDLE: 
+            m_custom_hid_handler.idlestate = (uint8_t)(req->wValue >> 8); 
+            break;
+
+        case usb::hid::HidReq::SET_PROTOCOL: 
+            m_custom_hid_handler.protocol = (uint8_t)(req->wValue); 
+            break;
+
         default:
             if (req->bRequest == static_cast<uint8_t>(usb::StdReq::GET_DESCRIPTOR)) {
                 if(usb::hid::DESC_TYPE_REPORT == (req->wValue >> 8)) {
                     transc->remain_len = USB_MIN(CUSTOM_HID_REPORT_DESC_LEN, req->wLength);
                     transc->xfer_buf = (uint8_t *)custom_hid_report_descriptor;
-                    return static_cast<uint8_t>(usb::ReqStatus::REQ_SUPP);
+                    usbd_ctl_send(&m_core_driver);
                 }
+            } else {
+                return USBD_FAIL;
             }
-            return USBD_FAIL;
+            break;
     }
     return USBD_OK;
-}
-
-void UsbDevice::_custom_hid_data_in() {
-    m_custom_hid_handler.prev_transfer_complete = 1U; // Mark as ready for next transfer
 }
 
 void UsbDevice::_custom_hid_data_out() {
