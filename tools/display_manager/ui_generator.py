@@ -60,10 +60,12 @@ def _create_weather_icon(icon_name: str, size: tuple[int, int]) -> Image.Image:
     
     # Define color palette for icons
     C_SUN = (255, 200, 0)
+    C_MOON = (240, 240, 230) # A soft off-white for the moon
     C_CLOUD = (220, 220, 220)
     C_RAIN = (100, 140, 255)
     C_SNOW = (240, 240, 240)
     C_CLOUD_DARK = (160, 160, 170)
+    C_FOG = (180, 180, 180, 150) # Semi-transparent grey for fog
     SHADOW = (0, 0, 0, 50) # Semi-transparent black for shadows
     shadow_offset = (2, 2)
 
@@ -80,16 +82,36 @@ def _create_weather_icon(icon_name: str, size: tuple[int, int]) -> Image.Image:
             y2 = center[1] + sin(angle) * (radius + 3)
             draw.line([(x1, y1), (x2, y2)], fill=color, width=2)
 
+    def draw_crescent(offset=(0, 0), color=C_MOON):
+        """Draws a crescent moon shape."""
+        cx, cy = w / 2 + offset[0], h / 2 + offset[1]
+        r = 10
+        # Draw the main lit body of the moon
+        draw.ellipse((cx - r, cy - r, cx + r, cy + r), fill=color)
+        # Draw a semi-transparent overlapping circle to create the "dark side".
+        # This gives the crescent effect against the gradient background.
+        # The shadow color is semi-transparent black, which darkens what's behind it.
+        draw.ellipse((cx - r + 5, cy - r - 2, cx + r + 5, cy + r - 2), fill=SHADOW)
+
     def draw_cloud(offset=(0, 0), color=C_CLOUD):
         x, y = offset[0] + w / 2, offset[1] + h / 2
         # Compose cloud from two overlapping ellipses
         draw.ellipse((x - 18, y - 5, x + 8, y + 15), fill=color)
         draw.ellipse((x - 8, y - 12, x + 18, y + 12), fill=color)
 
+    def draw_fog(offset=(0,0), color=C_FOG):
+        """Draws horizontal lines to represent fog."""
+        for y_pos in [h/2 + 2, h/2 + 7, h/2 + 12]:
+            draw.line((w/2 - 15 + offset[0], y_pos + offset[1], w/2 + 15 + offset[0], y_pos + offset[1]), fill=color, width=3)
+
     # Draw icons based on name, always drawing shadow first for a 3D effect
     if icon_name == "sun":
         draw_sun(shadow_offset, SHADOW)
         draw_sun()
+    elif icon_name == "moon":
+        # The crescent itself has a shadow, but we add a drop shadow for the whole shape
+        draw_crescent(shadow_offset, SHADOW)
+        draw_crescent()
     elif icon_name == "cloud":
         draw_cloud(shadow_offset, SHADOW)
         draw_cloud()
@@ -97,25 +119,56 @@ def _create_weather_icon(icon_name: str, size: tuple[int, int]) -> Image.Image:
         draw_cloud(shadow_offset, SHADOW)
         draw_sun(offset=(-4, -4)) # Sun peeking from behind
         draw_cloud(offset=(0, 4))
-    elif icon_name in ["rain", "snow"]:
+    elif icon_name == "moon_cloud":
+        draw_cloud(shadow_offset, SHADOW)
+        draw_crescent(offset=(-4, -4)) # Moon peeking from behind
+        draw_cloud(offset=(0, 4))
+    elif icon_name == "fog":
+        draw_fog(shadow_offset, SHADOW)
+        draw_fog()
+    elif icon_name in ["drizzle", "rain", "heavy_rain", "light_rain", "snow", "heavy_snow", "light_snow", "freezing_rain"]:
         draw_cloud(shadow_offset, SHADOW)
         draw_cloud(color=C_CLOUD_DARK)
-        if icon_name == "rain":
-            # Draw raindrops with shadows
-            for pos in [(w/2 - 6, h/2 + 4), (w/2 + 4, h/2 + 4)]:
+        # --- Rain Variants ---
+        if icon_name == "drizzle":
+            for pos in [(w/2 - 8, h/2 + 6), (w/2, h/2 + 6), (w/2 + 8, h/2 + 6)]:
+                draw.line((pos[0], pos[1], pos[0] + 1, pos[1] + 4), fill=C_RAIN, width=1)
+        elif icon_name == "light_rain":
+            for pos in [(w/2 - 7, h/2 + 5), (w/2 + 3, h/2 + 5)]:
+                draw.line((pos[0] + shadow_offset[0], pos[1] + shadow_offset[1], pos[0] + shadow_offset[0], pos[1] + shadow_offset[1] + 5), fill=SHADOW, width=2)
+                draw.line((pos[0], pos[1], pos[0], pos[1] + 5), fill=C_RAIN, width=2)
+        elif icon_name == "rain": # Moderate
+            for pos in [(w/2 - 8, h/2 + 5), (w/2, h/2 + 5), (w/2 + 8, h/2 + 5)]:
                 draw.line((pos[0] + shadow_offset[0], pos[1] + shadow_offset[1], pos[0] + shadow_offset[0], pos[1] + shadow_offset[1] + 6), fill=SHADOW, width=3)
                 draw.line((pos[0], pos[1], pos[0], pos[1] + 6), fill=C_RAIN, width=3)
-        else: # Snow
-            # Draw snowflakes
+        elif icon_name == "heavy_rain":
+            for pos in [(w/2 - 10, h/2 + 5), (w/2 - 2, h/2 + 5), (w/2 + 6, h/2 + 5)]:
+                draw.line((pos[0] + shadow_offset[0], pos[1] + shadow_offset[1], pos[0] + shadow_offset[0], pos[1] + shadow_offset[1] + 8), fill=SHADOW, width=4)
+                draw.line((pos[0], pos[1], pos[0], pos[1] + 8), fill=C_RAIN, width=4)
+        elif icon_name == "freezing_rain":
+            draw.line((w/2 - 7, h/2 + 5, w/2 - 7, h/2 + 11), fill=C_RAIN, width=3)
+            draw.ellipse((w/2 + 2, h/2 + 8, w/2 + 6, h/2 + 12), fill=C_SNOW)
+        # --- Snow Variants ---
+        elif icon_name == "light_snow":
             for pos in [(w/2 - 6, h/2 + 8), (w/2 + 4, h/2 + 8)]:
-                draw.ellipse((pos[0] - 1, pos[1] - 1, pos[0] + 3, pos[1] + 3), fill=C_SNOW)
-    elif icon_name == "storm":
+                draw.ellipse((pos[0] - 1, pos[1] - 1, pos[0] + 2, pos[1] + 2), fill=C_SNOW)
+        elif icon_name == "snow": # Moderate
+            for pos in [(w/2 - 8, h/2 + 8), (w/2, h/2 + 10), (w/2 + 6, h/2 + 8)]:
+                draw.ellipse((pos[0] - 2, pos[1] - 2, pos[0] + 3, pos[1] + 3), fill=C_SNOW)
+        elif icon_name == "heavy_snow":
+            for pos in [(w/2 - 10, h/2 + 8), (w/2 - 2, h/2 + 10), (w/2 + 6, h/2 + 8), (w/2, h/2 + 5)]:
+                draw.ellipse((pos[0] - 2, pos[1] - 2, pos[0] + 4, pos[1] + 4), fill=C_SNOW)
+    elif icon_name == "storm" or icon_name == "storm_hail":
         draw_cloud(shadow_offset, SHADOW)
         draw_cloud(color=(80, 80, 90)) # Dark storm cloud
         # Draw lightning bolt with shadow
         bolt_path = [(w/2 + 2, h/2), (w/2 - 4, h/2 + 8), (w/2, h/2 + 8), (w/2 - 6, h/2 + 18)]
         draw.line(bolt_path, fill=SHADOW, width=4)
         draw.line(bolt_path, fill=C_SUN, width=2)
+        if icon_name == "storm_hail":
+            # Add hail stones
+            for pos in [(w/2 - 10, h/2 + 5), (w/2 + 8, h/2 + 12)]:
+                draw.ellipse((pos[0] - 2, pos[1] - 2, pos[0] + 3, pos[1] + 3), fill=C_SNOW)
         
     return icon
 

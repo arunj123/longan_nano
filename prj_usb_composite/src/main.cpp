@@ -33,6 +33,8 @@ namespace hid_consumer {
     constexpr uint16_t NO_KEY      = 0x0000;
 }
 
+extern volatile bool user_key_pressed;
+
 // --- State machine for sending HID actions ---
 enum class HidActionState {
     IDLE,
@@ -133,6 +135,12 @@ int main(void)
                 printf("Action: Release confirmed. Returning to Idle.\n");
                 hid_state = HidActionState::IDLE; // Ready for new input
             }
+        }
+
+        if(user_key_pressed) {
+            printf("User button pressed!\n");
+            board_led_toggle();
+            user_key_pressed = false;
         }
 
         // A minimal, non-blocking delay is still good practice to yield CPU time.

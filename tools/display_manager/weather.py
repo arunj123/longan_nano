@@ -28,44 +28,66 @@ def get_weather(lat: float, lon: float) -> Optional[Dict[str, Any]]:
         data = response.json()
         
         current = data['current_weather']
+        # is_day is 1 for daytime, 0 for nighttime. Default to 1 (day) if not present.
+        is_day = current.get('is_day', 1)
         weather_info = {
             'temperature': int(round(current['temperature'])),
-            'icon': _map_weather_code_to_icon(current['weathercode'])
+            'icon': _map_weather_code_to_icon(current['weathercode'], is_day),
+            'is_day': is_day
         }
         
-        print(f"Weather Updated: {weather_info['temperature']}°C, Condition: {weather_info['icon']}")
+        print(f"Weather Updated: {weather_info['temperature']}°C, Condition: {weather_info['icon']} (Day: {weather_info['is_day']})")
         return weather_info
         
     except requests.exceptions.RequestException as e:
         print(f"Error fetching weather: {e}")
         return None
 
-def _map_weather_code_to_icon(code: int) -> str:
+def _map_weather_code_to_icon(code: int, is_day: int) -> str:
     """
-    Maps WMO weather interpretation codes to our internal icon names.
+    Maps WMO weather interpretation codes to our internal icon names,
+    accounting for day and night.
 
     The codes are based on the WMO Code 4561 standard.
     Reference: https://open-meteo.com/en/docs#weathervariables
 
     Args:
         code (int): The integer weather code from the API.
+        is_day (int): 1 if it is daytime, 0 if it is nighttime.
 
     Returns:
         str: The corresponding icon name (e.g., "sun", "rain", "storm").
              Defaults to "cloud" for unknown codes.
     """
     # Clear sky or few clouds
-    if code in [0, 1]: return "sun"
+    if code in [0, 1]:
+        return "sun" if is_day else "moon"
     # Scattered or broken clouds
-    if code in [2]: return "sun_cloud"
-    # Overcast, fog
-    if code in [3, 45, 48]: return "cloud"
-    # Drizzle, rain
-    if code in [51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82]: return "rain"
-    # Snow, freezing rain
-    if code in [71, 73, 75, 77, 85, 86]: return "snow"
+    if code in [2]:
+        return "sun_cloud" if is_day else "moon_cloud"
+    # Overcast
+    if code in [3]: return "cloud"
+    # Fog
+    if code in [45, 48]: return "fog"
+    # Drizzle
+    if code in [51, 53, 55]: return "drizzle"
+    # Freezing Drizzle/Rain
+    if code in [56, 57, 66, 67]: return "freezing_rain"
+    # Light Rain
+    if code in [61, 80]: return "light_rain"
+    # Moderate Rain
+    if code in [63, 81]: return "rain"
+    # Heavy Rain
+    if code in [65, 82]: return "heavy_rain"
+    # Light Snow
+    if code in [71, 77, 85]: return "light_snow"
+    # Moderate Snow
+    if code in [73]: return "snow"
+    # Heavy Snow
+    if code in [75, 86]: return "heavy_snow"
     # Thunderstorm
-    if code in [95, 96, 99]: return "storm"
-    
+    if code in [95]: return "storm"
+    # Thunderstorm with Hail
+    if code in [96, 99]: return "storm_hail"
     # Default to a generic cloud icon for any other codes
     return "cloud"

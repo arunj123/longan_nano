@@ -75,7 +75,7 @@ class DeviceManager:
             data (bytearray): The raw byte data to send.
         """
         sent_bytes = 0
-        payload_size = config.REPORT_LENGTH - 1  # Report ID (1)
+        payload_size = config.REPORT_LENGTH - 1  # Report ID (1) + Command Byte (1)
 
         while sent_bytes < len(data):
             chunk = data[sent_bytes : sent_bytes + payload_size]
@@ -85,7 +85,11 @@ class DeviceManager:
             packet.extend(chunk)
             packet.extend([0] * (config.REPORT_LENGTH - len(packet)))
             
-            self.device.write(packet)
+            # Check the return value of write(). It returns -1 on error.
+            bytes_written = self.device.write(packet)
+            if bytes_written < 0:
+                raise OSError("HID write failed. Device may be disconnected.")
+
             sent_bytes += len(chunk)
             # A small delay is crucial for flow control with the firmware.
             time.sleep(0.001)
@@ -145,8 +149,11 @@ class DeviceManager:
         command_packet.extend(payload)
         command_packet.extend([0] * (config.REPORT_LENGTH - len(command_packet)))
         
-        self.device.write(command_packet)
-        time.sleep(0.0005) # Wait for firmware to process the command.
+        # Check the return value of write(). It returns -1 on error.
+        bytes_written = self.device.write(command_packet)
+        if bytes_written < 0:
+            raise OSError("HID write failed. Device may be disconnected.")
+        time.sleep(0.005) # Wait for firmware to process the command.
 
         # 3. Send the actual pixel data.
         self.send_data_payload(pixel_data_rgb565)
@@ -214,14 +221,15 @@ def main():
                     # Wait before generating the next frame
                     time.sleep(5)
             except OSError as e:
-                print(f"\n--- Device Disconnected {e} ---")
-                if manager: manager.close()
-                manager = None
-                time.sleep(2)
+                print(f"\nDevice error or disconnection: {e}")
+                manager.close() # Properly close the handle, sets internal device to None
+                print("Attempting to reconnect in 3 seconds...")
+                time.sleep(3)
     except KeyboardInterrupt:
         print("\nExiting.")
     finally:
-        manager.close()
+        if manager:
+            manager.close()
 
 if __name__ == "__main__":
     main()
