@@ -139,6 +139,12 @@ int main(void)
         if(user_key_pressed) {
             printf("User button pressed!\n");
             board_led_toggle();
+            // 1. Create the data payload you want to send.
+            uint8_t report_payload[2] = {0x01, 0x01};
+
+            // 2. Send it using the new, correct function.
+            usb::send_custom_hid_report(report_payload, sizeof(report_payload));
+            
             user_key_pressed = false;
         }
 

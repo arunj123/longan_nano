@@ -31,7 +31,7 @@ namespace usb {
     void send_mouse_report(int8_t x, int8_t y, int8_t wheel, uint8_t buttons);
     void send_keyboard_report(uint8_t modifier, uint8_t key);
     void send_consumer_report(uint16_t usage_code);
-    void send_custom_hid_report(uint8_t report_id, uint8_t data);
+    bool send_custom_hid_report(const uint8_t* buffer, size_t length);
     bool is_in_transfer_complete(); 
 }
 
@@ -49,7 +49,7 @@ public:
     void send_mouse_report(int8_t x, int8_t y, int8_t wheel, uint8_t buttons);
     void send_keyboard_report(uint8_t modifier, uint8_t key);
     void send_consumer_report(uint16_t usage_code);
-    void send_custom_hid_report(uint8_t report_id, uint8_t data);
+    bool send_custom_hid_report(const uint8_t* buffer, size_t length);
     bool is_in_transfer_complete();
 
 private:
@@ -144,7 +144,7 @@ private:
     friend void usb::send_mouse_report(int8_t, int8_t, int8_t, uint8_t);
     friend void usb::send_keyboard_report(uint8_t, uint8_t);
     friend void usb::send_consumer_report(uint16_t);
-    friend void usb::send_custom_hid_report(uint8_t, uint8_t);
+    friend bool usb::send_custom_hid_report(const uint8_t*, size_t);
     friend bool usb::is_std_hid_transfer_complete();
 };
 

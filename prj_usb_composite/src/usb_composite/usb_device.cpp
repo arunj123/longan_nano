@@ -33,7 +33,7 @@ bool usb::is_configured() { return UsbDevice::getInstance().is_configured(); }
 void usb::send_mouse_report(int8_t x, int8_t y, int8_t wheel, uint8_t buttons) { UsbDevice::getInstance().send_mouse_report(x, y, wheel, buttons); }
 void usb::send_keyboard_report(uint8_t modifier, uint8_t key) { UsbDevice::getInstance().send_keyboard_report(modifier, key); }
 void usb::send_consumer_report(uint16_t usage_code) { UsbDevice::getInstance().send_consumer_report(usage_code); }
-void usb::send_custom_hid_report(uint8_t report_id, uint8_t data) { UsbDevice::getInstance().send_custom_hid_report(report_id, data); }
+bool usb::send_custom_hid_report(const uint8_t* buffer, size_t length) { UsbDevice::getInstance().send_custom_hid_report(buffer, length); }
 bool usb::is_std_hid_transfer_complete() { return UsbDevice::getInstance().is_in_transfer_complete(); }
 // ===================================================================
 // UsbDevice Class Implementation
@@ -124,8 +124,12 @@ void UsbDevice::send_keyboard_report(uint8_t modifier, uint8_t key) {
     uint8_t report[9] = {REPORT_ID_KEYBOARD, modifier, 0, key, 0, 0, 0, 0, 0};
     if (m_in_transfer_complete) {
         m_in_transfer_complete = false;
+
+        // Flush and re-arm the Custom HID OUT endpoint to kick the driver
+        // out of its unstable idle state before starting a new IN transfer.
         usbd_fifo_flush(&m_core_driver, CUSTOM_HID_OUT_EP);
         usbd_ep_recev(&m_core_driver, CUSTOM_HID_OUT_EP, m_custom_hid_handler.data, 64U);
+        
         usbd_ep_send(&m_core_driver, STD_HID_IN_EP, report, 9);
     }
 }
@@ -134,18 +138,44 @@ void UsbDevice::send_consumer_report(uint16_t usage_code) {
     uint8_t report[3] = {REPORT_ID_CONSUMER, (uint8_t)(usage_code & 0xFF), (uint8_t)(usage_code >> 8)};
     if (m_in_transfer_complete) {
         m_in_transfer_complete = false;
+
+        // Flush and re-arm the Custom HID OUT endpoint to kick the driver
+        // out of its unstable idle state before starting a new IN transfer.
         usbd_fifo_flush(&m_core_driver, CUSTOM_HID_OUT_EP);
         usbd_ep_recev(&m_core_driver, CUSTOM_HID_OUT_EP, m_custom_hid_handler.data, 64U);
+        
         usbd_ep_send(&m_core_driver, STD_HID_IN_EP, report, 3);
     }
 }
 
-void UsbDevice::send_custom_hid_report(uint8_t report_id, uint8_t data) {
-    if (m_in_transfer_complete) {
-        m_in_transfer_complete = false;
-        uint8_t report[2] = {report_id, data};
-        usbd_ep_send(&m_core_driver, CUSTOM_HID_IN_EP, report, 2);
+bool UsbDevice::send_custom_hid_report(const uint8_t* buffer, size_t length) {
+    // 1. Prevent sending a packet that is too large
+    if (length > CUSTOM_HID_IN_PACKET) {
+        return false;
     }
+
+    // 2. Check if the USB endpoint is ready for another transfer
+    if (m_in_transfer_complete) {
+        m_in_transfer_complete = false; // Mark transfer busy
+
+        // 3. Prepare the full 64-byte report buffer
+        // The low-level driver expects a buffer of the exact endpoint packet size.
+        static uint8_t report_buffer[CUSTOM_HID_IN_PACKET] = {0};
+        
+        // Copy the user's data into the buffer. Unused bytes will be zero.
+        memcpy(report_buffer, buffer, length);
+        
+        // Flush and re-arm the Custom HID OUT endpoint to kick the driver
+        // out of its unstable idle state before starting a new IN transfer.
+        usbd_fifo_flush(&m_core_driver, CUSTOM_HID_OUT_EP);
+        usbd_ep_recev(&m_core_driver, CUSTOM_HID_OUT_EP, m_custom_hid_handler.data, 64U);
+
+        // 4. Send the entire 64-byte buffer.
+        usbd_ep_send(&m_core_driver, CUSTOM_HID_IN_EP, report_buffer, CUSTOM_HID_IN_PACKET);
+        return true; // Send initiated successfully
+    }
+
+    return false; // Endpoint was not ready
 }
 
 bool UsbDevice::is_std_hid_transfer_complete() {
@@ -251,7 +281,6 @@ uint8_t UsbDevice::_data_out_cb(usb_dev *udev, uint8_t ep_num) { (void)udev; ret
 // --- Standard HID Implementation ---
 void UsbDevice::_std_hid_init() {
     usbd_ep_setup(&m_core_driver, &(composite_config_desc.std_hid_epin));
-    m_std_hid_handler.prev_transfer_complete = 1U;
 }
 
 void UsbDevice::_std_hid_deinit() {
@@ -311,7 +340,6 @@ void UsbDevice::_custom_hid_init() {
     usbd_ep_setup(&m_core_driver, &(composite_config_desc.custom_hid_epin));
     usbd_ep_setup(&m_core_driver, &(composite_config_desc.custom_hid_epout));
     usbd_ep_recev(&m_core_driver, CUSTOM_HID_OUT_EP, m_custom_hid_handler.data, 64U);
-    m_custom_hid_handler.prev_transfer_complete = 1U;
 }
 
 void UsbDevice::_custom_hid_deinit() {

@@ -92,7 +92,6 @@ namespace hid {
     struct StandardHidHandler {
         uint32_t protocol;
         uint32_t idle_state;
-        volatile uint8_t prev_transfer_complete;
     };
 
     struct CustomHidHandler {
@@ -100,7 +99,6 @@ namespace hid {
         uint8_t reportID;
         uint8_t idlestate;
         uint8_t protocol;
-        volatile uint8_t prev_transfer_complete;
     };
 } // namespace hid
 

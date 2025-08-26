@@ -56,7 +56,7 @@ namespace usb {
         \param[in]  report_id: The ID of the report, as defined in the report descriptor.
         \param[in]  data: The single byte of data for the report.
     */
-    void send_custom_hid_report(uint8_t report_id, uint8_t data);
+    bool send_custom_hid_report(const uint8_t* buffer, size_t length);
 
 } // namespace usb
 
