@@ -7,8 +7,19 @@ import urllib.request
 import zipfile
 import tarfile
 
-def _download_and_extract_tool(url, archive_path, extract_dir, final_check_path, rename_map=None):
-    """Helper to download, extract, and set up a single tool."""
+def _download_and_extract_tool(url: str, archive_path: str, extract_dir: str, final_check_path: str, rename_map: dict = None):
+    """
+    Downloads, extracts, and optionally renames a tool archive.
+
+    Args:
+        url (str): The URL to download the tool archive from.
+        archive_path (str): The local path where the downloaded archive will be saved.
+        extract_dir (str): The directory where the archive will be extracted.
+        final_check_path (str): A path to a key file or directory inside the extracted
+                                contents to verify successful setup.
+        rename_map (dict, optional): A map of {original_name: new_name} for renaming
+                                     extracted directories. Defaults to None.
+    """
     print(f"    -> Downloading from {url}")
     try:
         with urllib.request.urlopen(url) as response, open(archive_path, 'wb') as out_file:
@@ -106,14 +117,16 @@ class Builder:
         tools_dir = "tools"
         os.makedirs(tools_dir, exist_ok=True)
 
-        # 1. Check for RISC-V GCC Toolchain
+        # 1. Check for RISC-V GCC Toolchain.
+        # Using a specific version (v14.2.0-3) ensures a consistent build environment.
         if not os.path.isdir(self.config.TOOLCHAIN_PATH):
             print("⚠️  RISC-V GCC toolchain not found. Attempting to download and set up...")
             url = "https://github.com/xpack-dev-tools/riscv-none-elf-gcc-xpack/releases/download/v14.2.0-3/xpack-riscv-none-elf-gcc-14.2.0-3-win32-x64.zip"
             archive_path = os.path.join(tools_dir, "gcc.zip")
             _download_and_extract_tool(url=url, archive_path=archive_path, extract_dir=tools_dir, final_check_path=self.config.TOOLCHAIN_PATH)
 
-        # 2. Check for OpenOCD
+        # 2. Check for OpenOCD.
+        # Using a specific version (v0.12.0) ensures compatibility with the target and debugger.
         if not os.path.isfile(self.config.OPENOCD_PATH):
             print("⚠️  OpenOCD not found. Attempting to download and set up...")
             url = "https://github.com/openocd-org/openocd/releases/download/v0.12.0/openocd-v0.12.0-i686-w64-mingw32.tar.gz"
@@ -147,7 +160,7 @@ class Builder:
                         # Reconstruct the include flag with the project path
                         path = inc_path[2:]                        
                         self.include_paths.append(f"-I{os.path.join(module, path)}")
-                    else: # Should not happen based on current config format
+                    else: # Fallback for paths not prefixed with -I, though current format uses it.
                         self.include_paths.append(f"-I{os.path.join(module, inc_path)}")
             else:
                 print(f"  - Disabling component: {name}")
@@ -157,11 +170,11 @@ class Builder:
 
     def _construct_flags(self):
         """Builds the final lists of CFLAGS, ASFLAGS, CPPFLAGS, and LDFLAGS."""
-        # THIS IS THE FIX: Add GLOBAL_C_DEFINES to the base flags
+        # Add global C definitions to the base flags for all compiler invocations.
         base_flags = self.config.CPU_FLAGS + [
             self.config.OPTIMIZATION,
-            "-Wall",
-            "-ffunction-sections",
+            "-Wall", # Enable all standard warnings.
+            "-ffunction-sections", # Place each function in its own section.
             "-fdata-sections"
         ] + self.config.COMMON_WARNING_FLAGS + self.config.GLOBAL_C_DEFINES
 
@@ -183,8 +196,8 @@ class Builder:
         self.ldflags = self.config.CPU_FLAGS + [
             "-nostartfiles",
             f"-T{linker_script_path}",
-            "--specs=nano.specs",
-            "-Xlinker", "--gc-sections",
+            "--specs=nano.specs", # Use newlib-nano for reduced code size.
+            "-Xlinker", "--gc-sections", # Allow the linker to remove unused sections.
             f"-Wl,-Map={os.path.join(self.build_dir, self.config.TARGET_NAME)}.map"
         ] + self.config.LIBRARIES
         
@@ -210,17 +223,23 @@ class Builder:
         print("Clean complete.")
 
     def _get_obj_path(self, src_file):
-        """Generates the path for an object file, preserving the source directory structure."""
-        # src_file is now a full path from the root, e.g., "prj_usb_serial/src/main.c"
-        # self.build_dir is "build/prj_usb_serial"
-        # The object file should be "build/prj_usb_serial/src/main.c.o"
-        # We can achieve this by joining the build_dir with the part of the src_file
-        # that comes after the project name.
+        """
+        Generates the path for an object file inside the project's build directory,
+        preserving the source file's relative directory structure.
+
+        Example:
+            - src_file: "prj_usb_serial/src/main.c"
+            - build_dir: "build/prj_usb_serial"
+            - Returns: "build/prj_usb_serial/src/main.c.o"
+        """
         relative_src_path = os.path.relpath(src_file, self.project_name)
         return os.path.join(self.build_dir, os.path.normpath(relative_src_path) + '.o')
 
     def _parse_dependencies(self, dep_file):
-        """Parses a .d file to extract all header dependencies."""
+        """
+        Parses a GCC-generated dependency file (.d) to extract all header dependencies.
+        This is used for incremental build checks.
+        """
         if not os.path.exists(dep_file):
             return []
         with open(dep_file, 'r') as f:
@@ -228,7 +247,13 @@ class Builder:
         return re.findall(r'([^\s\\]+\.(?:h|inc))', content)
 
     def _is_rebuild_needed(self, src_file, obj_file):
-        """Checks if a source file needs to be recompiled based on modification times."""
+        """
+        Checks if a source file needs to be recompiled.
+        A rebuild is needed if:
+        1. The object file does not exist.
+        2. The source file is newer than the object file.
+        3. Any of its header dependencies are newer than the object file.
+        """
         if not os.path.exists(obj_file):
             return True
 
@@ -236,6 +261,7 @@ class Builder:
         if os.path.getmtime(src_file) > obj_mtime:
             return True
 
+        # For C/C++ files, check their header dependencies.
         if src_file.endswith((".c", ".cpp", ".cc", ".cxx")):
             dep_file = obj_file.replace('.o', '.d')
             if not os.path.exists(dep_file):
@@ -320,6 +346,13 @@ class Builder:
         self.run_command(cmd)
         print("✅ DFU Programming complete.")
 
+    def debug_session(self):
+        """Starts an interactive GDB debug session."""
+        # This method is called by build.py but was not implemented.
+        # A full implementation would start OpenOCD in the background and then launch GDB.
+        print("❌ Error: GDB debug session functionality is not yet implemented.", file=sys.stderr)
+        sys.exit(1)
+
     def program_openocd(self):
         """Builds and programs the target using a generic OpenOCD configuration."""
         self.build_all()
@@ -329,7 +362,9 @@ class Builder:
             print(f"❌ Error: {hex_path} not found. Please run 'build' first.", file=sys.stderr)
             sys.exit(1)
 
-        config_file = "tools/config/openocd-sipeed-libusb.cfg"
+        # This config file is an updated OpenOCD script for the Sipeed RV-Debugger.
+        # It's suitable for most JTAG operations with the Longan Nano and reset.
+        config_file = os.path.join("tools", "config", "openocd-sipeed-libusb.cfg")
         program_cmd = f'program "{hex_path}" verify; reset; shutdown'
         cmd = [self.config.OPENOCD_PATH, '-f', config_file, '-c', program_cmd]
         self.run_command(cmd)
@@ -344,7 +379,11 @@ class Builder:
             print(f"❌ Error: {hex_path} not found. Please run 'build' first.", file=sys.stderr)
             sys.exit(1)
 
-        board_cfg = 'C:/Users/arunj/.platformio/packages/framework-nuclei-sdk/SoC/gd32vf103/Board/gd32vf103c_longan_nano/openocd_gd32vf103.cfg'
+        # NOTE: The original path was hardcoded to a local PlatformIO installation.
+        # This has been changed to a project-relative path.
+        # You must copy the 'openocd_gd32vf103.cfg' file from the Nuclei SDK
+        # into the 'tools/config/' directory for this command to work.
+        board_cfg = os.path.join("tools", "config", "openocd_gd32vf103.cfg")
         program_cmd = f'program "{hex_path}" verify; reset; shutdown'
         cmd = [
             self.config.NUCLEUS_OPENOCD_PATH,

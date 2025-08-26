@@ -83,6 +83,7 @@ def _create_weather_icon(icon_name: str, size: tuple[int, int]) -> Image.Image:
             draw.line([(x1, y1), (x2, y2)], fill=color, width=2)
 
     def draw_crescent(offset=(0, 0), color=C_MOON):
+
         """Draws a crescent moon shape."""
         cx, cy = w / 2 + offset[0], h / 2 + offset[1]
         r = 10
@@ -105,6 +106,7 @@ def _create_weather_icon(icon_name: str, size: tuple[int, int]) -> Image.Image:
             draw.line((w/2 - 15 + offset[0], y_pos + offset[1], w/2 + 15 + offset[0], y_pos + offset[1]), fill=color, width=3)
 
     # Draw icons based on name, always drawing shadow first for a 3D effect
+    # --- Clear Weather Icons ---
     if icon_name == "sun":
         draw_sun(shadow_offset, SHADOW)
         draw_sun()
@@ -112,6 +114,7 @@ def _create_weather_icon(icon_name: str, size: tuple[int, int]) -> Image.Image:
         # The crescent itself has a shadow, but we add a drop shadow for the whole shape
         draw_crescent(shadow_offset, SHADOW)
         draw_crescent()
+    # --- Cloudy Icons ---
     elif icon_name == "cloud":
         draw_cloud(shadow_offset, SHADOW)
         draw_cloud()
@@ -126,6 +129,7 @@ def _create_weather_icon(icon_name: str, size: tuple[int, int]) -> Image.Image:
     elif icon_name == "fog":
         draw_fog(shadow_offset, SHADOW)
         draw_fog()
+    # --- Precipitation Icons (Rain/Snow) ---
     elif icon_name in ["drizzle", "rain", "heavy_rain", "light_rain", "snow", "heavy_snow", "light_snow", "freezing_rain"]:
         draw_cloud(shadow_offset, SHADOW)
         draw_cloud(color=C_CLOUD_DARK)
@@ -158,6 +162,7 @@ def _create_weather_icon(icon_name: str, size: tuple[int, int]) -> Image.Image:
         elif icon_name == "heavy_snow":
             for pos in [(w/2 - 10, h/2 + 8), (w/2 - 2, h/2 + 10), (w/2 + 6, h/2 + 8), (w/2, h/2 + 5)]:
                 draw.ellipse((pos[0] - 2, pos[1] - 2, pos[0] + 4, pos[1] + 4), fill=C_SNOW)
+    # --- Storm Icons ---
     elif icon_name == "storm" or icon_name == "storm_hail":
         draw_cloud(shadow_offset, SHADOW)
         draw_cloud(color=(80, 80, 90)) # Dark storm cloud
@@ -205,7 +210,7 @@ def create_image(time_str: str, date_str: str, weather_info: dict | None) -> Ima
     time_bbox = draw.textbbox((0, 0), time_str, font=config.FONT_TIME)
     time_width = time_bbox[2] - time_bbox[0]
     time_height = time_bbox[3] - time_bbox[1]
-    time_x = (pane_left_width - time_width) // 2
+    time_x = (pane_left_width - time_width) // 2 # Center horizontally in the left pane
     time_y = (config.LCD_HEIGHT - time_height) // 2 - 10 # Minor vertical adjustment
     draw.text((time_x, time_y), time_str, font=config.FONT_TIME, fill=config.COLOR_TEXT_PRIMARY)
     
@@ -218,20 +223,20 @@ def create_image(time_str: str, date_str: str, weather_info: dict | None) -> Ima
         # 1. Weather Icon (Centered horizontally at the top of the pane)
         icon_size = (36, 36)
         icon = _create_weather_icon(weather_info['icon'], icon_size)
-        icon_x = pane_right_x_start + (pane_right_width - icon_size[0]) // 2
+        icon_x = pane_right_x_start + (pane_right_width - icon_size[0]) // 2 # Center in right pane
         overlay.paste(icon, (icon_x, 5), icon)
         
         # 2. Temperature (Centered horizontally below the icon)
         temp_text = f"{weather_info['temperature']}°"
         temp_bbox = draw.textbbox((0, 0), temp_text, font=config.FONT_TEMP)
         temp_width = temp_bbox[2] - temp_bbox[0]
-        temp_x = pane_right_x_start + (pane_right_width - temp_width) // 2
+        temp_x = pane_right_x_start + (pane_right_width - temp_width) // 2 # Center in right pane
         draw.text((temp_x, 38), temp_text, font=config.FONT_TEMP, fill=config.COLOR_TEXT_PRIMARY)
         
     # 3. Date (Centered horizontally at the bottom of the pane)
     date_bbox = draw.textbbox((0, 0), date_str, font=config.FONT_DATE)
     date_width = date_bbox[2] - date_bbox[0]
-    # Correctly center the date within the complete bottom area of right and left panes
+    # Center the date within the right pane.
     date_x = pane_right_x_start // 2 + (pane_right_width - date_width) // 2
     draw.text((date_x, 60), date_str, font=config.FONT_DATE, fill=config.COLOR_TEXT_SECONDARY)
     

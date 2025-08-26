@@ -2,13 +2,13 @@
 
 This repository contains a collection of bare-metal firmware projects for the **Sipeed Longan Nano**, designed as a learning exercise for the GD32VF103 RISC-V microcontroller. It uses a custom Python-based build system (`bldmgr/build.py`) and avoids reliance on large IDEs or complex frameworks like PlatformIO or CMake.
 
-## Supported Projects
+## Featured Projects
 
 This repository is structured to support multiple independent firmware applications. Each project resides in its own directory in the project root, and its name must be prefixed with `prj_`.
 
 ### `prj_uart_test`
 
-This projet uses the debug_uart0 library to verify the uart configuration works.
+This project uses the `debug_uart0` library to verify that the basic UART configuration and `printf` retargeting are working correctly.
 
 ### `prj_usb_serial`
 
@@ -23,7 +23,7 @@ This project demonstrates a composite USB device with multiple HID interfaces an
 
 !Live Display UI
 
-**Note:** The USB Mass Storage (disk) function in this composite device is incomplete and will not work.
+**Note:** The USB Mass Storage (MSC) feature in this composite device is currently a work-in-progress and is disabled by default.
 
 ## Hardware Setup
 
@@ -46,27 +46,19 @@ This project is configured to be flashed using the **Sipeed RV-Debugger** (or a 
 
 ## Prerequisites
 
-This build system is designed for **Windows**. You will need Python 3 installed and available in your `PATH`.
+This build system is designed for **Windows** and requires **Python 3** to be installed and available in your system's `PATH`.
 
 ## Toolchain Setup
 
-This project requires two external tools: the RISC-V GCC toolchain and OpenOCD for flashing. The build script expects them to be in a `tools` directory.
+This project requires the RISC-V GCC toolchain and OpenOCD for flashing. The custom Python build script will automatically handle this for you.
 
-1.  Create a `tools` directory in the project root.
-
-2.  **RISC-V GCC Toolchain:**
-    *   Download from: xpack-riscv-none-elf-gcc-14.2.0-3-win32-x64.zip
-    *   Extract the contents into the `tools` directory. The final path to the binaries should be: `tools/xpack-riscv-none-elf-gcc-14.2.0-3/bin`
-
-3.  **OpenOCD:**
-    *   Download from: openocd-v0.12.0-i686-w64-mingw32.tar.gz
-    *   Extract the contents. You will get a folder like `openocd-0.12.0`. Rename it to `OpenOCD_0.12.0` and move it into the `tools` directory. The final path to the executable should be: `tools/OpenOCD_0.12.0/bin/openocd.exe`
+When you run a build command for the first time, the script will check for the required tools. If they are not found in the `tools/` directory, it will automatically download and extract them. All you need is an internet connection.
 
 ## Building and Flashing
 
 All build and flash operations are handled by the `bldmgr/build.py` script. You must specify which project you want to build.
 
-Open a terminal in the project root and use the following commands:
+Open a terminal in the project root and use the commands below.
 
 ### Available Commands
 
@@ -76,18 +68,18 @@ The command structure is `python bldmgr/build.py <project_name> [command]`.
 python bldmgr/build.py <project_name> [command]
 
 Arguments:
-  project_name  The name of the project to build (e.g., prj_usb_serial).
-  command       The action to perform. Defaults to 'build' if not specified.
+  project_name      The name of the project to build (e.g., prj_usb_serial).
+  command           The action to perform. Defaults to 'build' if not specified.
 
 Commands:
-  build    (default) Incrementally builds the selected project.
-  rebuild  Cleans and then builds the project from scratch.
-  clean    Removes the project's build directory.
-  flash    Builds and programs the device using OpenOCD.
-  program  Programs an already-built binary using OpenOCD.
-  nucleus  Builds and programs using Nuclei-specific OpenOCD.
-  dfu      Builds and programs using DFU-util.
-  debug    Builds the project and starts an interactive GDB debug session.
+  build             (default) Incrementally builds the selected project.
+  rebuild           Cleans and then builds the project from scratch.
+  clean             Removes the project's build directory.
+  flash             Builds and programs the device using the default OpenOCD.
+  program           Programs an already-built binary using OpenOCD (no build).
+  nucleus           Builds and programs using the Nuclei-specific OpenOCD config.
+  dfu               Builds and programs using dfu-util.
+  debug             Builds the project and starts an interactive GDB debug session.
 ```
 
 ### Examples
@@ -114,3 +106,4 @@ This project was inspired by and references code from:
 *   [Appelsiini.net: Programming GD32V (Longan Nano)](https://www.appelsiini.net/2020/programming-gd32v-longan-nano/)
 *   [Longan-Nano-Rainbow](https://github.com/joba-1/Longan-Nano-Rainbow/tree/main): An example of using Timer/PWM to control an RGB LED.
 *   [GD32VF103_templates](https://github.com/WRansohoff/GD32VF103_templates/tree/master): A collection of templates for low-level peripheral usage, including Systick.
+https://www.reddit.com/r/RISCV/comments/107407u/did_something_happen_to_sipeed_longan_nano/ : This chip has been discontinued and company is not much committed. So, better to go with CH32V103. Abandoning SD Card part. Will leave with USB Composite and LCD for Volume control etc.

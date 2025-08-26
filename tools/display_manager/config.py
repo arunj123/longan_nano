@@ -82,7 +82,8 @@ COLOR_THEMES = [
 ]
 
 # --- RANDOMLY SELECT AND APPLY A THEME ON STARTUP ---
-selected_theme = random.choice(COLOR_THEMES)
+_current_theme_index = random.randint(0, len(COLOR_THEMES) - 1)
+selected_theme = COLOR_THEMES[_current_theme_index]
 print(f"--- Theme Selected: {selected_theme['name']} ---")
 
 # -- UI Colors (Now dynamically set from the selected theme) --
@@ -91,6 +92,20 @@ COLOR_GRADIENT_END = selected_theme["gradient_end"]
 COLOR_TEXT_PRIMARY = selected_theme["text_primary"]
 COLOR_TEXT_SECONDARY = selected_theme["text_secondary"]
 COLOR_SEPARATOR = (255, 255, 255, 35) # This remains consistent for a subtle look
+
+def cycle_theme():
+    """Cycles to the next theme in the list and updates the global color variables."""
+    global _current_theme_index, COLOR_GRADIENT_START, COLOR_GRADIENT_END, COLOR_TEXT_PRIMARY, COLOR_TEXT_SECONDARY
+    
+    _current_theme_index = (_current_theme_index + 1) % len(COLOR_THEMES)
+    new_theme = COLOR_THEMES[_current_theme_index]
+    
+    COLOR_GRADIENT_START = new_theme["gradient_start"]
+    COLOR_GRADIENT_END = new_theme["gradient_end"]
+    COLOR_TEXT_PRIMARY = new_theme["text_primary"]
+    COLOR_TEXT_SECONDARY = new_theme["text_secondary"]
+    
+    print(f"\n--- Theme Cycled to: {new_theme['name']} ---")
 
 # -- State File --
 STATE_IMAGE_PATH = "current_display.png"
