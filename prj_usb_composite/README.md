@@ -80,7 +80,7 @@ Once the firmware is flashed and the device is connected to your computer, it wi
 
 - **Rotate the knob:** Adjusts the system volume on your PC.
 - **Press the knob:** Toggles mute for your PC's audio.
-- **Press the onboard `USER` button (on PA8):** The device will type `Hi!` into any active text editor.
+- **Press the onboard `USER` button (on PA8):** The device will send command to switch display theme.
 
 ### Dynamic Display Manager (Host Application)
 
@@ -100,7 +100,7 @@ This is the primary host application that turns the Longan Nano into a mini info
 4.  **Interact:**
     - The script will automatically find and connect to the device.
     - It performs an initial full-screen update and then sends only partial updates for changed areas (e.g., the clock changing every minute).
-    - Press the `USER` button on the Longan Nano to cycle through different color themes on the display.
+    - **Note:** Cycling themes by pressing the `USER` button on the Longan Nano is currently not working.
 
 ### Basic Image Transfer Test
 
