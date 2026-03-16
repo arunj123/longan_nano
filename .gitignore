@@ -5,3 +5,4 @@ tools/OpenOCD_0.12.0/
 lib/hal
 lib/hagl
 templates
+prj_example

@@ -120,7 +120,7 @@ class Builder:
         # 1. Check for RISC-V GCC Toolchain.
         # Using a specific version (v14.2.0-3) ensures a consistent build environment.
         if not os.path.isdir(self.config.TOOLCHAIN_PATH):
-            print("⚠️  RISC-V GCC toolchain not found. Attempting to download and set up...")
+            print("INFO: RISC-V GCC toolchain not found. Attempting to download and set up...")
             url = "https://github.com/xpack-dev-tools/riscv-none-elf-gcc-xpack/releases/download/v14.2.0-3/xpack-riscv-none-elf-gcc-14.2.0-3-win32-x64.zip"
             archive_path = os.path.join(tools_dir, "gcc.zip")
             _download_and_extract_tool(url=url, archive_path=archive_path, extract_dir=tools_dir, final_check_path=self.config.TOOLCHAIN_PATH)
@@ -128,7 +128,7 @@ class Builder:
         # 2. Check for OpenOCD.
         # Using a specific version (v0.12.0) ensures compatibility with the target and debugger.
         if not os.path.isfile(self.config.OPENOCD_PATH):
-            print("⚠️  OpenOCD not found. Attempting to download and set up...")
+            print("INFO: OpenOCD not found. Attempting to download and set up...")
             url = "https://github.com/openocd-org/openocd/releases/download/v0.12.0/openocd-v0.12.0-i686-w64-mingw32.tar.gz"
             archive_path = os.path.join(tools_dir, 'openocd.tar.gz')
             # The tarball extracts to a folder named 'openocd-0.12.0'. We will rename it.
@@ -144,7 +144,7 @@ class Builder:
         self.asm_sources = []
         self.include_paths = []
 
-        print("🔎 Analyzing project components...")
+        print("Analyzing project components...")
         for name, component in self.config.COMPONENTS.items():
             if component.get("enabled", False):
                 print(f"  - Enabling component: {name}")
@@ -208,7 +208,7 @@ class Builder:
     def run_command(cmd):
         """Executes a shell command, prints it, and exits on failure."""
         cmd_str = ' '.join([str(arg).replace('\\', '/') for arg in cmd])
-        print(f"🚀 Executing: {cmd_str}")
+        print(f"Executing: {cmd_str}")
         try:
             subprocess.run(cmd, check=True, shell=isinstance(cmd, str))
         except (subprocess.CalledProcessError, FileNotFoundError) as e:
@@ -276,7 +276,7 @@ class Builder:
 
     def compile_sources(self):
         """Compiles all C, C++, and Assembly sources into object files, skipping unchanged files."""
-        print("⚙️  Compiling sources...")
+        print("Compiling sources...")
         object_files = []
         cpp_extensions = (".cpp", ".cc", ".cxx")
 
@@ -307,19 +307,19 @@ class Builder:
     def link_objects(self, object_files):
         """Links all compiled object files into a single .elf executable."""
         linker = self.cpp if self.is_cpp_project else self.cc
-        print(f"🔗 Linking objects (using {os.path.basename(linker)})...")
+        print(f"Linking objects (using {os.path.basename(linker)})...")
         
         elf_path = os.path.join(self.build_dir, f"{self.config.TARGET_NAME}.elf")
         cmd = [linker] + self.ldflags + object_files + ["-o", elf_path]
         self.run_command(cmd)
 
-        print("📊 Calculating size...")
+        print("Calculating size...")
         self.run_command([self.sz, elf_path])
         return elf_path
 
     def create_binaries(self, elf_path):
         """Creates .hex and .bin files from the .elf file for programming."""
-        print("📦 Creating final binaries...")
+        print("Creating final binaries...")
         hex_path = elf_path.replace(".elf", ".hex")
         bin_path = elf_path.replace(".elf", ".bin")
         self.run_command([self.cp, "-O", "ihex", elf_path, hex_path])

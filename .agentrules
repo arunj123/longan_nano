@@ -1,0 +1,6 @@
+# INA219 Current Monitor Agent Rules
+
+- **I2C Protocol**: Always use Hardware I2C (I2C0) on PB6/PB7 for sensor communication.
+- **Display**: Use the `DisplayManager` class for all LCD updates.
+- **USB**: Data streaming should follow the defined 9-byte HID report format.
+- **Timing**: Use `get_timer_value()` for precision millisecond tracking.
