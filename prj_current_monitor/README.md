@@ -65,6 +65,28 @@ The device enumerates as a Custom HID device and sends a 9-byte data packet at 1
 | 5-6        | Power       | uint16le | mW     | Calculated Power    |
 | 7-8        | Padding     | -        | -      | Reserved for future |
 
+## Host PC Monitoring
+
+A Python script is provided to receive and display the live data stream on your computer.
+
+### Prerequisites (Host)
+
+1.  Python 3 installed.
+2.  Install the `hidapi` library:
+    ```bash
+    pip install hidapi
+    ```
+
+### Running the Monitor
+
+Connect the Longan Nano to your PC via USB and run the script from the project directory:
+
+```bash
+python prj_current_monitor/monitor.py
+```
+
+The script will display a live table of Voltage, Current, and Power readings.
+
 ## Code Structure
 
 - `src/main.cpp`: Main application loop, sensors polling, and USB reporting logic.

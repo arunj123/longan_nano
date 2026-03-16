@@ -21,6 +21,10 @@ This project configures the Longan Nano as a USB CDC (Virtual COM Port) device.
 
 This project demonstrates a composite USB device with multiple HID interfaces and an optional Mass Storage device. Its primary feature is a dynamic information display streamed from a host PC to the board's LCD. See the project's README for full details.
 
+### `prj_current_monitor`
+
+This project turns the Longan Nano into a real-time DC current and power monitor. It uses an INA219 sensor via hardware I2C and streams live data (Voltage, Current, Power) over USB HID at 10Hz to a host PC.
+
 !Live Display UI
 
 **Note:** The USB Mass Storage (MSC) feature in this composite device is currently a work-in-progress and is disabled by default.

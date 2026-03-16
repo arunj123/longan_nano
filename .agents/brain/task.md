@@ -1,0 +1,29 @@
+# Task: Create INA219 Current Monitor Project
+
+- [x] Planning & Research
+    - [x] Analyze `prj_usb_composite` as baseline
+    - [x] Research I2C and INA219 driver availability
+    - [x] Design USB HID report descriptor for current data
+    - [x] Create [Implementation Plan](file:///C:/Users/arunj/.gemini/antigravity/brain/967cda2c-4493-48b9-8f61-a104158678d3/implementation_plan.md)
+- [x] Project Setup
+    - [x] Create `prj_current_monitor` directory
+    - [x] Copy and adapt `config.py` from `prj_usb_composite`
+    - [x] Copy and adapt `src/` files
+- [x] Hardware Integration
+    - [x] Implement Hardware I2C driver (I2C0 on PB6/PB7)
+    - [x] Update INA219 driver for hardware I2C
+    - [x] Update `display_manager` for current visualization
+- [x] USB Implementation
+    - [x] Modify USB HID descriptors for data streaming
+    - [x] Implement periodic HID report sending
+- [x] Host Monitoring
+    - [x] Create Python monitor script (`monitor.py`)
+    - [x] Update documentation with host monitoring instructions
+- [x] Verification
+    - [x] Build project
+    - [x] Flash to device
+    - [x] Verify LCD display and USB communication
+- [x] Documentation & Cleanup
+    - [x] Create project README.md
+    - [x] Update root README.md
+    - [x] Commit and push all changes
