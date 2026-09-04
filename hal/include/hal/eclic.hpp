@@ -87,7 +87,9 @@ struct Eclic {
     }
 
     /// Enable interrupt request with level, priority, and vector mode.
-    static inline void enable(uint32_t irq, uint8_t level = 1, uint8_t priority = 0, bool vectored = true) noexcept {
+    /// GD32VF103 standard C handlers require non-vectored mode (vectored = false)
+    /// to dispatch properly through the Nuclei irq_entry wrapper (CSR_JALMNXTI).
+    static inline void enable(uint32_t irq, uint8_t level = 1, uint8_t priority = 0, bool vectored = false) noexcept {
         if (irq >= detail::kNumInterrupts) return;
 
         auto* const entry = &detail::int_entries()[irq];
