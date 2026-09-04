@@ -67,14 +67,16 @@ void board_key_init(void) {
     eclic_irq_enable(USER_KEY_EXTI_IRQn, 1, 0);
 }
 
+#include "hal/time.hpp"
+
 void board_key_isr(void) {
-    // Perform software debouncing using a static timer.
-    static volatile uint64_t last_key_press_time = 0;
-    const uint32_t DEBOUNCE_TIME_MS = 50;
-    uint64_t now = get_timer_value();
+    // Perform software debouncing using typed timer utilities (BUG-2 fixed)
+    static hal::time::Instant last_key_press_time{0};
+    const auto debounce_duration = hal::time::Duration::from_ms(50);
+    const auto now = hal::time::Instant::now();
 
     // Only execute the action if the debounce time has passed.
-    if ((now - last_key_press_time) > DEBOUNCE_TIME_MS) {
+    if ((now - last_key_press_time) > debounce_duration) {
         last_key_press_time = now; // Update the timer for the *next* valid press
         user_key_pressed = true;   // Set the application flag
     }

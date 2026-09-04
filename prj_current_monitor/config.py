@@ -10,6 +10,9 @@ sys.path.insert(0, _ROOT)
 from tools import config
 from gd32.components import components as gd32
 from lib.components import components as lib
+from hal.components import components as hal
+from bsp.components import components as bsp
+from drivers.components import components as drivers
 
 
 # ==============================================================================
@@ -50,9 +53,16 @@ for component_name in ['system', 'debug_uart0', 'gd32_lcd']:
     lib_components[component_name] = lib[component_name].copy()
     lib_components[component_name]['module'] = 'lib'
 
+modern_components = {
+    "hal": {**hal["hal"], "module": "hal"},
+    "bsp": {**bsp["bsp"], "module": "bsp"},
+    "drivers": {**drivers["drivers"], "module": "drivers"},
+}
+
 COMPONENTS = { 
     **gd32_components,
     **lib_components,
+    **modern_components,
     "usb_hid": {
         "c_sources": [],
         "cpp_sources": [r"src/usb_hid/gd32vf103_it.cpp",
@@ -63,8 +73,8 @@ COMPONENTS = {
         "enabled": True,
     },
     "application": {
-        "c_sources": [r"src/gd32vf103_hw.c", r"src/i2c_hw.c", r"src/ina219.c"],
-        "cpp_sources": [r"src/main.cpp", r"src/board.cpp", r"src/display_manager.cpp"],
+        "c_sources": [r"src/gd32vf103_hw.c"],
+        "cpp_sources": [r"src/i2c_hw.cpp", r"src/ina219.cpp", r"src/main.cpp", r"src/board.cpp", r"src/display_manager.cpp"],
         "asm_sources": [],
         "include_paths": [r"-Isrc"],
         "enabled": True

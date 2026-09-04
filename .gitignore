@@ -1,8 +1,32 @@
-build
-*.pyc
+# Build output artifacts
+build/
+*.elf
+*.bin
+*.hex
+*.map
+
+# Intermediate and object files
+*.o
+*.a
+*.d
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Local toolchains and debug tools
 tools/xpack-riscv-none-elf-gcc-14.2.0-3/
 tools/OpenOCD_0.12.0/
-lib/hal
-lib/hagl
-templates
-prj_example
+
+# Deprecated/Old temporary directories
+lib/hal/
+templates/
+
+# Editor, OS and workspace noise
+.DS_Store
+Thumbs.db
+*.swp
+*.bak
+*~
+

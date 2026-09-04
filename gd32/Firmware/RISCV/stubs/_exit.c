@@ -6,7 +6,7 @@
 #include "stub.h"
 
 
-void _exit(int code)
+__attribute__((used)) void _exit(int code)
 {
   const char message[] = "\nProgram has exited with code:";
 

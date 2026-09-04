@@ -32,12 +32,13 @@ OPTIMIZATION = "-Os"
 # C and C++ Language Standards.
 # Use GNU standards for common extensions in embedded code.
 C_STANDARD = "-std=gnu17"
-CPP_STANDARD = "-std=gnu++20"
+CPP_STANDARD = "-std=gnu++23"
 
 # Common warning flags for both C and C++.
 COMMON_WARNING_FLAGS = [
     "-Wall", "-Wextra", "-Wpedantic", "-Wshadow",
-    "-Wconversion", "-Wsign-conversion",
+    "-Wconversion", "-Wsign-conversion", "-Werror=return-type",
+    "-flto", "-fuse-linker-plugin",
 ]
 
 # C-specific warning flags.
@@ -47,7 +48,10 @@ C_WARNING_FLAGS = ["-Wmissing-prototypes", "-Wstrict-prototypes"]
 CPP_WARNING_FLAGS = ["-Wnon-virtual-dtor", "-Wold-style-cast"]
 
 # Flags to disable C++ features not typically used in bare-metal embedded systems.
-CPP_EMBEDDED_FLAGS = ["-fno-exceptions", "-fno-rtti", "-fno-threadsafe-statics"]
+CPP_EMBEDDED_FLAGS = [
+    "-fno-exceptions", "-fno-rtti", "-fno-threadsafe-statics",
+    "-fno-unwind-tables", "-fno-asynchronous-unwind-tables",
+]
 
 # Standard libraries to link against.
 LIBRARIES = ["-lc", "-lm", "-lnosys"]

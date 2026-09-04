@@ -6,9 +6,9 @@
 #include <sys/stat.h>
 #include "stub.h"
 
-int _fstat(int fd, struct stat* st)
+__attribute__((used)) int _fstat(int fd, struct stat* st)
 {
-  if (isatty(fd)) {
+  if (_isatty(fd)) {
     st->st_mode = S_IFCHR;
     return 0;
   }

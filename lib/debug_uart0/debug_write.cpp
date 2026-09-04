@@ -77,7 +77,7 @@ void inline usart0_config(void)
  * @param[in]  len: The number of characters to write.
  * @retval     The number of characters successfully written.
  */
-int _write(int file, char *ptr, int len)
+__attribute__((used)) int _write(int file, char *ptr, int len)
 {
     (void)file; // Unused parameter, silence compiler warning
     int i;

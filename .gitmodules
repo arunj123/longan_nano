@@ -1,3 +1,0 @@
-[submodule "lib/gd32v_lcd"]
-	path = lib/gd32v_lcd
-	url = https://github.com/slmisc/gd32v-lcd.git

@@ -36,18 +36,13 @@ extern "C" {
 #include "systick.h"
 }
 #include <stdio.h>
-#include "gpio.h"
+#include "bsp/board.hpp"
+#include "hal/time.hpp"
 #include "usb.hpp"
 
-
-// Create instances of the Led class for the onboard LEDs
-// LEDR (Red LED) is on GPIOC, PIN_13 and is active low (lights up when pin is low)
-static Led led_red(GPIOC, GPIO_PIN_13, true);
-// LEDG (Green LED) is on GPIOA, PIN_1 and is active high
-static Led led_green(GPIOA, GPIO_PIN_1);
-// LEDB (Blue LED) is on GPIOA, PIN_2 and is active high
-static Led led_blue(GPIOA, GPIO_PIN_2);
-
+using bsp::board::LedRed;
+using bsp::board::LedGreen;
+using bsp::board::LedBlue;
 
 /*!
     \brief      main function
@@ -57,41 +52,33 @@ static Led led_blue(GPIOA, GPIO_PIN_2);
 */
 int main(void)
 {
-    /* enable the LED clock */
-    rcu_periph_clock_enable(RCU_GPIOC);
-    rcu_periph_clock_enable(RCU_GPIOA);
-    // Initialize LED pins as push-pull outputs
-    // Red LED (PC13)
-    gpio_init(GPIOC, GPIO_MODE_OUT_PP, GPIO_OSPEED_50MHZ, GPIO_PIN_13);
-    // Green (PA1) and Blue (PA2) LEDs
-    gpio_init(GPIOA, GPIO_MODE_OUT_PP, GPIO_OSPEED_50MHZ, GPIO_PIN_1 | GPIO_PIN_2);
+    // Initialize board LEDs with zero RAM overhead
+    bsp::board::init();
 
     // Initialize the USB device with a single call
     usb::init();
     
     uint32_t counter = 0;
-    while(1){
+    while (1) {
         // Print a message with a counter to show the program is running.
         printf("Counter value: %lu\n", counter++);    
-        /* turn on LED1, turn off LED4 */
-        led_red.on();
-        led_green.on();
-        led_blue.off();
         
-        delay_1ms(100);
+        LedRed::on();
+        LedGreen::on();
+        LedBlue::off();
+        hal::time::delay_ms(100);
 
         // Handle periodic USB tasks
         usb::poll();
 
-        /* turn off LED1, turn on LED4 */
-        led_red.off();
-        led_green.off();
-        led_blue.off();
-        delay_1ms(100);
+        LedRed::off();
+        LedGreen::off();
+        LedBlue::off();
+        hal::time::delay_ms(100);
 
-        led_red.on();
-        led_green.off();
-        led_blue.on();
-        delay_1ms(100);
+        LedRed::on();
+        LedGreen::off();
+        LedBlue::on();
+        hal::time::delay_ms(100);
     }
 }

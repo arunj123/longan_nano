@@ -2,8 +2,9 @@
 
 
 #include <stddef.h>
+#include "stub.h"
 
-void *_sbrk(ptrdiff_t incr)
+__attribute__((used)) void *_sbrk(ptrdiff_t incr)
 {
   extern char _end[];
   extern char _heap_end[];

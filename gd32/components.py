@@ -74,7 +74,7 @@ components = {
         "cpp_sources": [],
         "asm_sources": [],
         "include_paths": [r"-IFirmware/GD32VF103_usbfs_library/driver/Include"],
-        "enabled": True,
+        "enabled": False,
     },
     "usb_driver_device": {
         "c_sources": [
@@ -105,7 +105,7 @@ components = {
         "cpp_sources": [],
         "asm_sources": [],
         "include_paths": [r"-IFirmware/GD32VF103_usbfs_library/device/class/audio/Include"],
-        "enabled": True,
+        "enabled": False,
     },
     "usb_device_ustd": {
         "c_sources": [],
@@ -136,7 +136,7 @@ components = {
         "cpp_sources": [],
         "asm_sources": [],
         "include_paths": [r"-IFirmware/GD32VF103_usbfs_library/device/class/dfu/Include"],
-        "enabled": True,
+        "enabled": False,
     },
     "usb_device_class_hid": {
         "c_sources": [
@@ -153,7 +153,7 @@ components = {
         "cpp_sources": [],
         "asm_sources": [],
         "include_paths": [r"-IFirmware/GD32VF103_usbfs_library/device/class/iap/Include"],
-        "enabled": True,
+        "enabled": False,
     },
     "usb_device_class_msc": {
         "c_sources": [
@@ -171,7 +171,7 @@ components = {
         "cpp_sources": [],
         "asm_sources": [],
         "include_paths": [r"-IFirmware/GD32VF103_usbfs_library/device/class/printer/Include"],
-        "enabled": True,
+        "enabled": False,
     },
     "usb_host_core": {
         "c_sources": [
@@ -183,7 +183,7 @@ components = {
         "cpp_sources": [],
         "asm_sources": [],
         "include_paths": [r"-IFirmware/GD32VF103_usbfs_library/host/core/Include"],
-        "enabled": True,
+        "enabled": False,
     },
     "usb_host_class_hid": {
         "c_sources": [
@@ -193,7 +193,7 @@ components = {
         "cpp_sources": [],
         "asm_sources": [],
         "include_paths": [r"-IFirmware/GD32VF103_usbfs_library/host/class/hid/Include"],
-        "enabled": True,
+        "enabled": False,
     },
     "usb_host_class_msc": {
         "c_sources": [
@@ -205,6 +205,6 @@ components = {
         "cpp_sources": [],
         "asm_sources": [],
         "include_paths": [r"-IFirmware/GD32VF103_usbfs_library/host/class/msc/Include"],
-        "enabled": True,
+        "enabled": False,
     },
 }

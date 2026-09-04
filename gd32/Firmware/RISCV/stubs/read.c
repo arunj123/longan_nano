@@ -8,7 +8,10 @@
 
 #include "stub.h"
 
-ssize_t _read(int fd, void* ptr, size_t len)
+__attribute__((used)) ssize_t _read(int fd, void* ptr, size_t len)
 {
+  (void)fd;
+  (void)ptr;
+  (void)len;
   return _stub(EBADF);
 }

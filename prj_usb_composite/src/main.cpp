@@ -58,10 +58,9 @@ int main(void)
     delay_1ms(100);
     printf("\n\n--- System Initialized with Polling Architecture ---\n");
 
-    bool sd_card_is_ok = false;
-
 // The preprocessor will now skip this whole block
 #if defined(USE_SD_CARD_MSC) && (USE_SD_CARD_MSC == 1)
+    bool sd_card_is_ok = false;
     printf("Attempting to initialize SD Card...\n");
     if (!(sd_init() & STA_NOINIT)) {
         printf("INFO: SD Card initialized successfully.\n");

@@ -70,8 +70,8 @@ COMPONENTS = {
     **gd32_components,
     **lib_components,
     "application": {
-        "c_sources": [],
-        "cpp_sources": [r"src/main.c"],
+        "c_sources": [r"src/main.c"],
+        "cpp_sources": [],
         "asm_sources": [],
         "include_paths": [r"-Isrc"],
         "enabled": True

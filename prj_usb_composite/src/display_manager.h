@@ -15,10 +15,10 @@ namespace constants {
     constexpr size_t LcdWidth = 160;
     constexpr size_t LcdHeight = 80;
 
-    // Buffer configuration ---
-    constexpr size_t NumBuffers = 4;
+    // Ping-pong double buffer configuration (halves RAM consumption from 16KB to 8KB)
+    constexpr size_t NumBuffers = 2;
     constexpr size_t BufferSizeBytes = 4096;
-    constexpr size_t MaxPixelsPerBuffer = BufferSizeBytes / 2; // Each pixel is 2 bytes (RGB555)
+    constexpr size_t MaxPixelsPerBuffer = BufferSizeBytes / 2; // Each pixel is 2 bytes (RGB565)
 }
 
 /**

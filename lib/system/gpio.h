@@ -22,8 +22,13 @@ class Gpio {
      * @param pin The specific pin number (e.g., GPIO_PIN_0, GPIO_PIN_13).
      */
     Gpio(uint32_t gpio_periph, uint16_t pin) : _gpio_periph(gpio_periph), _pin(pin) {
-        // Enable the clock for the GPIO peripheral.
-        rcu_periph_clock_enable(static_cast<rcu_periph_enum>(_gpio_periph));
+        // Enable the clock for the GPIO peripheral with correct RCU mapping
+        rcu_periph_enum rcu_periph = RCU_GPIOA;
+        if (_gpio_periph == GPIOB) rcu_periph = RCU_GPIOB;
+        else if (_gpio_periph == GPIOC) rcu_periph = RCU_GPIOC;
+        else if (_gpio_periph == GPIOD) rcu_periph = RCU_GPIOD;
+        else if (_gpio_periph == GPIOE) rcu_periph = RCU_GPIOE;
+        rcu_periph_clock_enable(rcu_periph);
     }
 
     /**

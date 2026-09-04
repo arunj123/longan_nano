@@ -203,10 +203,6 @@ _start_flash_address:
 	// to be at the top of the allocated RAM for the stack.
 	la sp, _sp
 
-    // --- Call System Initialization Function ---
-    // Initialzing the system clock
-    call SystemInit 
-
 	// --- Initialize C Runtime Memory (.data and .bss) ---
 
 	/*
@@ -238,10 +234,14 @@ bss_clear_loop:
 	bltu a0, a1, bss_clear_loop
 bss_clear_done:
 
+    // --- Call System Initialization Function ---
+    // Safe to initialize clocks now that .data and .bss are ready
+    call SystemInit 
+
 	// --- Call C++ / System Init Functions ---
 	call __libc_init_array // Call global constructors for C++
 
-    call _init             // Enable intterupts, debug usart, etc.
+    call _init             // Enable interrupts, debug usart, etc.
 
 	// --- Call main() ---
 	// Set argc (a0) and argv (a1) to 0, as is standard for embedded systems.

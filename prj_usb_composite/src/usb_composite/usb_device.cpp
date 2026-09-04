@@ -33,7 +33,7 @@ bool usb::is_configured() { return UsbDevice::getInstance().is_configured(); }
 void usb::send_mouse_report(int8_t x, int8_t y, int8_t wheel, uint8_t buttons) { UsbDevice::getInstance().send_mouse_report(x, y, wheel, buttons); }
 void usb::send_keyboard_report(uint8_t modifier, uint8_t key) { UsbDevice::getInstance().send_keyboard_report(modifier, key); }
 void usb::send_consumer_report(uint16_t usage_code) { UsbDevice::getInstance().send_consumer_report(usage_code); }
-bool usb::send_custom_hid_report(const uint8_t* buffer, size_t length) { UsbDevice::getInstance().send_custom_hid_report(buffer, length); }
+bool usb::send_custom_hid_report(const uint8_t* buffer, size_t length) { return UsbDevice::getInstance().send_custom_hid_report(buffer, length); }
 bool usb::is_std_hid_transfer_complete() { return UsbDevice::getInstance().is_in_transfer_complete(); }
 // ===================================================================
 // UsbDevice Class Implementation
@@ -41,7 +41,8 @@ bool usb::is_std_hid_transfer_complete() { return UsbDevice::getInstance().is_in
 
 #if not defined(USE_SD_CARD_MSC) || (USE_SD_CARD_MSC == 0)
 usbd_mem_cb& get_msc_mem_fops() {
-    return *(usbd_mem_cb*)(0);
+    static usbd_mem_cb dummy_fops = {};
+    return dummy_fops;
 }
 #endif
 
@@ -50,7 +51,7 @@ UsbDevice& UsbDevice::getInstance() {
     return instance;
 }
 
-UsbDevice::UsbDevice() : m_msc_enabled(false), m_in_transfer_complete(true) {
+UsbDevice::UsbDevice() : m_in_transfer_complete(true), m_msc_enabled(false) {
     memset(&m_core_driver, 0, sizeof(usb_core_driver));
     memset(&m_class_core, 0, sizeof(usb_class_core));
     memset(&m_descriptors, 0, sizeof(usb_desc));
