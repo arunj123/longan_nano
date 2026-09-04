@@ -5,10 +5,7 @@
 
 #include "usb_device.h"
 #include "board.h"
-#include <cstdio>
-extern "C" {
-#include "systick.h" // For delay_1ms
-}
+#include "hal/exti.hpp"
 
 extern "C" {
 
@@ -22,9 +19,9 @@ void USBFS_WKUP_IRQHandler(void) {
 
 // This ISR handles the user key on the Longan Nano (PA8)
 void EXTI5_9_IRQHandler(void) {
-    if (RESET != exti_interrupt_flag_get(USER_KEY_EXTI_LINE)) {
+    if (hal::exti::Exti::is_pending(8)) {
         board_key_isr(); // Call the debounced key handler
-        exti_interrupt_flag_clear(USER_KEY_EXTI_LINE);
+        hal::exti::Exti::clear_pending(8);
     }
 }
 

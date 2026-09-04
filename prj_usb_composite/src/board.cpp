@@ -1,85 +1,57 @@
 /*!
     \file    board.cpp
     \brief   Implementation of board-specific functions (Longan Nano)
-
-    \version 2025-02-10, firmware for GD32VF103
 */
 
 #include "board.h"
+#include "bsp/board.hpp"
+#include "hal/exti.hpp"
+#include "hal/eclic.hpp"
+#include "hal/time.hpp"
 
-volatile bool user_key_pressed = false; // Flag to indicate key press to the application
-
-/*!
-    \brief      efficiently toggles the specified GPIO pin
-    \param[in]  gpio_periph: where x can be (A, B, C, D, E)
-    \param[in]  pin: the pin to toggle
-    \retval     none
-*/
-void gpio_bit_toggle(uint32_t gpio_periph, uint32_t pin)
-{
-    // The upper 16 bits of the BSHR register are for clearing,
-    // but they can also be used for toggling in some contexts.
-    // A more direct and standard way is to use the OCTL register.
-    if (GPIO_OCTL(gpio_periph) & pin) {
-        GPIO_BC(gpio_periph) = pin;
-    } else {
-        GPIO_BOP(gpio_periph) = pin;
-    }
-}
+volatile bool user_key_pressed = false;
 
 void board_led_init(void) {
-    rcu_periph_clock_enable(LED_R_GPIO_CLK);
-    rcu_periph_clock_enable(LED_G_GPIO_CLK);
-    rcu_periph_clock_enable(LED_B_GPIO_CLK);
-    
-    gpio_init(LED_R_GPIO_PORT, GPIO_MODE_OUT_PP, GPIO_OSPEED_50MHZ, LED_R_PIN);
-    gpio_init(LED_G_GPIO_PORT, GPIO_MODE_OUT_PP, GPIO_OSPEED_50MHZ, LED_G_PIN);
-    gpio_init(LED_B_GPIO_PORT, GPIO_MODE_OUT_PP, GPIO_OSPEED_50MHZ, LED_B_PIN);
-
-    // LEDs on Longan Nano are common anode, so set high to turn off
-    gpio_bit_set(LED_R_GPIO_PORT, LED_R_PIN);
-    gpio_bit_set(LED_G_GPIO_PORT, LED_G_PIN);
-    gpio_bit_set(LED_B_GPIO_PORT, LED_B_PIN);
+    bsp::board::LedRed::init();
+    bsp::board::LedGreen::init();
+    bsp::board::LedBlue::init();
+    bsp::board::LedRed::off();
+    bsp::board::LedGreen::off();
+    bsp::board::LedBlue::off();
 }
 
 void board_led_on(void) {
-    // Turn on green LED
-    gpio_bit_reset(LED_G_GPIO_PORT, LED_G_PIN);
+    bsp::board::LedGreen::on();
 }
 
 void board_led_off(void) {
-    gpio_bit_set(LED_G_GPIO_PORT, LED_G_PIN);
+    bsp::board::LedGreen::off();
 }
 
 void board_led_toggle(void) {
-    gpio_bit_toggle(LED_G_GPIO_PORT, LED_G_PIN);
+    bsp::board::LedGreen::toggle();
 }
 
 void board_key_init(void) {
-    rcu_periph_clock_enable(USER_KEY_GPIO_CLK);
-    rcu_periph_clock_enable(RCU_AF);
+    bsp::board::KeyButton::init(); // PA8 with pull-up
 
-    gpio_exti_source_select(USER_KEY_EXTI_PORT_SOURCE, USER_KEY_EXTI_PIN_SOURCE);
+    hal::exti::Exti::map_pin(hal::gpio::Port::A, 8);
+    hal::exti::Exti::enable_line(8, hal::exti::Trigger::Falling);
 
-    exti_init(USER_KEY_EXTI_LINE, EXTI_INTERRUPT, EXTI_TRIG_FALLING);
-    exti_interrupt_flag_clear(USER_KEY_EXTI_LINE);
-
-    eclic_irq_enable(USER_KEY_EXTI_IRQn, 1, 0);
+    // EXTI Line 8 vectors to EXTI5_9_IRQn
+    hal::eclic::Eclic::enable(EXTI5_9_IRQn, 1, 0);
 }
 
-#include "hal/time.hpp"
-
 void board_key_isr(void) {
-    // Perform software debouncing using typed timer utilities (BUG-2 fixed)
+    // Perform software debouncing using typed timer utilities
     static hal::time::Instant last_key_press_time{0};
     const auto debounce_duration = hal::time::Duration::from_ms(50);
     const auto now = hal::time::Instant::now();
 
-    // Only execute the action if the debounce time has passed.
     if ((now - last_key_press_time) > debounce_duration) {
-        last_key_press_time = now; // Update the timer for the *next* valid press
-        user_key_pressed = true;   // Set the application flag
+        last_key_press_time = now;
+        user_key_pressed = true;
     }
 
-    exti_interrupt_flag_clear(USER_KEY_EXTI_LINE);
+    hal::exti::Exti::clear_pending(8);
 }

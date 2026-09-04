@@ -123,4 +123,12 @@ inline void reset(Peripheral p) noexcept {
     *reinterpret_cast<volatile uint32_t*>(rst_addr) &= ~(1U << bit);
 }
 
+/**
+ * @brief Configure the USBFS prescaler in CFG0.
+ */
+inline void set_usb_clock_prescaler(uint32_t psc_bits) noexcept {
+    constexpr uint32_t kUsbfsPscMask = 0x3U << 22;
+    RegCFG0::modify(kUsbfsPscMask, psc_bits);
+}
+
 } // namespace hal::rcu

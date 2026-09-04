@@ -1,19 +1,20 @@
 #include <cstdint>
 #include <unistd.h>
+#include "hal/eclic.hpp"
+#include "hal/uart.hpp"
+#include "hal/core.hpp"
 
 extern "C" {
 #include "gd32vf103.h"
-#include "riscv_encoding.h"
-#include "n200_func.h"
 
 extern uint32_t disable_mcycle_minstret(void);
 extern void initialise_debug_uart(void);
 
 void fault_puts(const char *s);
 void fault_puthex(uint32_t h);
-void _unassigned_interrupts_handler(void);
+void __attribute__((interrupt)) _unassigned_interrupts_handler(void);
 
-#define WEAK_ALIAS(f) __attribute__ ((weak, alias("_unassigned_interrupts_handler")))
+#define WEAK_ALIAS(f) __attribute__ ((weak, alias("_unassigned_interrupts_handler"), interrupt))
 
 /* Core N200 Interrupts */
 void eclic_msip_handler(void)       WEAK_ALIAS(eclic_msip_handler);
@@ -83,8 +84,8 @@ void CAN1_EWMC_IRQHandler(void)     WEAK_ALIAS(CAN1_EWMC_IRQHandler);
 void USBFS_IRQHandler(void)         WEAK_ALIAS(USBFS_IRQHandler);
 
 void _init(void) {
-    eclic_init(ECLIC_NUM_INTERRUPTS);
-    eclic_mode_enable();
+    hal::eclic::Eclic::init();
+    hal::eclic::Eclic::enable_mode();
 
     SystemCoreClockUpdate();
     initialise_debug_uart();
@@ -92,11 +93,7 @@ void _init(void) {
 
 void fault_puts(const char *s) {
     if (!s) return;
-    while (*s) {
-        while (RESET == usart_flag_get(USART0, USART_FLAG_TBE));
-        usart_data_transmit(USART0, static_cast<uint8_t>(*s++));
-    }
-    while (RESET == usart_flag_get(USART0, USART_FLAG_TC));
+    hal::uart::Uart0::print(s);
 }
 
 void fault_puthex(uint32_t h) {
@@ -104,15 +101,14 @@ void fault_puthex(uint32_t h) {
     fault_puts("0x");
     for (int i = 28; i >= 0; i -= 4) {
         uint8_t nibble = static_cast<uint8_t>((h >> i) & 0xFU);
-        while (RESET == usart_flag_get(USART0, USART_FLAG_TBE));
-        usart_data_transmit(USART0, static_cast<uint8_t>(hex_chars[nibble]));
+        hal::uart::Uart0::putc(hex_chars[nibble]);
     }
 }
 
 volatile int g_unhandled_interrupt_fired = 0;
 
 void __attribute__((interrupt)) _unassigned_interrupts_handler(void) {
-    uint32_t cause = read_csr(mcause);
+    uint32_t cause = HAL_READ_CSR(mcause);
 
     fault_puts("\n\n*** Unhandled Interrupt ***\nCause (mcause): ");
     fault_puthex(cause);

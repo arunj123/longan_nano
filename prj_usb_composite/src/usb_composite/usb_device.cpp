@@ -14,6 +14,9 @@
 #include "lcd.h"
 #include "shared_defs.h"
 #include "display_manager.h"
+#include "hal/eclic.hpp"
+#include "hal/exti.hpp"
+#include "bsp/board.hpp"
 
 // Forward declare C functions from the library that we will call
 extern "C" {
@@ -87,8 +90,8 @@ void UsbDevice::init(bool enable_msc) {
         composite_config_desc.config.wTotalLength = HID_ONLY_CONFIG_DESC_SIZE;
     }
     
-    eclic_global_interrupt_enable();
-    eclic_priority_group_set(ECLIC_PRIGROUP_LEVEL2_PRIO2);
+    hal::eclic::Eclic::set_priority_group(hal::eclic::PriorityGroup::Level2Prio2);
+    hal::eclic::Eclic::enable_global_interrupts();
     usb_rcu_config();
     usb_timer_init();
     usb_intr_config();
@@ -102,7 +105,7 @@ bool UsbDevice::is_configured() { return m_core_driver.dev.cur_status == USBD_CO
 void UsbDevice::isr() { usbd_isr(&m_core_driver); }
 void UsbDevice::wakeup_isr() {
     if (m_core_driver.bp.low_power) { /* Resume MCU clock logic here if needed */ }
-    exti_interrupt_flag_clear(EXTI_18);
+    hal::exti::Exti::clear_pending(18);
 }
 void UsbDevice::timer_isr() { usb_timer_irq(); }
 
@@ -415,18 +418,15 @@ void UsbDevice::_custom_hid_data_out() {
     switch (command) {
         // LED control logic uses 'value' which is data[1]
         case 0x11: {
-            if (value) gpio_bit_reset(LED_R_GPIO_PORT, LED_R_PIN);
-            else gpio_bit_set(LED_R_GPIO_PORT, LED_R_PIN);
+            bsp::board::LedRed::set(value != 0);
             break;
         }
         case 0x12: {
-            if (value) gpio_bit_reset(LED_G_GPIO_PORT, LED_G_PIN);
-            else gpio_bit_set(LED_G_GPIO_PORT, LED_G_PIN);
+            bsp::board::LedGreen::set(value != 0);
             break;
         }
         case 0x13: {
-             if (value) gpio_bit_reset(LED_B_GPIO_PORT, LED_B_PIN);
-             else gpio_bit_set(LED_B_GPIO_PORT, LED_B_PIN);
+            bsp::board::LedBlue::set(value != 0);
             break;
         }
     }

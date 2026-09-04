@@ -1,16 +1,16 @@
 #include "i2c_hw.h"
+#include "bsp/board.hpp"
+#include "hal/rcu.hpp"
 
 #define I2C0_SPEED 100000
 
 void i2c_hw_init(void) {
-    /* enable GPIOB clock */
-    rcu_periph_clock_enable(RCU_GPIOB);
-    /* enable I2C0 clock */
-    rcu_periph_clock_enable(RCU_I2C0);
+    /* Initialize PB6 (SCL) and PB7 (SDA) as Alternate Open Drain 50MHz */
+    bsp::board::I2c0Scl::init(hal::gpio::Mode::AlternateOpenDrain, hal::gpio::Speed::Speed50MHz);
+    bsp::board::I2c0Sda::init(hal::gpio::Mode::AlternateOpenDrain, hal::gpio::Speed::Speed50MHz);
 
-    /* connect PB6 to I2C0_SCL */
-    /* connect PB7 to I2C0_SDA */
-    gpio_init(GPIOB, GPIO_MODE_AF_OD, GPIO_OSPEED_50MHZ, GPIO_PIN_6 | GPIO_PIN_7);
+    /* enable I2C0 clock */
+    hal::rcu::enable(hal::rcu::Peripheral::I2c0);
 
     /* configure I2C0 clock */
     i2c_clock_config(I2C0, I2C0_SPEED, I2C_DTCY_2);

@@ -2,6 +2,9 @@
 
 #include <cstdint>
 #include "hal/time.hpp"
+#include "hal/rcu.hpp"
+#include "hal/exti.hpp"
+#include "hal/eclic.hpp"
 
 extern "C" {
 #include "gd32vf103.h"
@@ -11,7 +14,7 @@ extern "C" {
 uint32_t usbfs_prescaler = RCU_CKUSB_CKPLL_DIV2;
 
 void usb_rcu_config(void) {
-    const uint32_t system_clock = rcu_clock_freq_get(CK_SYS);
+    const uint32_t system_clock = SystemCoreClock;
     if (system_clock == 48000000) {
         usbfs_prescaler = RCU_CKUSB_CKPLL_DIV1;
     } else if (system_clock == 72000000) {
@@ -20,20 +23,19 @@ void usb_rcu_config(void) {
         usbfs_prescaler = RCU_CKUSB_CKPLL_DIV2;
     }
 
-    rcu_usb_clock_config(usbfs_prescaler);
-    rcu_periph_clock_enable(RCU_USBFS);
+    hal::rcu::set_usb_clock_prescaler(usbfs_prescaler);
+    hal::rcu::enable(hal::rcu::Peripheral::Usbfs);
 }
 
 void usb_intr_config(void) {
-    eclic_irq_enable(static_cast<uint8_t>(USBFS_IRQn), 1, 0);
+    hal::eclic::Eclic::enable(static_cast<uint8_t>(USBFS_IRQn), 1, 0);
 
     // Power management clock for USB wakeup
-    rcu_periph_clock_enable(RCU_PMU);
-    exti_interrupt_flag_clear(EXTI_18);
-    exti_init(EXTI_18, EXTI_INTERRUPT, EXTI_TRIG_RISING);
-    exti_interrupt_enable(EXTI_18);
+    hal::rcu::enable(hal::rcu::Peripheral::Pmu);
+    hal::exti::Exti::clear_pending(18);
+    hal::exti::Exti::enable_line(18, hal::exti::Trigger::Rising);
 
-    eclic_irq_enable(static_cast<uint8_t>(USBFS_WKUP_IRQn), 3, 0);
+    hal::eclic::Eclic::enable(static_cast<uint8_t>(USBFS_WKUP_IRQn), 3, 0);
 }
 
 void usb_timer_init(void) {

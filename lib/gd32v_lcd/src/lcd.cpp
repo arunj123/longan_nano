@@ -4,6 +4,7 @@
 #include "hal/dma.hpp"
 #include "hal/gpio.hpp"
 #include "hal/time.hpp"
+#include "hal/eclic.hpp"
 #include "bsp/board.hpp"
 
 extern "C" {
@@ -385,8 +386,8 @@ void lcd_fb_enable(void) {
     Spi::wait_idle();
     g_fbEnabled = 1;
 
-    eclic_global_interrupt_enable();
-    eclic_enable_interrupt(DMA0_Channel2_IRQn);
+    hal::eclic::Eclic::enable_global_interrupts();
+    hal::eclic::Eclic::enable(DMA0_Channel2_IRQn);
 
     DmaTx::disable();
     DmaTx::clear_all_flags();

@@ -1,4 +1,6 @@
 #include "usb.hpp"
+#include "hal/eclic.hpp"
+#include "hal/exti.hpp"
 
 // Include necessary C headers for implementation details.
 extern "C" {
@@ -14,8 +16,8 @@ usb_core_driver cdc_acm;
 namespace usb {
 
 void init() {
-    eclic_global_interrupt_enable();
-    eclic_priority_group_set(ECLIC_PRIGROUP_LEVEL2_PRIO2);
+    hal::eclic::Eclic::set_priority_group(hal::eclic::PriorityGroup::Level2Prio2);
+    hal::eclic::Eclic::enable_global_interrupts();
 
     usb_rcu_config();
     usb_timer_init();
@@ -52,6 +54,6 @@ void USBFS_WKUP_IRQHandler(void) {
         usb_rcu_config();
         usb_clock_active(&cdc_acm);
     }
-    exti_interrupt_flag_clear(EXTI_18);
+    hal::exti::Exti::clear_pending(18);
 }
 }

@@ -2,6 +2,8 @@
 #include <cstring>
 #include "board.h"
 #include <cstdio>
+#include "hal/eclic.hpp"
+#include "hal/exti.hpp"
 
 extern "C" {
     #include "usbd_transc.h"
@@ -42,8 +44,8 @@ UsbDevice::UsbDevice() : m_in_transfer_complete(true) {
 }
 
 void UsbDevice::init() {
-    eclic_global_interrupt_enable();
-    eclic_priority_group_set(ECLIC_PRIGROUP_LEVEL2_PRIO2);
+    hal::eclic::Eclic::set_priority_group(hal::eclic::PriorityGroup::Level2Prio2);
+    hal::eclic::Eclic::enable_global_interrupts();
     usb_rcu_config();
     usb_timer_init();
     usb_intr_config();
@@ -55,7 +57,7 @@ bool UsbDevice::is_configured() { return m_core_driver.dev.cur_status == USBD_CO
 
 void UsbDevice::isr() { usbd_isr(&m_core_driver); }
 void UsbDevice::wakeup_isr() {
-    exti_interrupt_flag_clear(EXTI_18);
+    hal::exti::Exti::clear_pending(18);
 }
 void UsbDevice::timer_isr() { usb_timer_irq(); }
 
