@@ -131,4 +131,32 @@ inline void set_usb_clock_prescaler(uint32_t psc_bits) noexcept {
     RegCFG0::modify(kUsbfsPscMask, psc_bits);
 }
 
+extern "C" {
+extern uint32_t SystemCoreClock;
+}
+
+/**
+ * @brief Get the APB1 peripheral bus clock frequency in Hz.
+ */
+[[nodiscard]] inline uint32_t get_apb1_clock_frequency() noexcept {
+    const uint32_t psc_bits = (RegCFG0::read() >> 8) & 0x7U;
+    if ((psc_bits & 0x4U) == 0) {
+        return SystemCoreClock;
+    }
+    const uint8_t shift = static_cast<uint8_t>((psc_bits & 0x3U) + 1);
+    return SystemCoreClock >> shift;
+}
+
+/**
+ * @brief Get the APB2 peripheral bus clock frequency in Hz.
+ */
+[[nodiscard]] inline uint32_t get_apb2_clock_frequency() noexcept {
+    const uint32_t psc_bits = (RegCFG0::read() >> 11) & 0x7U;
+    if ((psc_bits & 0x4U) == 0) {
+        return SystemCoreClock;
+    }
+    const uint8_t shift = static_cast<uint8_t>((psc_bits & 0x3U) + 1);
+    return SystemCoreClock >> shift;
+}
+
 } // namespace hal::rcu

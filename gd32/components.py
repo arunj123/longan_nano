@@ -27,7 +27,6 @@ components = {
     },
     "gd32_std_peripheral_lib": {
         "c_sources": [
-            r"Firmware/GD32VF103_standard_peripheral/Source/gd32vf103_i2c.c",
             r"Firmware/GD32VF103_standard_peripheral/Source/gd32vf103_pmu.c",
         ],
         "cpp_sources": [],
