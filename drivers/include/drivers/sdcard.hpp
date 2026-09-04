@@ -77,6 +77,7 @@ public:
 
     static inline CardType card_type{CardType::Unknown};
     static inline uint32_t ocr{0};
+    static inline uint32_t sector_count{0};
     static inline bool is_initialized{false};
 
     static inline void cs_high() noexcept {
@@ -351,7 +352,48 @@ public:
             }
         }
 
-        // 10. Switch SPI1 to high-speed transfer mode (Prescaler Div4 -> ~13.5 MHz)
+        // 10. Read CSD register (CMD9) to determine card capacity
+        cs_low();
+        r1 = send_cmd(9, 0, 0x01);
+        if (r1 == 0x00) {
+            auto csd_deadline = hal::time::Instant::now() + hal::time::Duration::from_ms(300);
+            uint8_t csd_token = 0xFF;
+            do {
+                csd_token = xchg(0xFF);
+                if (csd_token != 0xFF) break;
+            } while (hal::time::Instant::now() < csd_deadline);
+
+            if (csd_token == 0xFE) {
+                uint8_t csd[16];
+                for (size_t i = 0; i < 16; ++i) {
+                    csd[i] = xchg(0xFF);
+                }
+                (void)xchg(0xFF); // CRC
+                (void)xchg(0xFF);
+
+                if ((csd[0] >> 6) == 1) { // CSD v2.0 (SDHC/SDXC)
+                    uint32_t csize = static_cast<uint32_t>(csd[9]) +
+                                     (static_cast<uint32_t>(csd[8]) << 8) +
+                                     (static_cast<uint32_t>(csd[7] & 0x3F) << 16) + 1;
+                    sector_count = csize << 10;
+                } else { // CSD v1.0 (SDSC/MMC)
+                    uint32_t n = static_cast<uint32_t>(csd[5] & 15) +
+                                 static_cast<uint32_t>((csd[10] & 128) >> 7) +
+                                 static_cast<uint32_t>((csd[9] & 3) << 1) + 2U;
+                    uint32_t csize = (csd[8] >> 6) + (static_cast<uint32_t>(csd[7]) << 2) + (static_cast<uint32_t>(csd[6] & 3) << 10) + 1;
+                    sector_count = csize << (n - 9);
+                }
+                if (verbose) {
+                    printf("             Capacity: %lu sectors (~%lu MB)\n",
+                           static_cast<unsigned long>(sector_count),
+                           static_cast<unsigned long>(sector_count / 2048));
+                }
+            }
+        }
+        cs_high();
+        xchg(0xFF);
+
+        // 11. Switch SPI1 to high-speed transfer mode (Prescaler Div4 -> ~13.5 MHz)
         if (verbose) {
             printf("[SD:Step 6] Switching SPI1 to High-Speed mode (Prescaler Div4 = ~13.5 MHz)...\n");
         }
@@ -374,9 +416,12 @@ public:
      * @param sector 32-bit sector index (LBA).
      * @param buffer Output buffer of at least 512 bytes.
      */
-    static SdResult read_sector(uint32_t sector, std::span<uint8_t, 512> buffer) noexcept {
+    static SdResult read_sector(uint32_t sector, std::span<uint8_t> buffer) noexcept {
         if (!is_initialized) {
             return SdResult::NotInitialized;
+        }
+        if (buffer.size() < 512) {
+            return SdResult::WriteError;
         }
 
         // Calculate argument:
@@ -427,6 +472,105 @@ public:
         cs_high();
         xchg(0xFF); // 8 dummy clocks after transfer
 
+        return SdResult::Success;
+    }
+
+    /**
+     * @brief Write a 512-byte sector to the SD card.
+     * @param sector 32-bit sector index (LBA).
+     * @param buffer Input buffer of 512 bytes.
+     */
+    static SdResult write_sector(uint32_t sector, std::span<const uint8_t> buffer) noexcept {
+        if (!is_initialized) {
+            return SdResult::NotInitialized;
+        }
+        if (buffer.size() < 512) {
+            return SdResult::WriteError;
+        }
+
+        uint32_t arg = (card_type == CardType::SD2HC) ? sector : (sector * 512);
+
+        cs_low();
+
+        if (!wait_ready(500)) {
+            cs_high();
+            xchg(0xFF);
+            return SdResult::Timeout;
+        }
+
+        // Send CMD24 (WRITE_BLOCK)
+        uint8_t r1 = send_cmd(24, arg, 0x01);
+        if (r1 != 0x00) {
+            cs_high();
+            xchg(0xFF);
+            return SdResult::WriteError;
+        }
+
+        // Send at least 1 dummy clock before data token
+        xchg(0xFF);
+
+        // Send Data Start Token (0xFE)
+        xchg(0xFE);
+
+        // Transmit 512 data bytes
+        for (size_t i = 0; i < 512; ++i) {
+            xchg(buffer[i]);
+        }
+
+        // Send dummy CRC16
+        xchg(0xFF);
+        xchg(0xFF);
+
+        // Read Data Response token (xxx00101b = 0x05 -> data accepted)
+        uint8_t resp = xchg(0xFF);
+        if ((resp & 0x1F) != 0x05) {
+            cs_high();
+            xchg(0xFF);
+            return SdResult::WriteError;
+        }
+
+        // Wait while card programs flash (MISO held LOW until programming completes)
+        if (!wait_ready(1000)) {
+            cs_high();
+            xchg(0xFF);
+            return SdResult::Timeout;
+        }
+
+        cs_high();
+        xchg(0xFF); // 8 dummy clocks after transfer
+
+        return SdResult::Success;
+    }
+
+    /**
+     * @brief Multi-sector read helper.
+     * @param sector 32-bit starting sector index (LBA).
+     * @param buff Destination buffer pointer.
+     * @param count Number of 512-byte sectors to read.
+     */
+    static SdResult read_sectors(uint32_t sector, uint8_t* buff, uint32_t count) noexcept {
+        if (!is_initialized) return SdResult::NotInitialized;
+        for (uint32_t i = 0; i < count; ++i) {
+            std::span<uint8_t, 512> block_span{buff + (i * 512), 512};
+            auto res = read_sector(sector + i, block_span);
+            if (res != SdResult::Success) return res;
+        }
+        return SdResult::Success;
+    }
+
+    /**
+     * @brief Multi-sector write helper.
+     * @param sector 32-bit starting sector index (LBA).
+     * @param buff Source buffer pointer.
+     * @param count Number of 512-byte sectors to write.
+     */
+    static SdResult write_sectors(uint32_t sector, const uint8_t* buff, uint32_t count) noexcept {
+        if (!is_initialized) return SdResult::NotInitialized;
+        for (uint32_t i = 0; i < count; ++i) {
+            std::span<const uint8_t, 512> block_span{buff + (i * 512), 512};
+            auto res = write_sector(sector + i, block_span);
+            if (res != SdResult::Success) return res;
+        }
         return SdResult::Success;
     }
 };

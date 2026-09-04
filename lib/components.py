@@ -20,4 +20,11 @@ components = {
         "include_paths": [r"-Igd32v_lcd/include"],
         "enabled": True,
     },
+    "fatfs": {
+        "c_sources": [r"fatfs/src/ff.c"],
+        "cpp_sources": [r"fatfs/src/diskio.cpp"],
+        "asm_sources": [],
+        "include_paths": [r"-Ifatfs/include"],
+        "enabled": True,
+    },
 }
