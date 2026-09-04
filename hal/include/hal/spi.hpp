@@ -111,6 +111,21 @@ struct SpiPeripheral {
         }
     }
 
+    /// Dynamically change prescaler
+    static inline void set_prescaler(Prescaler psc) noexcept {
+        bool was_enabled = is_enabled();
+        if (was_enabled) disable();
+        RegCTL0::modify(CTL0_PSC_MASK, static_cast<uint32_t>(psc) << 3);
+        if (was_enabled) enable();
+    }
+
+    /// Clear receive buffer / FIFO
+    static inline void flush_rx() noexcept {
+        while ((RegSTAT::read() & STAT_RBNE) != 0) {
+            (void)read_raw();
+        }
+    }
+
     /// Wait until SPI is completely idle (no transmission ongoing)
     static inline void wait_idle() noexcept {
         while ((RegSTAT::read() & STAT_TRANS) != 0);
