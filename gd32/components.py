@@ -26,9 +26,7 @@ components = {
         "enabled": True,
     },
     "gd32_std_peripheral_lib": {
-        "c_sources": [
-            r"Firmware/GD32VF103_standard_peripheral/Source/gd32vf103_pmu.c",
-        ],
+        "c_sources": [],
         "cpp_sources": [],
         "asm_sources": [],
         "include_paths": [
