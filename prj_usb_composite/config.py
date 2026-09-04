@@ -91,7 +91,7 @@ COMPONENTS = {
         "enabled": True,
     },
     "application": {
-        "c_sources": [r"src/gd32vf103_hw.c",],
+        "c_sources": [],
         "cpp_sources": [r"src/main.cpp", r"src/board.cpp", r"src/rotary_encoder.cpp", r"src/display_manager.cpp"],
         "asm_sources": [],
         "include_paths": [r"-Isrc"],

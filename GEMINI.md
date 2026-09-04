@@ -52,3 +52,17 @@
 - Historical/abandoned projects reside in `archive/` (`archive/prj_example`, `archive/prj_lcd_test`, `archive/prj_sdcard_test`).
 - Modern C++23 zero-cost drivers and register abstractions reside in `hal/`, `bsp/`, and `drivers/`.
 - Legacy vendor firmware library resides in `gd32/` and is compiled strictly as C.
+
+## Resource & Peripheral Conflict Checking
+- **Always Check Hardware Allocations**: Before modifying or creating drivers, verify that peripherals, DMA channels, timers, GPIO pins, and interrupt vectors do not collide:
+  - **DMA0 Channels**:
+    - CH0: ADC0
+    - CH1: SPI0_RX (LCD Read)
+    - CH2: SPI0_TX (LCD Blit/Draw)
+    - CH3: SPI1_RX / USART0_TX
+    - CH4: SPI1_TX / USART0_RX
+    - CH5: I2C0_TX
+    - CH6: I2C0_RX
+  - **Timers**: Do not use hardware TIMER2 for simple delays (use core 64-bit `mtime` via `hal::time`).
+  - **GPIO Pins**: Check all SPI, I2C, UART, Button, and LED mappings before assigning or reconfiguring pins.
+

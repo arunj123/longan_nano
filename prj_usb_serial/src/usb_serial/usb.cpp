@@ -39,3 +39,19 @@ bool is_configured() {
 }
 
 } // namespace usb
+
+extern "C" {
+#include "drv_usbd_int.h"
+
+void USBFS_IRQHandler(void) {
+    usbd_isr(&cdc_acm);
+}
+
+void USBFS_WKUP_IRQHandler(void) {
+    if (cdc_acm.bp.low_power) {
+        usb_rcu_config();
+        usb_clock_active(&cdc_acm);
+    }
+    exti_interrupt_flag_clear(EXTI_18);
+}
+}

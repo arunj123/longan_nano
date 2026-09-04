@@ -81,9 +81,7 @@ COMPONENTS = {
     **lib_components,
     **modern_components,
     "usb_serial": {
-        "c_sources": [
-            r"src/usb_serial/interrupts.c",
-        ],
+        "c_sources": [],
         "cpp_sources": [r"src/usb_serial/usb.cpp",],
         "asm_sources": [],
         "include_paths": [r"-Isrc/usb_serial"],
@@ -97,7 +95,7 @@ COMPONENTS = {
         "enabled": False,
     },
     "application": {
-        "c_sources": [r"src/gd32vf103_hw.c",],
+        "c_sources": [],
         "cpp_sources": [r"src/main.cpp",],
         "asm_sources": [],
         "include_paths": [r"-Isrc"],

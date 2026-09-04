@@ -34,8 +34,12 @@ struct UartDevice {
     static constexpr uint32_t CTL0_TEN = 1U << 3;  // Transmitter enable
     static constexpr uint32_t CTL0_REN = 1U << 2;  // Receiver enable
 
-    /// Initialize USART with specified baud rate assuming APB2 clock (108MHz or 96MHz).
-    static inline void init(uint32_t baud, uint32_t apb_clock_hz = 108000000) noexcept {
+    /// Initialize USART with specified baud rate assuming APB2 clock.
+    static inline void init(uint32_t baud, uint32_t apb_clock_hz = 0) noexcept {
+        if (apb_clock_hz == 0) {
+            apb_clock_hz = SystemCoreClock;
+        }
+
         // Enable USART0 clock
         Register<detail::kRcuApb2En, uint32_t>::set_bits(detail::kUsart0RcuBit);
 

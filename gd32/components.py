@@ -66,16 +66,6 @@ components = {
         "include_paths": [r"-IFirmware/GD32VF103_usbfs_library/driver/Include"],
         "enabled": True,
     },
-    "usb_driver_host": {
-        "c_sources": [
-            r"Firmware/GD32VF103_usbfs_library/driver/Source/drv_usb_host.c",
-            r"Firmware/GD32VF103_usbfs_library/driver/Source/drv_usbh_int.c",
-        ],
-        "cpp_sources": [],
-        "asm_sources": [],
-        "include_paths": [r"-IFirmware/GD32VF103_usbfs_library/driver/Include"],
-        "enabled": False,
-    },
     "usb_driver_device": {
         "c_sources": [
             r"Firmware/GD32VF103_usbfs_library/driver/Source/drv_usb_dev.c",
@@ -96,16 +86,6 @@ components = {
         "asm_sources": [],
         "include_paths": [r"-IFirmware/GD32VF103_usbfs_library/device/core/Include"],
         "enabled": True,
-    },
-    "usb_device_class_audio": {
-        "c_sources": [
-            r"Firmware/GD32VF103_usbfs_library/device/class/audio/Source/audio_core.c",
-            r"Firmware/GD32VF103_usbfs_library/device/class/audio/Source/audio_out_itf.c",
-        ],
-        "cpp_sources": [],
-        "asm_sources": [],
-        "include_paths": [r"-IFirmware/GD32VF103_usbfs_library/device/class/audio/Include"],
-        "enabled": False,
     },
     "usb_device_ustd": {
         "c_sources": [],
@@ -128,16 +108,6 @@ components = {
         ],
         "enabled": True,
     },
-    "usb_device_class_dfu": {
-        "c_sources": [
-            r"Firmware/GD32VF103_usbfs_library/device/class/dfu/Source/dfu_core.c",
-            r"Firmware/GD32VF103_usbfs_library/device/class/dfu/Source/dfu_mem.c",
-        ],
-        "cpp_sources": [],
-        "asm_sources": [],
-        "include_paths": [r"-IFirmware/GD32VF103_usbfs_library/device/class/dfu/Include"],
-        "enabled": False,
-    },
     "usb_device_class_hid": {
         "c_sources": [
             r"Firmware/GD32VF103_usbfs_library/device/class/hid/Source/custom_hid_core.c",
@@ -147,13 +117,6 @@ components = {
         "asm_sources": [],
         "include_paths": [r"-IFirmware/GD32VF103_usbfs_library/device/class/hid/Include",],
         "enabled": True,
-    },
-    "usb_device_class_iap": {
-        "c_sources": [r"Firmware/GD32VF103_usbfs_library/device/class/iap/Source/usb_iap_core.c"],
-        "cpp_sources": [],
-        "asm_sources": [],
-        "include_paths": [r"-IFirmware/GD32VF103_usbfs_library/device/class/iap/Include"],
-        "enabled": False,
     },
     "usb_device_class_msc": {
         "c_sources": [
@@ -166,45 +129,5 @@ components = {
         "include_paths": [r"-IFirmware/GD32VF103_usbfs_library/device/class/msc/Include",],
         "enabled": True,
     },
-    "usb_device_class_printer": {
-        "c_sources": [r"Firmware/GD32VF103_usbfs_library/device/class/printer/Source/printer_core.c"],
-        "cpp_sources": [],
-        "asm_sources": [],
-        "include_paths": [r"-IFirmware/GD32VF103_usbfs_library/device/class/printer/Include"],
-        "enabled": False,
-    },
-    "usb_host_core": {
-        "c_sources": [
-            r"Firmware/GD32VF103_usbfs_library/host/core/Source/usbh_core.c",
-            r"Firmware/GD32VF103_usbfs_library/host/core/Source/usbh_enum.c",
-            r"Firmware/GD32VF103_usbfs_library/host/core/Source/usbh_pipe.c",
-            r"Firmware/GD32VF103_usbfs_library/host/core/Source/usbh_transc.c",
-        ],
-        "cpp_sources": [],
-        "asm_sources": [],
-        "include_paths": [r"-IFirmware/GD32VF103_usbfs_library/host/core/Include"],
-        "enabled": False,
-    },
-    "usb_host_class_hid": {
-        "c_sources": [
-            r"Firmware/GD32VF103_usbfs_library/host/class/hid/Source/usbh_hid_core.c",
-            r"Firmware/GD32VF103_usbfs_library/host/class/hid/Source/usbh_standard_hid.c",
-        ],
-        "cpp_sources": [],
-        "asm_sources": [],
-        "include_paths": [r"-IFirmware/GD32VF103_usbfs_library/host/class/hid/Include"],
-        "enabled": False,
-    },
-    "usb_host_class_msc": {
-        "c_sources": [
-            r"Firmware/GD32VF103_usbfs_library/host/class/msc/Source/usbh_msc_bbb.c",
-            r"Firmware/GD32VF103_usbfs_library/host/class/msc/Source/usbh_msc_core.c",
-            r"Firmware/GD32VF103_usbfs_library/host/class/msc/Source/usbh_msc_fatfs.c",
-            r"Firmware/GD32VF103_usbfs_library/host/class/msc/Source/usbh_msc_scsi.c",
-        ],
-        "cpp_sources": [],
-        "asm_sources": [],
-        "include_paths": [r"-IFirmware/GD32VF103_usbfs_library/host/class/msc/Include"],
-        "enabled": False,
-    },
 }
+

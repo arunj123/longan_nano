@@ -12,6 +12,10 @@
 // Public API for the LCD Driver
 // ------------------------------------------------------------------------
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /**
  * @brief Initializes the GPIO, SPI, and DMA for the LCD and sends the
  *        initialization sequence to the display controller.
@@ -101,5 +105,9 @@ void lcd_fb_enable(void);
 void lcd_fb_disable(void);
 
 // ------------------------------------------------------------------------
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // __LCD_H__

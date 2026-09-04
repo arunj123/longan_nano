@@ -14,15 +14,18 @@ def main():
             sys.stdout.flush()
 
             while True:
+                # Poll port health; raises exception if FTDI connection reset
+                _ = ser.in_waiting
                 line = ser.readline()
                 if line:
                     try:
                         text = line.decode('utf-8', errors='replace').strip()
                     except Exception:
                         text = str(line)
-                    timestamp = time.strftime("%H:%M:%S")
-                    print(f"[{timestamp}] {text}")
-                    sys.stdout.flush()
+                    if text:
+                        timestamp = time.strftime("%H:%M:%S")
+                        print(f"[{timestamp}] {text}")
+                        sys.stdout.flush()
                 time.sleep(0.01)
         except KeyboardInterrupt:
             print("[UART MONITOR] Exiting...")
