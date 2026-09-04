@@ -420,7 +420,7 @@ class Builder:
         # This config file is an updated OpenOCD script for the Sipeed RV-Debugger.
         # It's suitable for most JTAG operations with the Longan Nano and reset.
         config_file = os.path.join("tools", "config", "openocd-sipeed-libusb.cfg")
-        program_cmd = f'program "{hex_path}" verify; reset; shutdown'
+        program_cmd = f'program "{hex_path}" verify; halt; reg pc 0x08000000; resume; shutdown'
         cmd = [self.config.OPENOCD_PATH, '-f', config_file, '-c', program_cmd]
         self.run_command(cmd)
         print("✅ OpenOCD Programming complete.")

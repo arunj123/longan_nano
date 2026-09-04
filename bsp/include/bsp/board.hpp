@@ -44,6 +44,7 @@ inline void init() noexcept {
     LedRed::init();
     LedGreen::init();
     LedBlue::init();
+    KeyButton::init();
 }
 
 /**

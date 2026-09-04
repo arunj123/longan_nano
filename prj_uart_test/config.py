@@ -14,6 +14,9 @@ sys.path.insert(0, _ROOT)
 from tools import config
 from gd32.components import components as gd32
 from lib.components import components as lib
+from hal.components import components as hal
+from bsp.components import components as bsp
+from drivers.components import components as drivers
 
 
 # ==============================================================================
@@ -66,12 +69,19 @@ for component_name in ['debug_uart0', 'system',]:
     lib_components[component_name] = lib[component_name].copy()
     lib_components[component_name]['module'] = 'lib'
 
+modern_components = {
+    "hal": {**hal["hal"], "module": "hal"},
+    "bsp": {**bsp["bsp"], "module": "bsp"},
+    "drivers": {**drivers["drivers"], "module": "drivers"},
+}
+
 COMPONENTS = { 
     **gd32_components,
     **lib_components,
+    **modern_components,
     "application": {
-        "c_sources": [r"src/main.c"],
-        "cpp_sources": [],
+        "c_sources": [],
+        "cpp_sources": [r"src/main.cpp"],
         "asm_sources": [],
         "include_paths": [r"-Isrc"],
         "enabled": True

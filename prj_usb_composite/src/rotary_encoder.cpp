@@ -18,42 +18,44 @@
 #define ENCODER_KEY_EXTI    EXTI_12
 #define ENCODER_KEY_IRQn    EXTI10_15_IRQn
 
+#include "hal/time.hpp"
+#include "hal/core.hpp"
+
 // Internal state variables
 static volatile int8_t rotation_count = 0;
 static volatile bool key_pressed_flag = false;
-static volatile uint64_t last_interrupt_time = 0;
-const uint32_t DEBOUNCE_TIME_MS = 50;
-const uint32_t ROTATION_DEBOUNCE_MS = 2; // Debounce for rotation interrupts
+static hal::time::Instant last_rotation_time{0};
+static hal::time::Instant last_key_time{0};
+static const auto kRotationDebounce = hal::time::Duration::from_ms(2);
+static const auto kKeyDebounce = hal::time::Duration::from_ms(50);
 
 // Update the rotation ISR to include a micro-debounce
 void encoder::rotation_isr() {
-
-    uint64_t now = get_timer_value();
-    if ((now - last_interrupt_time) < ROTATION_DEBOUNCE_MS) { // Reject noise
+    const auto now = hal::time::Instant::now();
+    if ((now - last_rotation_time) < kRotationDebounce) { // Reject contact bounce
         exti_interrupt_flag_clear(ENCODER_S1_EXTI);
         return;
     }
 
-    // Use a temporary variable to modify the count, then write back to volatile.
-    // This avoids the deprecated read-modify-write operation on a volatile.
+    // Modify count atomically
     int8_t current_count = rotation_count;
     if (gpio_input_bit_get(ENCODER_S2_PORT, ENCODER_S2_PIN) == RESET) {
-        current_count--; // This reports counter-clockwise / left turn
+        current_count--; // Counter-clockwise
     } else {
-        current_count++; // This reports clockwise / right turn
+        current_count++; // Clockwise
     }
     rotation_count = current_count;
     
-    last_interrupt_time = now;
+    last_rotation_time = now;
     exti_interrupt_flag_clear(ENCODER_S1_EXTI);
 }
 
-// Update the key ISR to use the shared timer variable
+// Key ISR using independent debounce timer
 void encoder::key_isr() {
-    uint64_t now = get_timer_value();
-    if ((now - last_interrupt_time) > DEBOUNCE_TIME_MS) {
+    const auto now = hal::time::Instant::now();
+    if ((now - last_key_time) > kKeyDebounce) {
         key_pressed_flag = true;
-        last_interrupt_time = now;
+        last_key_time = now;
     }
     exti_interrupt_flag_clear(ENCODER_KEY_EXTI);
 }
@@ -95,11 +97,10 @@ bool encoder::is_pressed() {
 int8_t encoder::get_rotation() {
     int8_t count = 0;
     if (rotation_count != 0) {
-        // Atomically read and reset the count
-        eclic_global_interrupt_disable();
+        // Atomically read and reset the count using RAII critical section
+        const hal::core::CriticalSection lock;
         count = rotation_count;
         rotation_count = 0;
-        eclic_global_interrupt_enable();
     }
     return count;
 }
