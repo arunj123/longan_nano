@@ -48,9 +48,9 @@
   - `usb::poll()` must run continuously with zero latency. Use non-blocking `hal::time::Instant` and `Duration` for application-level task scheduling.
 
 ## Project Structure
-- Active applications are prefixed with `prj_*` in the project root (`prj_usb_composite`, `prj_current_monitor`, `prj_usb_serial`, `prj_uart_test`).
-- Historical/abandoned projects reside in `archive/` (`archive/prj_example`, `archive/prj_lcd_test`, `archive/prj_sdcard_test`).
+- Active applications are prefixed with `prj_*` in the project root (`prj_usb_composite`, `prj_current_monitor`, `prj_usb_serial`, `prj_uart_test`, `prj_lcd_test`, `prj_sdcard_test`, `prj_sdcard_fs_test`).
 - Modern C++23 zero-cost drivers and register abstractions reside in `hal/`, `bsp/`, and `drivers/`.
+- Modern, low-footprint components reside in `lib/` (`lib/system`, `lib/fatfs`, `lib/gd32v_lcd`, `lib/debug_uart0`).
 - Legacy vendor firmware library resides in `gd32/` and is compiled strictly as C.
 
 ## Resource & Peripheral Conflict Checking
