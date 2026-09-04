@@ -12,6 +12,16 @@
   ```
 - **Supported Commands**: `build`, `rebuild`, `clean`, `flash`, `program`, `nucleus`, `dfu`, `debug`.
 
+## Flashing & In-Circuit Debugging
+- **Programmer**: FT2232D Dual-Channel USB interface (`VID: 0x0403, PID: 0x6010`):
+  - **Interface 0 (`MI_00`)**: JTAG debugger (`Dual RS232`, WinUSB driver via OpenOCD 0.12).
+  - **Interface 1 (`MI_01`)**: Debug UART monitor (`USB Serial Converter B`, Virtual COM port `COM13` @ 115200 baud).
+- **UART Monitor**: Use `tools/uart_monitor.py` for resilient, auto-reconnecting serial logging.
+- **SRST-less OpenOCD Programming**:
+  - The physical reset line (SRST) is not wired to the JTAG header.
+  - Flashing commands must software-resume execution at the flash entry point:
+    `program "<hex_path>" verify; halt; reg pc 0x08000000; resume; shutdown`
+
 ## Hardware & Architecture Reference
 - **MCU**: GD32VF103CBT6 (RISC-V 32-bit RV32IMAC @ up to 108MHz, 32KB SRAM, 128KB Flash).
 - **FPU Policy**: **No hardware FPU**. Strictly avoid software floating-point emulation (`float`/`double`). Use fixed-point integer arithmetic (e.g. mV, mA, mW) for all sensor and control processing.
@@ -25,7 +35,17 @@
   - Red: `PC13` (active-low)
   - Green: `PA1` (active-low via anode to 3.3V)
   - Blue: `PA2` (active-low via anode to 3.3V)
+- **User Button**: `PA8` (active-low with internal pull-up). Always ensure `KeyButton::init()` is called to enable pull-up.
 - **LCD**: 160x80 ST7735 SPI LCD on SPI0 (CS: PB2, DC: PB0, RST: PB1, SCK: PA5, MOSI: PA7).
+
+## Interrupts & USB Architecture
+- **ECLIC Controller**:
+  - Base address `0xD2000000`. Each interrupt takes 4 bytes (IP, IE, ATTR, CTRL).
+  - Always use direct array indexing `base[i]` for all 87 interrupts; avoid pointer increment multipliers.
+  - Unhandled interrupts vector to `_unassigned_interrupts_handler()`, which prints `mcause` to UART0 and halts.
+- **USB CDC-ACM Performance**:
+  - Never use blocking delays (`delay_ms()`) in the main loop of USB-enabled applications.
+  - `usb::poll()` must run continuously with zero latency. Use non-blocking `hal::time::Instant` and `Duration` for application-level task scheduling.
 
 ## Project Structure
 - Active applications are prefixed with `prj_*` in the project root (`prj_usb_composite`, `prj_current_monitor`, `prj_usb_serial`, `prj_uart_test`).
