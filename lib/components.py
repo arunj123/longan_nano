@@ -8,7 +8,7 @@ components = {
     },
     "system": {
         "c_sources": [],
-        "cpp_sources": [r"system/system_gd32vf103.cpp", r"system/init.cpp", r"system/handlers.cpp", r"system/systick.cpp"],
+        "cpp_sources": [r"system/system_gd32vf103.cpp", r"system/init.cpp", r"system/handlers.cpp", r"system/systick.cpp", r"system/syscalls.cpp"],
         "asm_sources": [r"system/entry.S", r"system/start.S"],
         "include_paths": [r"-Isystem"],
         "enabled": True,

@@ -7,22 +7,17 @@
 
 components = {
     "riscv_drivers": {
-        "c_sources": [r"Firmware/RISCV/drivers/n200_func.c"],
+        "c_sources": [],
         "cpp_sources": [],
         "asm_sources": [],
         "include_paths": [r"-IFirmware/RISCV/drivers"],
         "enabled": True,
     },
     "syscall_stubs": {
-        "c_sources": [
-            r"Firmware/RISCV/stubs/sbrk.c", r"Firmware/RISCV/stubs/lseek.c",
-            r"Firmware/RISCV/stubs/fstat.c", r"Firmware/RISCV/stubs/close.c",
-            r"Firmware/RISCV/stubs/_exit.c", r"Firmware/RISCV/stubs/write_hex.c",
-            r"Firmware/RISCV/stubs/isatty.c", r"Firmware/RISCV/stubs/read.c",
-        ],
+        "c_sources": [],
         "cpp_sources": [],
         "asm_sources": [],
-        "include_paths": [r"-IFirmware/RISCV/stubs"],
+        "include_paths": [],
         "enabled": True,
     },
     "gd32_std_peripheral_lib": {
@@ -84,27 +79,6 @@ components = {
         "include_paths": [
             r"-IFirmware/GD32VF103_usbfs_library/device/class/cdc/Include",
         ],
-        "enabled": True,
-    },
-    "usb_device_class_hid": {
-        "c_sources": [
-            r"Firmware/GD32VF103_usbfs_library/device/class/hid/Source/custom_hid_core.c",
-            r"Firmware/GD32VF103_usbfs_library/device/class/hid/Source/standard_hid_core.c",
-        ],
-        "cpp_sources": [],
-        "asm_sources": [],
-        "include_paths": [r"-IFirmware/GD32VF103_usbfs_library/device/class/hid/Include",],
-        "enabled": True,
-    },
-    "usb_device_class_msc": {
-        "c_sources": [
-            r"Firmware/GD32VF103_usbfs_library/device/class/msc/Source/usbd_msc_bbb.c",
-            r"Firmware/GD32VF103_usbfs_library/device/class/msc/Source/usbd_msc_core.c",
-            r"Firmware/GD32VF103_usbfs_library/device/class/msc/Source/usbd_msc_scsi.c",
-        ],
-        "cpp_sources": [],
-        "asm_sources": [],
-        "include_paths": [r"-IFirmware/GD32VF103_usbfs_library/device/class/msc/Include",],
         "enabled": True,
     },
 }
