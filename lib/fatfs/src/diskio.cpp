@@ -25,19 +25,19 @@ DSTATUS disk_status(BYTE pdrv) {
     return Sd::is_initialized ? 0 : STA_NOINIT;
 }
 
-DRESULT disk_read(BYTE pdrv, BYTE* buff, DWORD sector, UINT count) {
+DRESULT disk_read(BYTE pdrv, BYTE* buff, LBA_t sector, UINT count) {
     if (pdrv != 0 || count == 0) return RES_PARERR;
     if (!Sd::is_initialized) return RES_NOTRDY;
 
-    auto res = Sd::read_sectors(sector, buff, count);
+    auto res = Sd::read_sectors(static_cast<uint32_t>(sector), buff, count);
     return (res == drivers::sdcard::SdResult::Success) ? RES_OK : RES_ERROR;
 }
 
-DRESULT disk_write(BYTE pdrv, const BYTE* buff, DWORD sector, UINT count) {
+DRESULT disk_write(BYTE pdrv, const BYTE* buff, LBA_t sector, UINT count) {
     if (pdrv != 0 || count == 0) return RES_PARERR;
     if (!Sd::is_initialized) return RES_NOTRDY;
 
-    auto res = Sd::write_sectors(sector, buff, count);
+    auto res = Sd::write_sectors(static_cast<uint32_t>(sector), buff, count);
     return (res == drivers::sdcard::SdResult::Success) ? RES_OK : RES_ERROR;
 }
 
