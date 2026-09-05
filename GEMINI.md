@@ -61,6 +61,11 @@
 - **USB CDC-ACM Performance**:
   - Never use blocking delays (`delay_ms()`) in the main loop of USB-enabled applications.
   - `usb::poll()` must run continuously with zero latency. Use non-blocking `hal::time::Instant` and `Duration` for application-level task scheduling.
+- **USB Enumeration & Descriptor Invariants**:
+  - **String Descriptor Bounds**: String queries must bounds-check `desc_index < USB_STRING_COUNT`. Windows unconditionally queries index `0xEE` (Microsoft OS descriptor); out-of-bounds indices must immediately return `REQ_NOTSUPP` (STALL) to prevent memory corruption and Code 10 failures.
+  - **Strict Control Request Dispatching**: HID request handlers must explicitly support `DESC_TYPE_HID` (`0x21`) alongside `DESC_TYPE_REPORT` (`0x22`). Any unhandled or unsupported control request (`GET_REPORT`, `SET_REPORT`) must return `USBD_FAIL` (STALL). Handlers must never return `USBD_OK` without setting buffer pointers and lengths.
+- **Windows HID Sizing Rule**:
+  - When HID reports are 64 bytes without explicit Report IDs, Windows requires a 65-byte packet (`[0x00 Report ID] + 64 data bytes`). Passing 64 bytes causes `0x000003E5` Overlapped I/O timeouts.
 
 ## Project Structure
 - Active applications are prefixed with `prj_*` in the project root (`prj_usb_composite`, `prj_current_monitor`, `prj_usb_serial`, `prj_uart_test`, `prj_lcd_test`, `prj_sdcard_test`, `prj_sdcard_fs_test`).
