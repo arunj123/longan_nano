@@ -25,6 +25,7 @@
 ## Hardware & Architecture Reference
 - **MCU**: GD32VF103CBT6 (RISC-V 32-bit RV32IMAC @ up to 108MHz, 32KB SRAM, 128KB Flash).
 - **FPU Policy**: **No hardware FPU**. Strictly avoid software floating-point emulation (`float`/`double`). Use fixed-point integer arithmetic (e.g. mV, mA, mW) for all sensor and control processing.
+- **Memory Alignment**: RV32IMAC traps on unaligned multi-byte memory loads (`lw`). Sector and stream buffers must maintain 32-bit alignment, or use byte-level accessors (`ld_word`, `st_word`, `memcpy`) for unaligned memory structs.
 - **Clock Configuration**:
   - **96 MHz** for applications using USB (`__SYSTEM_CLOCK_96M_PLL_HXTAL`, generates exact 48 MHz USB clock).
   - **108 MHz** for non-USB applications (`__SYSTEM_CLOCK_108M_PLL_HXTAL` for maximum CPU performance).
@@ -37,6 +38,20 @@
   - Blue: `PA2` (active-low via anode to 3.3V)
 - **User Button**: `PA8` (active-low with internal pull-up). Always ensure `KeyButton::init()` is called to enable pull-up.
 - **LCD**: 160x80 ST7735 SPI LCD on SPI0 (CS: PB2, DC: PB0, RST: PB1, SCK: PA5, MOSI: PA7).
+
+## SD Card & SPI Interface Rules
+- **Bus & Pinout**: Dedicated SPI1 peripheral (PB12 CS, PB13 SCK, PB14 MISO, PB15 MOSI).
+- **MISO Internal Pull-Up**: The MicroSD socket leaves MISO floating when unselected or uninitialized. PB14 (MISO) **must** be initialized with `InputPullUp` so idle reads yield `0xFF`.
+- **Power-Up Sequence**: Send $\ge 80$ dummy clocks ($\ge 10$ bytes of `0xFF`) with CS held HIGH at $\le 400\text{ kHz}$ SPI clock before issuing `CMD0`.
+- **Prescaler Switching**: Probe and initialize at $\le 400\text{ kHz}$ (`BaudRatePrescaler::Div256`); switch dynamically to high speed (`BaudRatePrescaler::Div4`, 13.5 MHz) only after operational initialization completes.
+- **Write Busy Polling**: Always poll card ready (`wait_ready()`) after writing sector data before releasing CS or initiating subsequent commands.
+
+## FatFs Architecture on 32-Bit RISC-V
+- **Version**: ChaN's FatFs R0.15 w/patch2 (`FFCONF_DEF 80286`) in `lib/fatfs/`.
+- **SRAM Footprint (`FF_FS_TINY = 1`)**: Sector buffer is shared in `FATFS`, reducing `FIL` size to 36 bytes.
+- **Native 32-Bit ALU (`FF_LBA64 = 0`)**: Sector addresses (`LBA_t`) use native 32-bit `DWORD`, avoiding 64-bit pair emulation overhead.
+- **Flash Optimization**: Set `FF_USE_LFN = 0` (8.3 SFN) and `FF_CODE_PAGE = 437` to omit multi-megabyte unicode tables.
+- **Forced FAT32 Small-Volume Detection**: When volumes are formatted with forced FAT32 (`mkfs.fat -F 32` or Windows), cluster count may fall below 65,526. Volume detection must check `ld_word(fs->win + BPB_FATSz16) == 0` to accurately classify FAT32.
 
 ## Interrupts & USB Architecture
 - **ECLIC Controller**:
