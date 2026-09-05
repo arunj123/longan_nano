@@ -3,11 +3,8 @@
     \brief running led
 */
 
-extern "C" {
-#include "gd32vf103.h"
 #include "systick.h"
 #include "lcd.h"
-}
 #include "usb_device.h"
 #include <stdio.h>
 // gpio.h is no longer needed

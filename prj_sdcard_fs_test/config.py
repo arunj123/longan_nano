@@ -6,7 +6,6 @@ _ROOT = os.path.abspath(os.path.join(_CURRENT_DIR, '..'))
 sys.path.insert(0, _ROOT)
 
 from tools import config
-from gd32.components import components as gd32
 from lib.components import components as lib
 from hal.components import components as hal
 from bsp.components import components as bsp
@@ -32,13 +31,7 @@ CPU_FLAGS = [
 
 LINKER_SCRIPT = r"lib/system/GD32VF103xB.lds"
 
-# ==============================================================================
-# Project Components
-# ==============================================================================
-gd32_components = {}
-for component_name in ['riscv_drivers', 'syscall_stubs', 'gd32_std_peripheral_lib']:
-    gd32_components[component_name] = gd32[component_name].copy()
-    gd32_components[component_name]['module'] = "gd32"
+
 
 lib_components = {}
 for component_name in ['debug_uart0', 'system', 'gd32_lcd', 'fatfs']:
@@ -52,7 +45,6 @@ modern_components = {
 }
 
 COMPONENTS = { 
-    **gd32_components,
     **lib_components,
     **modern_components,
     "application": {

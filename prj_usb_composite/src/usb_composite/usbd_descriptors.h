@@ -8,9 +8,7 @@
 #ifndef USBD_DESCRIPTORS_H
 #define USBD_DESCRIPTORS_H
 
-extern "C" {
-    #include "usbd_core.h"
-}
+#include "drivers/usb/usb_core.hpp"
 
 #include "usb_types.h"
 

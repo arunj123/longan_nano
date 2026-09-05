@@ -45,6 +45,75 @@ enum class PriorityGroup : uint8_t {
 };
 
 /**
+ * @brief ECLIC interrupt request vector numbers for GD32VF103.
+ */
+enum class Irq : uint8_t {
+    Msip            = 3,
+    Mtip            = 7,
+    Bwei            = 17,
+    Pmovi           = 18,
+    Wwdgt           = 19,
+    Lvd             = 20,
+    Tamper          = 21,
+    Rtc             = 22,
+    Fmc             = 23,
+    Rcu             = 24,
+    Exti0           = 25,
+    Exti1           = 26,
+    Exti2           = 27,
+    Exti3           = 28,
+    Exti4           = 29,
+    Dma0Channel0    = 30,
+    Dma0Channel1    = 31,
+    Dma0Channel2    = 32,
+    Dma0Channel3    = 33,
+    Dma0Channel4    = 34,
+    Dma0Channel5    = 35,
+    Dma0Channel6    = 36,
+    Adc0_1          = 37,
+    Can0Tx          = 38,
+    Can0Rx0         = 39,
+    Can0Rx1         = 40,
+    Can0Ewmc        = 41,
+    Exti5_9         = 42,
+    Timer0Brk       = 43,
+    Timer0Up        = 44,
+    Timer0TrgCmt    = 45,
+    Timer0Channel   = 46,
+    Timer1          = 47,
+    Timer2          = 48,
+    Timer3          = 49,
+    I2c0Ev          = 50,
+    I2c0Er          = 51,
+    I2c1Ev          = 52,
+    I2c1Er          = 53,
+    Spi0            = 54,
+    Spi1            = 55,
+    Usart0          = 56,
+    Usart1          = 57,
+    Usart2          = 58,
+    Exti10_15       = 59,
+    RtcAlarm        = 60,
+    UsbfsWkup       = 61,
+    Timer4          = 69,
+    Spi2            = 70,
+    Uart3           = 71,
+    Uart4           = 72,
+    Timer5          = 73,
+    Timer6          = 74,
+    Dma1Channel0    = 75,
+    Dma1Channel1    = 76,
+    Dma1Channel2    = 77,
+    Dma1Channel3    = 78,
+    Dma1Channel4    = 79,
+    Can1Tx          = 82,
+    Can1Rx0         = 83,
+    Can1Rx1         = 84,
+    Can1Ewmc        = 85,
+    Usbfs           = 86,
+};
+
+/**
  * @brief Zero-overhead compile-time ECLIC driver for GD32VF103.
  * Adheres strictly to GEMINI.md: Direct array indexing base[i] for all 87 interrupts.
  */
@@ -113,11 +182,21 @@ struct Eclic {
         entry->ie = 1;
     }
 
+    /// Enable interrupt request with typed Irq enum.
+    static inline void enable(Irq irq, uint8_t level = 1, uint8_t priority = 0, bool vectored = false) noexcept {
+        enable(static_cast<uint32_t>(irq), level, priority, vectored);
+    }
+
     /// Disable interrupt request.
     static inline void disable(uint32_t irq) noexcept {
         if (irq < detail::kNumInterrupts) {
             detail::int_entries()[irq].ie = 0;
         }
+    }
+
+    /// Disable interrupt request with typed Irq enum.
+    static inline void disable(Irq irq) noexcept {
+        disable(static_cast<uint32_t>(irq));
     }
 
     /// Check if interrupt is pending.

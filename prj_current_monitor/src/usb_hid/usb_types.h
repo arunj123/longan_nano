@@ -206,6 +206,13 @@ namespace msc {
         };
     } // namespace scsi
 
+#ifndef MSC_MEDIA_PACKET_SIZE
+#define MSC_MEDIA_PACKET_SIZE 512
+#endif
+#ifndef MEM_LUN_NUM
+#define MEM_LUN_NUM 1
+#endif
+
     struct MscHandler {
         uint8_t bbb_data[MSC_MEDIA_PACKET_SIZE];
         uint8_t max_lun;

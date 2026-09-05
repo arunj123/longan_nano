@@ -2,29 +2,9 @@
 
 #include <cstdint>
 
+#include "hal/csr.hpp"
+
 namespace hal::core {
-
-/// Read a RISC-V Control and Status Register (CSR).
-#define HAL_READ_CSR(reg) ({ \
-    uint32_t __val; \
-    asm volatile("csrr %0, " #reg : "=r"(__val) : : "memory"); \
-    __val; \
-})
-
-/// Write a RISC-V Control and Status Register (CSR).
-#define HAL_WRITE_CSR(reg, val) ({ \
-    asm volatile("csrw " #reg ", %0" : : "r"(val) : "memory"); \
-})
-
-/// Set bit(s) in a RISC-V Control and Status Register (CSR).
-#define HAL_SET_CSR(reg, bit) ({ \
-    asm volatile("csrs " #reg ", %0" : : "r"(bit) : "memory"); \
-})
-
-/// Clear bit(s) in a RISC-V Control and Status Register (CSR).
-#define HAL_CLEAR_CSR(reg, bit) ({ \
-    asm volatile("csrc " #reg ", %0" : : "r"(bit) : "memory"); \
-})
 
 /// Atomically disable global interrupts and return the previous mstatus value.
 [[nodiscard]] inline uint32_t disable_interrupts() noexcept {

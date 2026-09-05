@@ -15,9 +15,7 @@
  * -----------------------------------------------------------------------------
  */
 
-#include "riscv_encoding.h"
-#include "riscv_bits.h"
-#include "n200_eclic.h"
+#include "hal/riscv_asm.h"
 
 #ifndef ENTRY_S
 #define ENTRY_S

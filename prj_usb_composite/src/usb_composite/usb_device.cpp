@@ -18,13 +18,7 @@
 #include "hal/exti.hpp"
 #include "bsp/board.hpp"
 
-// Forward declare C functions from the library that we will call
-extern "C" {
-    #include "usbd_transc.h"
-    void usbd_isr(usb_core_driver *udev);
-    void usb_timer_irq(void);
-    void serial_string_get(uint16_t *unicode_str);
-}
+
 
 // ===================================================================
 // Public Namespace Functions (The User's API)
@@ -92,9 +86,9 @@ void UsbDevice::init(bool enable_msc) {
     
     hal::eclic::Eclic::set_priority_group(hal::eclic::PriorityGroup::Level2Prio2);
     hal::eclic::Eclic::enable_global_interrupts();
-    usb_rcu_config();
-    usb_timer_init();
-    usb_intr_config();
+    bsp::usb::rcu_config();
+    bsp::usb::timer_init();
+    bsp::usb::intr_config();
     usbd_init(&m_core_driver, &m_descriptors, &m_class_core);
 }
 
@@ -107,7 +101,7 @@ void UsbDevice::wakeup_isr() {
     if (m_core_driver.bp.low_power) { /* Resume MCU clock logic here if needed */ }
     hal::exti::Exti::clear_pending(18);
 }
-void UsbDevice::timer_isr() { usb_timer_irq(); }
+void UsbDevice::timer_isr() { bsp::usb::timer_irq(); }
 
 // --- Report Sending Methods ---
 void UsbDevice::send_mouse_report(int8_t x, int8_t y, int8_t wheel, uint8_t buttons) {
@@ -297,46 +291,43 @@ uint8_t UsbDevice::_std_hid_req_handler(usb::UsbRequest *req) {
 
     switch(static_cast<usb::hid::HidReq>(req->bRequest)) {
         case usb::hid::HidReq::GET_REPORT: 
-            break;
+            return USBD_FAIL;
 
         case usb::hid::HidReq::GET_IDLE:
-            // Step 1: Prepare the transaction data
             transc->xfer_buf = (uint8_t *)&m_std_hid_handler.idle_state;
             transc->remain_len = 1U;
-            // Step 2: Initiate the control send
-            usbd_ctl_send(&m_core_driver);
-            break;
+            return USBD_OK;
 
         case usb::hid::HidReq::GET_PROTOCOL:
             transc->xfer_buf = (uint8_t *)&m_std_hid_handler.protocol;
             transc->remain_len = 1U;
-            usbd_ctl_send(&m_core_driver);
-            break;
+            return USBD_OK;
 
         case usb::hid::HidReq::SET_REPORT: 
-            break;
+            return USBD_FAIL;
 
         case usb::hid::HidReq::SET_IDLE: 
             m_std_hid_handler.idle_state = (uint8_t)(req->wValue >> 8); 
-            break;
+            return USBD_OK;
             
         case usb::hid::HidReq::SET_PROTOCOL: 
             m_std_hid_handler.protocol = (uint8_t)(req->wValue); 
-            break;
+            return USBD_OK;
 
         default:
             if (req->bRequest == static_cast<uint8_t>(usb::StdReq::GET_DESCRIPTOR)) {
-                if(usb::hid::DESC_TYPE_REPORT == (req->wValue >> 8)) {
+                if (usb::hid::DESC_TYPE_REPORT == (req->wValue >> 8)) {
                     transc->remain_len = USB_MIN(STD_HID_REPORT_DESC_LEN, req->wLength);
-                    transc->xfer_buf = (uint8_t *)std_hid_report_descriptor;
-                    usbd_ctl_send(&m_core_driver);
+                    transc->xfer_buf = const_cast<uint8_t*>(std_hid_report_descriptor);
+                    return USBD_OK;
+                } else if (usb::hid::DESC_TYPE_HID == (req->wValue >> 8)) {
+                    transc->remain_len = USB_MIN(sizeof(usb::hid::DescHid), req->wLength);
+                    transc->xfer_buf = reinterpret_cast<uint8_t*>(&(composite_config_desc.std_hid_desc));
+                    return USBD_OK;
                 }
-            } else {
-                return USBD_FAIL;
             }
-            break;
+            return USBD_FAIL;
     }
-    return USBD_OK;
 }
 
 // --- Custom HID Implementation ---
@@ -357,45 +348,43 @@ uint8_t UsbDevice::_custom_hid_req_handler(usb::UsbRequest *req) {
 
     switch(static_cast<usb::hid::HidReq>(req->bRequest)) {
         case usb::hid::HidReq::GET_REPORT: 
-            break;
+            return USBD_FAIL;
 
         case usb::hid::HidReq::GET_IDLE:
             transc->xfer_buf = (uint8_t *)&m_custom_hid_handler.idlestate;
             transc->remain_len = 1U;
-            usbd_ctl_send(&m_core_driver);
-            break;
+            return USBD_OK;
 
         case usb::hid::HidReq::GET_PROTOCOL:
             transc->xfer_buf = (uint8_t *)&m_custom_hid_handler.protocol;
             transc->remain_len = 1U;
-            usbd_ctl_send(&m_core_driver);
-            break;
+            return USBD_OK;
 
         case usb::hid::HidReq::SET_REPORT: 
-            m_custom_hid_handler.reportID = (uint8_t)(req->wValue); 
-            break;
+            return USBD_FAIL;
 
         case usb::hid::HidReq::SET_IDLE: 
             m_custom_hid_handler.idlestate = (uint8_t)(req->wValue >> 8); 
-            break;
+            return USBD_OK;
 
         case usb::hid::HidReq::SET_PROTOCOL: 
             m_custom_hid_handler.protocol = (uint8_t)(req->wValue); 
-            break;
+            return USBD_OK;
 
         default:
             if (req->bRequest == static_cast<uint8_t>(usb::StdReq::GET_DESCRIPTOR)) {
-                if(usb::hid::DESC_TYPE_REPORT == (req->wValue >> 8)) {
+                if (usb::hid::DESC_TYPE_REPORT == (req->wValue >> 8)) {
                     transc->remain_len = USB_MIN(CUSTOM_HID_REPORT_DESC_LEN, req->wLength);
-                    transc->xfer_buf = (uint8_t *)custom_hid_report_descriptor;
-                    usbd_ctl_send(&m_core_driver);
+                    transc->xfer_buf = const_cast<uint8_t*>(custom_hid_report_descriptor);
+                    return USBD_OK;
+                } else if (usb::hid::DESC_TYPE_HID == (req->wValue >> 8)) {
+                    transc->remain_len = USB_MIN(sizeof(usb::hid::DescHid), req->wLength);
+                    transc->xfer_buf = reinterpret_cast<uint8_t*>(&(composite_config_desc.custom_hid_desc));
+                    return USBD_OK;
                 }
-            } else {
-                return USBD_FAIL;
             }
-            break;
+            return USBD_FAIL;
     }
-    return USBD_OK;
 }
 
 void UsbDevice::_custom_hid_data_out() {

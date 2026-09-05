@@ -1,16 +1,14 @@
-extern "C" {
-#include "gd32vf103.h"
 #include "systick.h"
 #include "lcd.h"
-}
+#include "hal/time.hpp"
 #include "usb_hid/usb.hpp"
 #include "board.h"
 #include "ina219.h"
 #include "display_manager.h"
 #include <stdio.h>
 
-static uint32_t get_ms_from_start(void) {
-    return (uint32_t)(get_timer_value() / (SystemCoreClock / 4000));
+static inline uint32_t get_ms_from_start(void) {
+    return hal::time::uptime_ms();
 }
 
 int main(void)

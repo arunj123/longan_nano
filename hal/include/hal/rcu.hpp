@@ -3,6 +3,8 @@
 #include <cstdint>
 #include "hal/register.hpp"
 
+extern uint32_t SystemCoreClock;
+
 namespace hal::rcu {
 
 inline constexpr uintptr_t kRcuBase = 0x40021000;
@@ -123,16 +125,24 @@ inline void reset(Peripheral p) noexcept {
     *reinterpret_cast<volatile uint32_t*>(rst_addr) &= ~(1U << bit);
 }
 
+enum class UsbPrescaler : uint32_t {
+    Div1_5 = 0x0U << 22,
+    Div1   = 0x1U << 22,
+    Div2_5 = 0x2U << 22,
+    Div2   = 0x3U << 22,
+};
+
 /**
  * @brief Configure the USBFS prescaler in CFG0.
  */
+inline void set_usb_clock_prescaler(UsbPrescaler psc) noexcept {
+    constexpr uint32_t kUsbfsPscMask = 0x3U << 22;
+    RegCFG0::modify(kUsbfsPscMask, static_cast<uint32_t>(psc));
+}
+
 inline void set_usb_clock_prescaler(uint32_t psc_bits) noexcept {
     constexpr uint32_t kUsbfsPscMask = 0x3U << 22;
     RegCFG0::modify(kUsbfsPscMask, psc_bits);
-}
-
-extern "C" {
-extern uint32_t SystemCoreClock;
 }
 
 /**

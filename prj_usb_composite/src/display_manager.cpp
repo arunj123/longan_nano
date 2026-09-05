@@ -2,10 +2,7 @@
 #include <cstdio>
 #include <cstring>
 
-// This block correctly links the C functions from the LCD library.
-extern "C" {
-    #include "lcd.h"
-}
+#include "lcd.h"
 
 namespace display {
 
@@ -26,7 +23,7 @@ void DisplayManager::handleUsbPacket(const uint8_t* data, uint32_t len) {
             // Packet format received: [CMD, x, y, w, h, seq_lsb, seq_msb]
             if (len < 7) return;
 
-            uint8_t next_head = (m_usb_head_idx + 1) % constants::NumBuffers;
+            uint8_t next_head = static_cast<uint8_t>((m_usb_head_idx + 1) % constants::NumBuffers);
             if (next_head == m_dma_tail_idx) return; // Buffers are full
 
             DrawTask& task = m_draw_tasks[m_usb_head_idx];
@@ -69,7 +66,7 @@ void DisplayManager::handleUsbPacket(const uint8_t* data, uint32_t len) {
 
             if (task.bytes_received >= task.total_bytes_expected) {
                 task.state = BufferState::READY_TO_DRAW;
-                m_usb_head_idx = (m_usb_head_idx + 1) % constants::NumBuffers;
+                m_usb_head_idx = static_cast<uint8_t>((m_usb_head_idx + 1) % constants::NumBuffers);
                 m_expected_sequence_num++;
             }
             break;
@@ -81,17 +78,18 @@ void DisplayManager::handleUsbPacket(const uint8_t* data, uint32_t len) {
 }
 
 void DisplayManager::processDrawTasks() {
-    // This function is correct and does not need changes.
     if (m_dma_tail_idx == m_usb_head_idx) return;
 
     DrawTask& task = m_draw_tasks[m_dma_tail_idx];
 
     if (task.state == BufferState::READY_TO_DRAW) {
+        if (lcd_is_dma_busy()) return; // Non-blocking check for SPI DMA completion
+
         const Rect& r = task.region;
         lcd_write_u16(r.x, r.y, r.w, r.h, m_framebuffers[m_dma_tail_idx].data());
         
         task.state = BufferState::EMPTY;
-        m_dma_tail_idx = (m_dma_tail_idx + 1) % constants::NumBuffers;
+        m_dma_tail_idx = static_cast<uint8_t>((m_dma_tail_idx + 1) % constants::NumBuffers);
     }
 }
 

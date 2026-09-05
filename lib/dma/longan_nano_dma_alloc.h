@@ -1,5 +1,5 @@
 
-#include "gd32vf103.h"
+#pragma once
 
 #ifndef LONGAN_NANO_DMA_ALLOC_H
 #define LONGAN_NANO_DMA_ALLOC_H

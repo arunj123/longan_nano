@@ -8,11 +8,9 @@
 #ifndef USB_DEVICE_H
 #define USB_DEVICE_H
 
-// C-style headers for the core driver are still needed
-extern "C" {
-    #include "drv_usb_hw.h"
-    #include "usbd_core.h"
-}
+#include "drivers/usb/usb_core.hpp"
+
+#include "bsp/usb_hw.hpp"
 
 // Include our self-contained type definitions
 #include "usb_types.h"

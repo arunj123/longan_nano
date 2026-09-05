@@ -1,11 +1,7 @@
 #ifndef USB_HPP
 #define USB_HPP
 
-// The extern "C" block ensures correct linkage for C++ code
-// when including C headers.
-extern "C" {
-#include "cdc_acm_core.h"
-}
+#include "drivers/usb/cdc_acm.hpp"
 
 // The USB driver instance needs to be globally accessible for the C-based ISRs.
 // We declare it here as 'extern' to make it visible across the project.

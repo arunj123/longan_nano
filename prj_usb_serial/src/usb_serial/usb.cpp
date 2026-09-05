@@ -2,15 +2,11 @@
 #include "hal/eclic.hpp"
 #include "hal/exti.hpp"
 
-// Include necessary C headers for implementation details.
-extern "C" {
-#include "gd32vf103.h"
-#include "drv_usb_hw.h"
-}
+#include "bsp/usb_hw.hpp"
 
 // Define the global USB driver instance here.
 // It's now owned by this USB module.
-// The C-based ISRs require this to be a global symbol.
+// The ISRs require this to be a global symbol.
 usb_core_driver cdc_acm;
 
 namespace usb {
@@ -19,9 +15,9 @@ void init() {
     hal::eclic::Eclic::set_priority_group(hal::eclic::PriorityGroup::Level2Prio2);
     hal::eclic::Eclic::enable_global_interrupts();
 
-    usb_rcu_config();
-    usb_timer_init();
-    usb_intr_config();
+    bsp::usb::rcu_config();
+    bsp::usb::timer_init();
+    bsp::usb::intr_config();
 
     usbd_init(&cdc_acm, &cdc_desc, &cdc_class);
 }
@@ -43,7 +39,6 @@ bool is_configured() {
 } // namespace usb
 
 extern "C" {
-#include "drv_usbd_int.h"
 
 void USBFS_IRQHandler(void) {
     usbd_isr(&cdc_acm);
@@ -51,7 +46,7 @@ void USBFS_IRQHandler(void) {
 
 void USBFS_WKUP_IRQHandler(void) {
     if (cdc_acm.bp.low_power) {
-        usb_rcu_config();
+        bsp::usb::rcu_config();
         usb_clock_active(&cdc_acm);
     }
     hal::exti::Exti::clear_pending(18);

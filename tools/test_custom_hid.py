@@ -22,9 +22,9 @@ def find_custom_hid_device():
     """
     # The usage page for our custom interface is 0xFF00
     for device_dict in hid.enumerate():
-        if device_dict['vendor_id'] == VID and \
-           device_dict['product_id'] == PID and \
-           device_dict['usage_page'] == 0xFF00:
+        if device_dict.get('vendor_id') == VID and \
+           device_dict.get('product_id') == PID and \
+           (device_dict.get('interface_number') == 1 or device_dict.get('usage_page') in (0xFF00, 48896)):
             print(f"Found Custom HID device at path: {device_dict['path']}")
             return device_dict['path']
     return None

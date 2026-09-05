@@ -35,16 +35,8 @@ OF SUCH DAMAGE.
 #ifndef SYSTICK_H
 #define SYSTICK_H
 
-#include <stdint.h>
-
-#ifdef __cplusplus
-extern "C" {
-#endif
+#include <cstdint>
 
 void delay_1ms(uint32_t count);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* SYSTICK_H */

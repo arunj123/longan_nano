@@ -38,8 +38,7 @@ void board_key_init(void) {
     hal::exti::Exti::map_pin(hal::gpio::Port::A, 8);
     hal::exti::Exti::enable_line(8, hal::exti::Trigger::Falling);
 
-    // EXTI Line 8 vectors to EXTI5_9_IRQn
-    hal::eclic::Eclic::enable(EXTI5_9_IRQn, 1, 0);
+    hal::eclic::Eclic::enable(hal::eclic::Irq::Exti5_9, 1, 0);
 }
 
 void board_key_isr(void) {

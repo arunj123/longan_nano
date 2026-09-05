@@ -1,9 +1,7 @@
 #ifndef USBD_DESCRIPTORS_H
 #define USBD_DESCRIPTORS_H
 
-extern "C" {
-    #include "usbd_core.h"
-}
+#include "drivers/usb/usb_core.hpp"
 
 #include "usb_types.h"
 
@@ -35,9 +33,12 @@ const uint8_t custom_hid_report_descriptor[] = {
                                        sizeof(usb_desc_ep) + \
                                        sizeof(usb_desc_ep))
 
-/* Endpoint Addresses */
+#ifndef CUSTOM_HID_IN_EP
 #define CUSTOM_HID_IN_EP              0x81U
+#endif
+#ifndef CUSTOM_HID_OUT_EP
 #define CUSTOM_HID_OUT_EP             0x01U
+#endif
 
 /* Descriptor structure */
 typedef struct

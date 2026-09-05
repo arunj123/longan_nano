@@ -8,17 +8,8 @@
 #ifndef USB_CONF_H
 #define USB_CONF_H
 
-#ifdef __cplusplus
+#include <cstdint>
 #include <cstdlib>
-extern "C" {
-#else
-#include <stdlib.h>
-#endif
-
-#include "gd32vf103.h"
-#ifdef __cplusplus
-}
-#endif
 
 /* USB Core and Driver Config */
 #define USB_SOF_OUTPUT              1U

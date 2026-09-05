@@ -35,8 +35,8 @@ OF SUCH DAMAGE.
 #ifndef USB_CONF_H
 #define USB_CONF_H
 
-#include "gd32vf103.h"
-#include <stddef.h>
+#include <cstdint>
+#include <cstdlib>
 
 #define RX_FIFO_FS_SIZE                         128
 #define TX0_FIFO_FS_SIZE                        64

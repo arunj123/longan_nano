@@ -9,6 +9,7 @@
 #define USB_TYPES_H
 
 #include <cstdint>
+#include "usbd_conf.h"
 
 // Ensure structs are packed correctly, matching hardware/protocol requirements
 #pragma pack(1)

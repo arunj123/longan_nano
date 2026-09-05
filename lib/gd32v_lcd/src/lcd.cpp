@@ -7,9 +7,7 @@
 #include "hal/eclic.hpp"
 #include "bsp/board.hpp"
 
-extern "C" {
-#include "gd32vf103.h"
-}
+
 
 // ------------------------------------------------------------------------
 // Hardware aliases
@@ -131,10 +129,7 @@ static void lcd_set_addr(int x, int y, int w, int h) {
 }
 
 // ------------------------------------------------------------------------
-// Public API implementation (extern "C")
-// ------------------------------------------------------------------------
-
-extern "C" {
+// Public API implementation
 
 void lcd_init(void) {
     // 1. Enable peripheral clocks via modern hal::rcu
@@ -387,7 +382,7 @@ void lcd_fb_enable(void) {
     g_fbEnabled = 1;
 
     hal::eclic::Eclic::enable_global_interrupts();
-    hal::eclic::Eclic::enable(DMA0_Channel2_IRQn);
+    hal::eclic::Eclic::enable(hal::eclic::Irq::Dma0Channel2);
 
     DmaTx::disable();
     DmaTx::clear_all_flags();
@@ -401,7 +396,4 @@ void lcd_fb_disable(void) {
     if (!g_fbEnabled) return;
 
     g_fbEnabled = 0;
-    while (DmaTx::RegCTL::read() & DmaTx::CTL_FTFIE);
 }
-
-} // extern "C"

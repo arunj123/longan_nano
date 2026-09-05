@@ -130,9 +130,4 @@ struct Pmu {
 
 } // namespace hal::pmu
 
-// C compatibility functions for legacy / USB library callers
-extern "C" {
 
-void pmu_to_deepsleepmode(uint32_t ldo, uint8_t deepsleepmodecmd);
-
-} // extern "C"

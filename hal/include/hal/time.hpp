@@ -3,10 +3,8 @@
 #include <cstdint>
 #include "hal/core.hpp"
 
-extern "C" {
-    // GD32 SystemCoreClock global symbol provided by system_gd32vf103.c
-    extern uint32_t SystemCoreClock;
-}
+// SystemCoreClock global symbol provided by system_gd32vf103.cpp
+extern uint32_t SystemCoreClock;
 
 namespace hal::time {
 
@@ -34,6 +32,18 @@ inline constexpr uintptr_t MTIME_HI_ADDR = 0xD1000004;
         lo = *mtime_lo;
     } while (hi != *mtime_hi);
     return (static_cast<uint64_t>(hi) << 32) | lo;
+}
+
+/**
+ * @brief Returns system uptime in milliseconds since boot.
+ */
+[[nodiscard]] inline uint32_t millis() noexcept {
+    const uint64_t freq = SystemCoreClock / 4;
+    return static_cast<uint32_t>((get_raw_ticks() * 1000ULL) / freq);
+}
+
+[[nodiscard]] inline uint32_t uptime_ms() noexcept {
+    return millis();
 }
 
 struct Duration;

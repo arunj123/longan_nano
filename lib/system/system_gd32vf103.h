@@ -31,33 +31,19 @@
 #ifndef SYSTEM_GD32VF103_H
 #define SYSTEM_GD32VF103_H
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+#include <cstdint>
 
-#include <stdint.h>
-  
-#if   defined (__ICCRISCV__)
-    #include "compiler.h"
-#endif
-
-/* firmware version can be aquired by uncommenting the macro */
-#define __FIRMWARE_VERSION_DEFINE  
-  
 /* system clock frequency (core clock) */
 extern uint32_t SystemCoreClock;
 
 /* function declarations */
-/* initialize the system and update the SystemCoreClock variable */
-extern void SystemInit(void);
+/* initialize the system and update the SystemCoreClock variable (called from start.S) */
+extern "C" void SystemInit(void);
+
 /* update the SystemCoreClock with current core clock retrieved from cpu registers */
-extern void SystemCoreClockUpdate(void);
-#ifdef __FIRMWARE_VERSION_DEFINE
+void SystemCoreClockUpdate(void);
+
 /* get firmware version */
-extern uint32_t gd32vf103_firmware_version_get(void);
-#endif /* __FIRMWARE_VERSION_DEFINE */
-#ifdef __cplusplus
-}
-#endif
+uint32_t gd32vf103_firmware_version_get(void);
 
 #endif /* SYSTEM_GD32VF103_H */

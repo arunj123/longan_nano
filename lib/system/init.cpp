@@ -3,18 +3,18 @@
 #include "hal/eclic.hpp"
 #include "hal/uart.hpp"
 #include "hal/core.hpp"
+#include "system_gd32vf103.h"
 
 extern "C" {
-#include "gd32vf103.h"
 
 extern uint32_t disable_mcycle_minstret(void);
 extern void initialise_debug_uart(void);
 
 void fault_puts(const char *s);
 void fault_puthex(uint32_t h);
-void __attribute__((interrupt)) _unassigned_interrupts_handler(void);
+void __attribute__((interrupt, nothrow)) _unassigned_interrupts_handler(void);
 
-#define WEAK_ALIAS(f) __attribute__ ((weak, alias("_unassigned_interrupts_handler"), interrupt))
+#define WEAK_ALIAS(f) __attribute__ ((weak, alias("_unassigned_interrupts_handler"), interrupt, nothrow))
 
 /* Core N200 Interrupts */
 void eclic_msip_handler(void)       WEAK_ALIAS(eclic_msip_handler);
@@ -107,8 +107,8 @@ void fault_puthex(uint32_t h) {
 
 volatile int g_unhandled_interrupt_fired = 0;
 
-void __attribute__((interrupt)) _unassigned_interrupts_handler(void) {
-    uint32_t cause = HAL_READ_CSR(mcause);
+void __attribute__((interrupt, nothrow)) _unassigned_interrupts_handler(void) {
+    uint32_t cause = hal::csr::read<hal::csr::Csr::Mcause>();
 
     fault_puts("\n\n*** Unhandled Interrupt ***\nCause (mcause): ");
     fault_puthex(cause);

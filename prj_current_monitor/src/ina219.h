@@ -4,10 +4,6 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #define INA219_ADDR 0x40
 
 // Raw values for USB streaming
@@ -19,9 +15,5 @@ typedef struct {
 
 bool ina219_init(void);
 bool ina219_read_all(ina219_data_t *data);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif // INA219_H

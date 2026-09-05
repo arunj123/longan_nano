@@ -1,10 +1,9 @@
 #ifndef USB_DEVICE_H
 #define USB_DEVICE_H
 
-extern "C" {
-    #include "drv_usb_hw.h"
-    #include "usbd_core.h"
-}
+#include "drivers/usb/usb_core.hpp"
+
+#include "bsp/usb_hw.hpp"
 
 #include "usb_types.h"
 #include "usbd_descriptors.h"

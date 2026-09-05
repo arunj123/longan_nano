@@ -12,7 +12,6 @@ sys.path.insert(0, _ROOT)
 # Import the toolchain configuration from the 'tools' directory at the project root.
 # This now works because we've added the project root to the system path above.
 from tools import config
-from gd32.components import components as gd32
 from lib.components import components as lib
 from hal.components import components as hal
 from bsp.components import components as bsp
@@ -59,11 +58,6 @@ LINKER_SCRIPT = r"lib/system/GD32VF103xB.lds"
 # ==============================================================================
 # Enable or disable parts of the firmware by toggling the 'enabled' flag.
 
-gd32_components = {}
-for component_name in ['riscv_drivers', 'syscall_stubs', 'gd32_std_peripheral_lib']:
-    gd32_components[component_name] = gd32[component_name].copy()
-    gd32_components[component_name]['module'] = "gd32"
-
 lib_components = {}
 for component_name in ['debug_uart0', 'system',]:
     lib_components[component_name] = lib[component_name].copy()
@@ -76,7 +70,6 @@ modern_components = {
 }
 
 COMPONENTS = { 
-    **gd32_components,
     **lib_components,
     **modern_components,
     "application": {

@@ -5,12 +5,7 @@
 #include "hal/eclic.hpp"
 #include "hal/exti.hpp"
 
-extern "C" {
-    #include "usbd_transc.h"
-    void usbd_isr(usb_core_driver *udev);
-    void usb_timer_irq(void);
-    void serial_string_get(uint16_t *unicode_str);
-}
+
 
 // Public API
 void usb::init() { UsbDevice::getInstance().init(); }
@@ -46,9 +41,9 @@ UsbDevice::UsbDevice() : m_in_transfer_complete(true) {
 void UsbDevice::init() {
     hal::eclic::Eclic::set_priority_group(hal::eclic::PriorityGroup::Level2Prio2);
     hal::eclic::Eclic::enable_global_interrupts();
-    usb_rcu_config();
-    usb_timer_init();
-    usb_intr_config();
+    bsp::usb::rcu_config();
+    bsp::usb::timer_init();
+    bsp::usb::intr_config();
     usbd_init(&m_core_driver, &m_descriptors, &m_class_core);
 }
 
@@ -59,7 +54,7 @@ void UsbDevice::isr() { usbd_isr(&m_core_driver); }
 void UsbDevice::wakeup_isr() {
     hal::exti::Exti::clear_pending(18);
 }
-void UsbDevice::timer_isr() { usb_timer_irq(); }
+void UsbDevice::timer_isr() { bsp::usb::timer_irq(); }
 
 bool UsbDevice::send_report(const uint8_t* buffer, size_t length) {
     if (length > 64) return false;
@@ -77,7 +72,7 @@ bool UsbDevice::send_report(const uint8_t* buffer, size_t length) {
     return false;
 }
 
-uint8_t UsbDevice::_init_hid(uint8_t config_index) {
+uint8_t UsbDevice::_init_hid([[maybe_unused]] uint8_t config_index) {
     m_core_driver.dev.class_data[0] = &m_handler;
     usbd_ep_setup(&m_core_driver, &(config_desc.custom_hid_epin));
     usbd_ep_setup(&m_core_driver, &(config_desc.custom_hid_epout));
@@ -85,7 +80,7 @@ uint8_t UsbDevice::_init_hid(uint8_t config_index) {
     return USBD_OK;
 }
 
-uint8_t UsbDevice::_deinit_hid(uint8_t config_index) {
+uint8_t UsbDevice::_deinit_hid([[maybe_unused]] uint8_t config_index) {
     usbd_ep_clear(&m_core_driver, CUSTOM_HID_IN_EP);
     usbd_ep_clear(&m_core_driver, CUSTOM_HID_OUT_EP);
     return USBD_OK;
@@ -94,27 +89,38 @@ uint8_t UsbDevice::_deinit_hid(uint8_t config_index) {
 uint8_t UsbDevice::_req_handler(usb::UsbRequest *req) {
     usb_transc *transc = &m_core_driver.dev.transc_in[0];
     switch(static_cast<usb::hid::HidReq>(req->bRequest)) {
+        case usb::hid::HidReq::GET_REPORT:
+            return USBD_FAIL;
         case usb::hid::HidReq::GET_IDLE:
             transc->xfer_buf = (uint8_t *)&m_handler.idlestate;
             transc->remain_len = 1U;
-            usbd_ctl_send(&m_core_driver);
-            break;
+            return USBD_OK;
+        case usb::hid::HidReq::GET_PROTOCOL:
+            transc->xfer_buf = (uint8_t *)&m_handler.protocol;
+            transc->remain_len = 1U;
+            return USBD_OK;
+        case usb::hid::HidReq::SET_REPORT:
+            return USBD_FAIL;
         case usb::hid::HidReq::SET_IDLE: 
             m_handler.idlestate = (uint8_t)(req->wValue >> 8); 
-            break;
+            return USBD_OK;
+        case usb::hid::HidReq::SET_PROTOCOL:
+            m_handler.protocol = (uint8_t)(req->wValue);
+            return USBD_OK;
         default:
             if (req->bRequest == static_cast<uint8_t>(usb::StdReq::GET_DESCRIPTOR)) {
                 if(usb::hid::DESC_TYPE_REPORT == (req->wValue >> 8)) {
                     transc->remain_len = USB_MIN(CUSTOM_HID_REPORT_DESC_LEN, req->wLength);
-                    transc->xfer_buf = (uint8_t *)custom_hid_report_descriptor;
-                    usbd_ctl_send(&m_core_driver);
+                    transc->xfer_buf = const_cast<uint8_t*>(custom_hid_report_descriptor);
+                    return USBD_OK;
+                } else if(usb::hid::DESC_TYPE_HID == (req->wValue >> 8)) {
+                    transc->remain_len = USB_MIN(sizeof(usb::hid::DescHid), req->wLength);
+                    transc->xfer_buf = reinterpret_cast<uint8_t*>(&(config_desc.custom_hid_desc));
+                    return USBD_OK;
                 }
-            } else {
-                return USBD_FAIL;
             }
-            break;
+            return USBD_FAIL;
     }
-    return USBD_OK;
 }
 
 uint8_t UsbDevice::_data_in(uint8_t ep_num) {
@@ -134,8 +140,8 @@ uint8_t UsbDevice::_data_out(uint8_t ep_num) {
     return USBD_FAIL;
 }
 
-uint8_t UsbDevice::_init_cb(usb_dev *udev, uint8_t config_index) { return getInstance()._init_hid(config_index); }
-uint8_t UsbDevice::_deinit_cb(usb_dev *udev, uint8_t config_index) { return getInstance()._deinit_hid(config_index); }
-uint8_t UsbDevice::_req_handler_cb(usb_dev *udev, usb_req *req) { return getInstance()._req_handler(reinterpret_cast<usb::UsbRequest*>(req)); }
-uint8_t UsbDevice::_data_in_cb(usb_dev *udev, uint8_t ep_num) { return getInstance()._data_in(ep_num); }
-uint8_t UsbDevice::_data_out_cb(usb_dev *udev, uint8_t ep_num) { return getInstance()._data_out(ep_num); }
+uint8_t UsbDevice::_init_cb([[maybe_unused]] usb_dev *udev, uint8_t config_index) { return getInstance()._init_hid(config_index); }
+uint8_t UsbDevice::_deinit_cb([[maybe_unused]] usb_dev *udev, uint8_t config_index) { return getInstance()._deinit_hid(config_index); }
+uint8_t UsbDevice::_req_handler_cb([[maybe_unused]] usb_dev *udev, usb_req *req) { return getInstance()._req_handler(reinterpret_cast<usb::UsbRequest*>(req)); }
+uint8_t UsbDevice::_data_in_cb([[maybe_unused]] usb_dev *udev, uint8_t ep_num) { return getInstance()._data_in(ep_num); }
+uint8_t UsbDevice::_data_out_cb([[maybe_unused]] usb_dev *udev, uint8_t ep_num) { return getInstance()._data_out(ep_num); }

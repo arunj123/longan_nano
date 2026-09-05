@@ -2,9 +2,7 @@
 #include <cstdio>
 #include <cstring>
 
-extern "C" {
-    #include "lcd.h"
-}
+#include "lcd.h"
 
 // Color definitions (RGB565)
 #define BLACK   0x0000

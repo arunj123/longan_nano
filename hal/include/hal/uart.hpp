@@ -5,7 +5,7 @@
 #include "hal/register.hpp"
 #include "hal/gpio.hpp"
 
-extern "C" uint32_t SystemCoreClock;
+extern uint32_t SystemCoreClock;
 
 namespace hal::uart {
 

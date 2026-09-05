@@ -56,10 +56,10 @@ class DeviceManager:
         if self.device: return True
         try:
             for device_info in hid.enumerate(config.VID, config.PID):
-                if device_info['usage_page'] == 0xFF00:
+                if device_info.get('interface_number') == 1 or device_info.get('usage_page') in (0xFF00, 48896):
+                    self.device_path = device_info['path']
                     self.device = hid.device()
-                    self.device.open_path(device_info['path'])
-                    self.device.set_nonblocking(1)
+                    self.device.open_path(self.device_path)
                     self.sequence_number = 0
                     print("--- Device Connected ---")
                     return True
@@ -85,20 +85,18 @@ class DeviceManager:
             OSError: If a HID write operation fails, indicating a likely disconnection.
         """
         sent_bytes = 0
-        # The actual payload size per report is the report length minus the overhead
-        # for the Report ID (1 byte) and the Command ID (1 byte).
-        payload_size = config.REPORT_LENGTH - 1
+        # The payload size per report is 63 bytes (1 byte CMD + 63 bytes pixel data)
+        payload_size = 63
         while sent_bytes < len(data):
             chunk = data[sent_bytes : sent_bytes + payload_size]
             packet = bytearray([config.REPORT_ID, config.CMD_IMAGE_DATA])
             packet.extend(chunk)
-            packet.extend([0] * (config.REPORT_LENGTH - len(packet)))
+            # Windows OutputReportByteLength is 65 bytes (1-byte Report ID 0x00 + 64 data bytes)
+            if len(packet) < 65:
+                packet.extend([0] * (65 - len(packet)))
             bytes_written = self.device.write(packet)
-            if bytes_written < 0: raise OSError("HID write failed. Device may be disconnected.")
+            if bytes_written < 0: raise OSError(f"HID write payload failed at byte {sent_bytes}/{len(data)}: {self.device.error()}")
             sent_bytes += len(chunk)
-            # A small delay is crucial for flow control. It gives the firmware time
-            # to process the incoming packet and write it to the LCD's DMA buffer
-            # before the next packet arrives.
             time.sleep(0.001) 
 
     def send_rect_update(self, image: Image.Image, bbox: tuple[int, int, int, int]):
@@ -151,15 +149,17 @@ class DeviceManager:
         seq_msb = (self.sequence_number >> 8) & 0xFF
         payload = bytearray([x1, y1, width, height, seq_lsb, seq_msb])
         
-        # Prepend Report ID and Command ID, then pad to the required report length.
+        # Prepend Report ID and Command ID, then pad to Windows OutputReportByteLength (65 bytes).
         command_packet = bytearray([config.REPORT_ID, config.CMD_DRAW_RECT])
         command_packet.extend(payload)
-        command_packet.extend([0] * (config.REPORT_LENGTH - len(command_packet)))
+        command_packet.extend([0] * (65 - len(command_packet)))
         bytes_written = self.device.write(command_packet)
-        if bytes_written < 0: raise OSError("HID write failed. Device may be disconnected.")
+        if bytes_written < 0: raise OSError(f"HID write CMD_DRAW_RECT failed: {self.device.error()}")
+        print(f"  [OK] CMD_DRAW_RECT sent ({bytes_written} bytes)")
         time.sleep(0.005) # Wait for firmware to process the command.
         self.send_data_payload(pixel_data_rgb565)
         self.sequence_number = (self.sequence_number + 1) & 0xFFFF
+        time.sleep(0.020) # 20ms delay between tiles for LCD SPI DMA completion
 
     def close(self):
         """Closes the connection to the HID device."""
@@ -174,33 +174,42 @@ def device_listener(device_manager: DeviceManager, stop_event: threading.Event):
     """
     Listens for incoming HID reports from the device in a separate thread.
 
-    This function runs in a background thread and performs blocking reads on the
-    HID device. This is an efficient way to wait for device-initiated events
-    (like a button press) without consuming CPU cycles in the main loop.
-
-    Args:
-        device_manager (DeviceManager): The active device manager instance.
-        stop_event (threading.Event): An event to signal when the thread should exit.
+    Opens its own dedicated hid.device() handle to avoid thread collisions
+    with the main thread's write operations on Windows OVERLAPPED I/O.
     """
     print("--- Listener thread started ---")
+    read_dev = None
     while not stop_event.is_set():
         try:
-            if device_manager.device:
-                # Use a blocking read with a timeout. This is efficient, as the
-                # thread will sleep until a report arrives or 500ms passes.
-                report = device_manager.device.read(64, timeout_ms=500)
-                # Check for the specific report sent by the firmware's USER button press.
-                # report[0] is the Report ID, report[1] is the button state.
+            if device_manager.device and hasattr(device_manager, 'device_path') and device_manager.device_path:
+                if read_dev is None:
+                    try:
+                        read_dev = hid.device()
+                        read_dev.open_path(device_manager.device_path)
+                    except Exception as open_err:
+                        read_dev = None
+                        time.sleep(0.5)
+                        continue
+
+                report = read_dev.read(64, timeout_ms=500)
                 if report and report[0] == 0x01 and report[1] == 0x01:
                     print("--- Theme change request received from device ---")
                     theme_change_requested[0] = True
             else:
-                # If the device is not connected, wait a bit before checking again.
-                time.sleep(1)
+                if read_dev:
+                    try: read_dev.close()
+                    except Exception: pass
+                    read_dev = None
+                time.sleep(0.5)
         except OSError:
-            # This can happen if the device disconnects while we are reading.
-            # The main loop will handle the reconnection.
-            time.sleep(1)
+            if read_dev:
+                try: read_dev.close()
+                except Exception: pass
+                read_dev = None
+            time.sleep(0.5)
+    if read_dev:
+        try: read_dev.close()
+        except Exception: pass
     print("--- Listener thread stopped ---")
 # --- END OF MODIFICATION ---
 
@@ -231,14 +240,14 @@ def main():
                     time.sleep(2)
                     continue
 
-                # 2. Start the listener thread once the device is connected.
+                # 2. Start listener thread for device events (e.g. user key button)
                 if not listener_thread or not listener_thread.is_alive():
                     stop_event.clear()
                     theme_change_requested[0] = False
                     listener_thread = threading.Thread(
                         target=device_listener,
                         args=(manager, stop_event),
-                        daemon=True  # Allows main program to exit even if thread is running
+                        daemon=True
                     )
                     listener_thread.start()
 

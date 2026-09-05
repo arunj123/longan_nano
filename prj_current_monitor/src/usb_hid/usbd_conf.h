@@ -40,15 +40,9 @@
 #define USBD_MSC_INTERFACE                 MSC_INTERFACE
 /* CUSTOM_HID_INTERFACE is already used by the custom hid core, so no new define is needed. */
 
-/* Step 3: Define endpoints for each interface */
-
-/* Standard HID (Keyboard/Mouse/Consumer) Class Endpoint */
-#define STD_HID_IN_EP                      EP_IN(1U)
-#define STD_HID_IN_PACKET                  8U
-
-/* Custom HID Class Endpoints */
-#define CUSTOM_HID_IN_EP                   EP_IN(2U)
-#define CUSTOM_HID_OUT_EP                  EP_OUT(2U)
+/* Step 3: Define endpoints for Custom HID interface */
+#define CUSTOM_HID_IN_EP                   EP_IN(1U)
+#define CUSTOM_HID_OUT_EP                  EP_OUT(1U)
 #define CUSTOM_HID_IN_PACKET               64U
 #define CUSTOM_HID_OUT_PACKET              64U
 

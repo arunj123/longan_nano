@@ -64,8 +64,8 @@ void encoder::init() {
     hal::exti::Exti::map_pin(hal::gpio::Port::B, kExtiLineKey);
     hal::exti::Exti::enable_line(kExtiLineKey, hal::exti::Trigger::Falling);
 
-    // EXTI Lines 10..15 vector to EXTI10_15_IRQn
-    hal::eclic::Eclic::enable(EXTI10_15_IRQn, 1, 0);
+    // EXTI Lines 10..15 vector to EXTI10_15
+    hal::eclic::Eclic::enable(hal::eclic::Irq::Exti10_15, 1, 0);
 }
 
 bool encoder::is_pressed() {
