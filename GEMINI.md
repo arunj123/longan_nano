@@ -62,10 +62,25 @@
   - Never use blocking delays (`delay_ms()`) in the main loop of USB-enabled applications.
   - `usb::poll()` must run continuously with zero latency. Use non-blocking `hal::time::Instant` and `Duration` for application-level task scheduling.
 - **USB Enumeration & Descriptor Invariants**:
+  - **DWC2 EP0 Control State Machine Sequencing**:
+    - Never invoke `usb_ctlep_startout(udev)` inside `usbd_ctl_status_recev()` prior to receiving the host's 0-length Status OUT packet. Doing so corrupts the DWC2 OUT transfer register state, causing a 5-second `DATA_STAGE_TIMEOUT` bus freeze.
+    - EP0 OUT must only be re-armed (`usb_ctlep_startout`) inside `usbd_out_transc()` under `case USB_CTL_STATUS_OUT:`, which cleanly transitions `ctl_state = USB_CTL_IDLE`. Similarly, `usbd_in_transc()` must handle `case USB_CTL_STATUS_IN:` to reset `ctl_state = USB_CTL_IDLE`.
+  - **Windows xHCI 8-Byte Initial Probe Invariant**:
+    - When Windows connects to a Full-Speed device on an xHCI root hub, it issues `GET_DESCRIPTOR(Device, wLength=64)` solely to read `bMaxPacketSize0` (the 8th byte) and immediately resets the bus.
+    - The firmware must enforce `if (64U == req->wLength) { transc->remain_len = 8U; }` in `usbd_enum.cpp`. Returning all 18 bytes causes Windows xHCI to fail immediately with `USB\VID_0000&PID_0002` ("Device Descriptor Request Failed").
+  - **HID Endpoint Packet Sizing Invariant**:
+    - An endpoint's `wMaxPacketSize` must be strictly $\ge$ the size of the largest report transmitted on that endpoint (including Report ID).
+    - For composite HID containing Keyboard reports (`[Report ID] + [Modifier] + [Reserved] + [6 Keycodes] = 9 bytes`), `wMaxPacketSize` must be at least 16 bytes (never 8 bytes), or host enumeration fails with descriptor validation errors.
+  - **Descriptor Struct Packing & xHCI Port Error Caching**:
+    - All configuration descriptor sets (such as `usb_composite_desc_config_set`) must be guarded with `#pragma pack(push, 1)` and `#pragma pack(pop)` to prevent GCC from inserting alignment padding between descriptor structs.
+    - When debugging enumeration, note that Windows xHCI caches failed port states (`PID_0006` / `PID_0002`). Changing PID or executing a soft disconnect of $\ge 1000\text{ ms}$ (`usbd_disconnect()`) is required to force Windows to clear its port state.
   - **String Descriptor Bounds**: String queries must bounds-check `desc_index < USB_STRING_COUNT`. Windows unconditionally queries index `0xEE` (Microsoft OS descriptor); out-of-bounds indices must immediately return `REQ_NOTSUPP` (STALL) to prevent memory corruption and Code 10 failures.
   - **Strict Control Request Dispatching**: HID request handlers must explicitly support `DESC_TYPE_HID` (`0x21`) alongside `DESC_TYPE_REPORT` (`0x22`). Any unhandled or unsupported control request (`GET_REPORT`, `SET_REPORT`) must return `USBD_FAIL` (STALL). Handlers must never return `USBD_OK` without setting buffer pointers and lengths.
-- **Windows HID Sizing Rule**:
-  - When HID reports are 64 bytes without explicit Report IDs, Windows requires a 65-byte packet (`[0x00 Report ID] + 64 data bytes`). Passing 64 bytes causes `0x000003E5` Overlapped I/O timeouts.
+  - **Windows HID Sizing Rule**:
+    - When HID reports are 64 bytes without explicit Report IDs, Windows requires a 65-byte packet (`[0x00 Report ID] + 64 data bytes`). Passing 64 bytes causes `0x000003E5` Overlapped I/O timeouts.
+- **Display Buffer RAM Policy (Ping-Pong Double Buffering)**:
+  - Never allocate full-screen framebuffers (25.6 KB) or large static quad-buffers (16 KB) on GD32VF103 (32 KB total SRAM).
+  - Always use a 2-slot ping-pong buffer (e.g. 2 $\times$ 6.4 KB or 2 $\times$ 3.2 KB) synchronized with DMA0 Channel 2 completion interrupts (`dma_interrupt_enable(DMA0, DMA_CH2, DMA_INT_FTF)`).
 
 ## Project Structure
 - Active applications are prefixed with `prj_*` in the project root (`prj_usb_composite`, `prj_current_monitor`, `prj_usb_serial`, `prj_uart_test`, `prj_lcd_test`, `prj_sdcard_test`, `prj_sdcard_fs_test`).
