@@ -475,6 +475,10 @@ static uint32_t usbd_emptytxfifo_write(usb_core_driver *udev, uint32_t ep_num)
         /* write the FIFO */
         (void)usb_txfifo_write(&udev->regs, transc->xfer_buf, (uint8_t)ep_num, (uint16_t)len);
 
+        if(0U == ep_num) {
+            usb_trace_record(2, 0, udev->dev.control.ctl_state, 0, (uint16_t)len, (uint16_t)transc->xfer_count);
+        }
+
         transc->xfer_buf += len;
         transc->xfer_count += len;
 

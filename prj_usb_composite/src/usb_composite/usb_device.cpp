@@ -78,8 +78,6 @@ void UsbDevice::init(bool enable_msc) {
 
     // --- Dynamic Descriptor Modification ---
     if (!m_msc_enabled) {
-        // If MSC is disabled, modify the descriptor before initializing the core.
-        // The host will never see the MSC interface.
         composite_config_desc.config.bNumInterfaces = 2; // Only HID interfaces
         composite_config_desc.config.wTotalLength = HID_ONLY_CONFIG_DESC_SIZE;
     }

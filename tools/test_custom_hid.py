@@ -3,7 +3,7 @@ import time
 import sys
 
 VID = 0x28E9
-PID = 0xABCD
+PID = 0xABE7
 
 # Protocol commands must match the firmware
 CMD_START_QUADRANT_TRANSFER = 0x05

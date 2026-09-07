@@ -5,6 +5,7 @@
 #include <array>
 #include <variant>
 #include <cstddef>
+#include "hal/time.hpp"
 
 namespace display {
 
@@ -41,12 +42,13 @@ struct Rect {
 enum class BufferState {
     EMPTY,
     RECEIVING,
-    READY_TO_DRAW
+    READY_TO_DRAW,
+    DRAWING
 };
 
 // Structure to hold all metadata for a single draw task ---
 struct DrawTask {
-    BufferState state = BufferState::EMPTY;
+    volatile BufferState state = BufferState::EMPTY;
     Rect region = {0, 0, 0, 0};
     uint32_t bytes_received = 0;
     uint32_t total_bytes_expected = 0;
@@ -74,8 +76,8 @@ private:
     // An array of tasks, one for each buffer slot
     std::array<DrawTask, constants::NumBuffers> m_draw_tasks;
 
-    // The framebuffers, one for each task slot
-    std::array<std::array<uint8_t, constants::BufferSizeBytes>, constants::NumBuffers> m_framebuffers;
+    // The framebuffers, one for each task slot (alignas(4) for DMA 16-bit/32-bit alignment)
+    alignas(4) std::array<std::array<uint8_t, constants::BufferSizeBytes>, constants::NumBuffers> m_framebuffers;
 
     // Volatile indices for safe ISR/main-loop interaction
     volatile uint8_t m_usb_head_idx = 0; // Index for the ISR to write to
@@ -83,6 +85,18 @@ private:
     
     // Sequence number tracking ---
     uint16_t m_expected_sequence_num = 0;
+
+    // Diagnostic logging flags for safe reporting from the main loop
+    volatile bool     m_dbg_rect_received = false;
+    volatile bool     m_dbg_rect_dropped = false;
+    volatile bool     m_dbg_frame_aborted = false;
+    volatile uint8_t  m_dbg_unknown_cmd = 0;
+    volatile uint32_t m_dbg_dropped_data_pkts = 0;
+    volatile uint32_t m_dbg_received_data_pkts = 0;
+    Rect              m_dbg_last_rect = {0, 0, 0, 0};
+    uint16_t          m_dbg_last_seq = 0;
+
+    hal::time::Instant m_last_rx_time = hal::time::Instant::now();
 };
 
 } // namespace display

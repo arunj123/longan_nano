@@ -8,7 +8,7 @@ import os
 
 # -- Device Configuration --
 VID = 0x28E9
-PID = 0xABCD
+PID = 0xABDD
 REPORT_LENGTH = 64
 REPORT_ID = 0x00
 CMD_IMAGE_DATA = 0x02

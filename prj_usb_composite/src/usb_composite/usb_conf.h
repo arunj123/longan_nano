@@ -46,11 +46,11 @@
 #define TX1_FIFO_FS_SIZE            16U   // 64 bytes (Packet size is 8 bytes)
 
 // TX FIFO for Custom HID IN Endpoint 2
-#define TX2_FIFO_FS_SIZE            16U   // 64 bytes (Packet size is 2 bytes)
+#define TX2_FIFO_FS_SIZE            32U   // 128 bytes (2x 64-byte packets)
 
 // TX FIFO for MSC IN Endpoint 3
 #define TX3_FIFO_FS_SIZE            64U   // 256 bytes (Packet size is 64 bytes)
 
-/* Total allocated: 128 + 64 + 16 + 16 + 64 = 288 words. This is less than the 320-word limit. */
+/* Total allocated: 128 + 64 + 16 + 32 + 64 = 304 words. This is less than the 320-word limit. */
 
 #endif /* USB_CONF_H */

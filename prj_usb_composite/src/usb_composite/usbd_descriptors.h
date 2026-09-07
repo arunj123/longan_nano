@@ -148,6 +148,7 @@ const uint8_t custom_hid_report_descriptor[] = {
 #define REPORT_ID_CONSUMER          3U
 
 /* Composite descriptor structure */
+#pragma pack(push, 1)
 typedef struct
 {
     usb_desc_config         config;
@@ -168,6 +169,7 @@ typedef struct
     usb_desc_ep             msc_epout;
     usb_desc_ep             msc_epin;
 } usb_composite_desc_config_set;
+#pragma pack(pop)
 
 extern usb_desc_dev composite_dev_desc;
 extern usb_composite_desc_config_set composite_config_desc;

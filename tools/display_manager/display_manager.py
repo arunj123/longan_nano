@@ -56,12 +56,12 @@ class DeviceManager:
         if self.device: return True
         try:
             for device_info in hid.enumerate(config.VID, config.PID):
-                if device_info.get('interface_number') == 1 or device_info.get('usage_page') in (0xFF00, 48896):
+                if device_info.get('interface_number') == 1 or device_info.get('usage_page') in (0xFF00, 48896, 0xBF00):
                     self.device_path = device_info['path']
                     self.device = hid.device()
                     self.device.open_path(self.device_path)
                     self.sequence_number = 0
-                    print("--- Device Connected ---")
+                    print("--- Device Connected ---", flush=True)
                     return True
             print("Device not found. Retrying...", end='\r')
             return False
@@ -131,7 +131,7 @@ class DeviceManager:
                 # Recursively call this function for each smaller chunk.
                 self.send_rect_update(image, new_bbox)
             return
-        print(f"--- Sending Tile #{self.sequence_number} at ({x1},{y1}) size {width}x{height} ---")
+        print(f"--- Sending Tile #{self.sequence_number} at ({x1},{y1}) size {width}x{height} ---", flush=True)
         
         # Crop the image and convert from 8-bits-per-channel RGB to 16-bit RGB565.
         img_data = image.crop(bbox).tobytes("raw", "RGB")
@@ -155,7 +155,7 @@ class DeviceManager:
         command_packet.extend([0] * (65 - len(command_packet)))
         bytes_written = self.device.write(command_packet)
         if bytes_written < 0: raise OSError(f"HID write CMD_DRAW_RECT failed: {self.device.error()}")
-        print(f"  [OK] CMD_DRAW_RECT sent ({bytes_written} bytes)")
+        print(f"  [OK] CMD_DRAW_RECT sent ({bytes_written} bytes)", flush=True)
         time.sleep(0.005) # Wait for firmware to process the command.
         self.send_data_payload(pixel_data_rgb565)
         self.sequence_number = (self.sequence_number + 1) & 0xFFFF
@@ -168,68 +168,24 @@ class DeviceManager:
             self.device = None
             print("--- Device Disconnected ---")
 
+    def poll_events(self) -> bool:
+        return False
 
-# --- START OF MODIFICATION ---
-def device_listener(device_manager: DeviceManager, stop_event: threading.Event):
-    """
-    Listens for incoming HID reports from the device in a separate thread.
 
-    Opens its own dedicated hid.device() handle to avoid thread collisions
-    with the main thread's write operations on Windows OVERLAPPED I/O.
-    """
-    print("--- Listener thread started ---")
-    read_dev = None
-    while not stop_event.is_set():
-        try:
-            if device_manager.device and hasattr(device_manager, 'device_path') and device_manager.device_path:
-                if read_dev is None:
-                    try:
-                        read_dev = hid.device()
-                        read_dev.open_path(device_manager.device_path)
-                    except Exception as open_err:
-                        read_dev = None
-                        time.sleep(0.5)
-                        continue
-
-                report = read_dev.read(64, timeout_ms=500)
-                if report and report[0] == 0x01 and report[1] == 0x01:
-                    print("--- Theme change request received from device ---")
-                    theme_change_requested[0] = True
-            else:
-                if read_dev:
-                    try: read_dev.close()
-                    except Exception: pass
-                    read_dev = None
-                time.sleep(0.5)
-        except OSError:
-            if read_dev:
-                try: read_dev.close()
-                except Exception: pass
-                read_dev = None
-            time.sleep(0.5)
-    if read_dev:
-        try: read_dev.close()
-        except Exception: pass
-    print("--- Listener thread stopped ---")
-# --- END OF MODIFICATION ---
+# 
 
 
 def main():
     """
     Main execution function.
 
-    Sets up the device manager and listener thread, then enters a main loop
+    Sets up the device manager and enters a main loop
     to handle UI updates, data fetching, and device disconnections.
     """
     if os.path.exists(config.STATE_IMAGE_PATH):
         os.remove(config.STATE_IMAGE_PATH)
 
     manager = DeviceManager()
-    
-    # --- START OF MODIFICATION ---
-    stop_event = threading.Event()
-    listener_thread = None
-    # --- END OF MODIFICATION ---
 
     try:
         # This outer loop handles device connection and reconnection.
@@ -240,27 +196,20 @@ def main():
                     time.sleep(2)
                     continue
 
-                # 2. Start listener thread for device events (e.g. user key button)
-                if not listener_thread or not listener_thread.is_alive():
-                    stop_event.clear()
-                    theme_change_requested[0] = False
-                    listener_thread = threading.Thread(
-                        target=device_listener,
-                        args=(manager, stop_event),
-                        daemon=True
-                    )
-                    listener_thread.start()
-
-                # 3. Reset state for a fresh start after connection.
+                # 2. Reset state for a fresh start after connection.
                 previous_image = None
                 previous_time_string = ""
                 current_weather = None
                 last_weather_check = 0
+                theme_change_requested[0] = False
 
-                # 4. Inner loop for continuous display updates.
+                # 3. Inner loop for continuous display updates.
                 while True:
-                    # --- Event Handling ---
-                    # Check if the listener thread has requested a theme change.
+                    # Poll for incoming device events (e.g. key button pressed on board)
+                    if manager.poll_events():
+                        theme_change_requested[0] = True
+
+                    # Check if a theme change is requested
                     if theme_change_requested[0]:
                         config.cycle_theme()
                         previous_image = None  # Force a full redraw on the next iteration
@@ -283,7 +232,12 @@ def main():
                     # Optimization: Only redraw the screen if the time has changed
                     # or a full redraw has been forced (previous_image is None).
                     if time_string == previous_time_string and previous_image is not None:
-                        time.sleep(1) # Check again in one second.
+                        # Poll for events in 100ms intervals instead of blocking sleep
+                        for _ in range(10):
+                            if manager.poll_events():
+                                theme_change_requested[0] = True
+                                break
+                            time.sleep(0.1)
                         continue
 
                     # Generate the new UI image.
@@ -292,7 +246,7 @@ def main():
 
                     # Determine update type: full or partial.
                     if not previous_image:
-                        print("\n--- Sending Full Initial Image ---")
+                        print("\n--- Sending Full Initial Image ---", flush=True)
                         manager.send_rect_update(new_image, (0, 0, config.LCD_WIDTH, config.LCD_HEIGHT))
                     else:
                         # Find the difference between the old and new images.
@@ -305,14 +259,16 @@ def main():
                     new_image.save(config.STATE_IMAGE_PATH)
                     previous_image = new_image
                     previous_time_string = time_string
-                    # Wait a short time before checking for updates again.
-                    time.sleep(1)
+
+                    # Wait in responsive 100ms increments
+                    for _ in range(10):
+                        if manager.poll_events():
+                            theme_change_requested[0] = True
+                            break
+                        time.sleep(0.1)
 
             except OSError as e:
                 print(f"\nDevice error or disconnection: {e}")
-                if listener_thread:
-                    stop_event.set() # Signal the listener thread to stop
-                    listener_thread.join(timeout=1) # Wait for it to exit
                 manager.close()
                 print("Attempting to reconnect in 3 seconds...")
                 time.sleep(3)
@@ -320,9 +276,6 @@ def main():
     except KeyboardInterrupt:
         print("\nExiting.")
     finally:
-        # Ensure resources are cleaned up on exit.
-        if listener_thread:
-            stop_event.set()
         if manager:
             manager.close()
 

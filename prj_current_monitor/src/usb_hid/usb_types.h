@@ -44,11 +44,7 @@ enum class StdReq : uint8_t {
     SYNCH_FRAME       = 0x0C
 };
 
-// USB Request Status for internal handling
-enum class ReqStatus : uint8_t {
-    REQ_SUPP,
-    REQ_NOTSUPP
-};
+
 
 // String Descriptor Index
 enum StrIdx : uint8_t {

@@ -90,6 +90,9 @@ static uint8_t *(*std_desc_get[])(usb_core_driver *udev, uint8_t index, uint16_t
 */
 usb_reqsta usbd_standard_request(usb_core_driver *udev, usb_req *req)
 {
+    if (req->bRequest > 12U) {
+        return REQ_NOTSUPP;
+    }
     return (*_std_dev_req[req->bRequest])(udev, req);
 }
 
@@ -265,6 +268,11 @@ static uint8_t *_usb_config_desc_get(usb_core_driver *udev, uint8_t index, uint1
 static uint8_t *_usb_bos_desc_get(usb_core_driver *udev, uint8_t index, uint16_t *len)
 {
     (void)index;
+
+    if (udev->dev.desc->bos_desc == nullptr) {
+        *len = 0U;
+        return nullptr;
+    }
 
     *len = udev->dev.desc->bos_desc[2];
 
@@ -503,6 +511,9 @@ static usb_reqsta _usb_std_getdescriptor(usb_core_driver *udev, usb_req *req)
     usb_reqsta status = REQ_NOTSUPP;
 
     usb_transc *transc = &udev->dev.transc_in[0];
+    transc->remain_len = 0U;
+    transc->xfer_buf = nullptr;
+    udev->dev.control.ctl_zlp = 0U;
 
     /* get device standard descriptor */
     switch(req->bmRequestType & USB_RECPTYPE_MASK) {
@@ -527,7 +538,9 @@ static usb_reqsta _usb_std_getdescriptor(usb_core_driver *udev, usb_req *req)
             if(desc_index < USB_STRING_COUNT && udev->dev.desc->strings[desc_index] != nullptr) {
                 transc->xfer_buf = std_desc_get[desc_type - 1U](udev, desc_index, (uint16_t *)&(transc->remain_len));
             } else {
-                status = REQ_NOTSUPP;
+                transc->remain_len = 0U;
+                transc->xfer_buf = nullptr;
+                return REQ_NOTSUPP;
             }
             break;
 
@@ -539,7 +552,13 @@ static usb_reqsta _usb_std_getdescriptor(usb_core_driver *udev, usb_req *req)
             break;
 
         case USB_DESCTYPE_BOS:
-            transc->xfer_buf = _usb_bos_desc_get(udev, desc_index, (uint16_t *)&(transc->remain_len));
+            if (udev->dev.desc->bos_desc != nullptr) {
+                transc->xfer_buf = _usb_bos_desc_get(udev, desc_index, (uint16_t *)&(transc->remain_len));
+            } else {
+                transc->remain_len = 0U;
+                transc->xfer_buf = nullptr;
+                return REQ_NOTSUPP;
+            }
             break;
 
         default:
@@ -550,8 +569,10 @@ static usb_reqsta _usb_std_getdescriptor(usb_core_driver *udev, usb_req *req)
     case USB_RECPTYPE_ITF:
         /* get device class special descriptor */
         status = (usb_reqsta)(udev->dev.class_core->req_proc(udev, req));
-        if(status == REQ_SUPP && 0U == transc->remain_len) {
-            status = REQ_NOTSUPP;
+        if(status != REQ_SUPP || 0U == transc->remain_len || transc->xfer_buf == nullptr) {
+            transc->remain_len = 0U;
+            transc->xfer_buf = nullptr;
+            return REQ_NOTSUPP;
         }
         break;
 
@@ -562,7 +583,7 @@ static usb_reqsta _usb_std_getdescriptor(usb_core_driver *udev, usb_req *req)
         break;
     }
 
-    if((0U != transc->remain_len) && (0U != req->wLength)) {
+    if((nullptr != transc->xfer_buf) && (0U != transc->remain_len) && (0U != req->wLength)) {
         if(transc->remain_len < req->wLength) {
             if((transc->remain_len >= transc->max_len) && (0U == (transc->remain_len % transc->max_len))) {
                 udev->dev.control.ctl_zlp = 1U;
@@ -572,6 +593,8 @@ static usb_reqsta _usb_std_getdescriptor(usb_core_driver *udev, usb_req *req)
         }
 
         status = REQ_SUPP;
+    } else {
+        status = REQ_NOTSUPP;
     }
 
     return status;

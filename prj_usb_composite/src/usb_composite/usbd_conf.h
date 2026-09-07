@@ -44,7 +44,7 @@
 
 /* Standard HID (Keyboard/Mouse/Consumer) Class Endpoint */
 #define STD_HID_IN_EP                      EP_IN(1U)
-#define STD_HID_IN_PACKET                  8U
+#define STD_HID_IN_PACKET                  16U
 
 /* Custom HID Class Endpoints */
 #define CUSTOM_HID_IN_EP                   EP_IN(2U)

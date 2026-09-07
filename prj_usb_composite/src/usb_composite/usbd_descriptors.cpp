@@ -9,7 +9,7 @@
 #include <cstring>
 
 #define USBD_VID                     0x28E9
-#define USBD_PID                     0xABCD // New PID for the composite device
+#define USBD_PID                     0xABE7 // Clean PID for composite enumeration test
 
 /* USB standard device descriptor */
 usb_desc_dev composite_dev_desc = {
@@ -43,7 +43,7 @@ usb_composite_desc_config_set composite_config_desc = {
         .bConfigurationValue  = 1U,
         .iConfiguration       = 0U,
         .bmAttributes         = 0x80, // Bus-powered
-        .bMaxPower            = 0xFA  // 500mA
+        .bMaxPower            = 0x32  // 100mA
     },
 
     /******************** Standard HID Interface (Interface 0) ********************/

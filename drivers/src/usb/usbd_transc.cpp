@@ -34,6 +34,34 @@ OF SUCH DAMAGE.
 
 #include "usbd_enum.h"
 #include "usbd_transc.h"
+#include <cstring>
+
+UsbTraceEntry g_usb_trace[USB_TRACE_MAX] = {};
+volatile uint8_t g_usb_trace_head = 0;
+volatile uint8_t g_usb_trace_tail = 0;
+
+void usb_trace_record(uint8_t type, uint8_t ep_num, uint8_t ctl_state, uint8_t status, uint16_t val1, uint16_t val2, const uint8_t *extra)
+{
+    uint8_t next_head = (g_usb_trace_head + 1U) % USB_TRACE_MAX;
+    if (next_head != g_usb_trace_tail) {
+        UsbTraceEntry &e = g_usb_trace[g_usb_trace_head];
+        e.type = type;
+        e.ep_num = ep_num;
+        e.ctl_state = ctl_state;
+        e.status = status;
+        e.val1 = val1;
+        e.val2 = val2;
+        if (extra != nullptr) {
+            e.extra[0] = extra[0];
+            e.extra[1] = extra[1];
+            e.extra[2] = extra[2];
+            e.extra[3] = extra[3];
+        } else {
+            e.extra[0] = e.extra[1] = e.extra[2] = e.extra[3] = 0;
+        }
+        g_usb_trace_head = next_head;
+    }
+}
 
 /*!
     \brief      USB send data in the control transaction
@@ -106,7 +134,7 @@ usbd_status usbd_ctl_status_recev(usb_core_driver *udev)
 
     (void)usbd_ep_recev(udev, 0U, NULL, 0U);
 
-    usb_ctlep_startout(udev);
+    usb_trace_record(4, 0, udev->dev.control.ctl_state, 0, 0, 0);
 
     return USBD_OK;
 }
@@ -120,6 +148,8 @@ usbd_status usbd_ctl_status_recev(usb_core_driver *udev)
 uint8_t usbd_setup_transc(usb_core_driver *udev)
 {
     usb_reqsta reqstat = REQ_NOTSUPP;
+
+    udev->dev.control.ctl_zlp = 0U;
 
     usb_req req = udev->dev.control.req;
 
@@ -157,6 +187,14 @@ uint8_t usbd_setup_transc(usb_core_driver *udev)
         usbd_enum_error(udev, &req);
     }
 
+    uint8_t req_bytes[4] = {
+        req.bmRequestType,
+        req.bRequest,
+        (uint8_t)(req.wIndex & 0xFF),
+        (uint8_t)(req.wIndex >> 8)
+    };
+    usb_trace_record(0, 0, udev->dev.control.ctl_state, (uint8_t)reqstat, req.wValue, req.wLength, req_bytes);
+
     return (uint8_t)USBD_OK;
 }
 
@@ -170,6 +208,7 @@ uint8_t usbd_setup_transc(usb_core_driver *udev)
 uint8_t usbd_out_transc(usb_core_driver *udev, uint8_t ep_num)
 {
     if(0U == ep_num) {
+        usb_trace_record(3, 0, udev->dev.control.ctl_state, 0, 0, 0);
         usb_transc *transc = &udev->dev.transc_out[0];
 
         switch(udev->dev.control.ctl_state) {
@@ -190,6 +229,11 @@ uint8_t usbd_out_transc(usb_core_driver *udev, uint8_t ep_num)
             transc->remain_len = 0U;
 
             (void)usbd_ctl_status_send(udev);
+            break;
+
+        case USB_CTL_STATUS_OUT:
+            udev->dev.control.ctl_state = (uint8_t)USB_CTL_IDLE;
+            usb_ctlep_startout(udev);
             break;
 
         default:
@@ -215,6 +259,7 @@ uint8_t usbd_in_transc(usb_core_driver *udev, uint8_t ep_num)
 {
     if(0U == ep_num) {
         usb_transc *transc = &udev->dev.transc_in[0];
+        usb_trace_record(1, 0, udev->dev.control.ctl_state, 0, (uint16_t)transc->remain_len, (uint16_t)transc->xfer_len);
 
         switch(udev->dev.control.ctl_state) {
         case USB_CTL_DATA_IN:
@@ -241,6 +286,10 @@ uint8_t usbd_in_transc(usb_core_driver *udev, uint8_t ep_num)
 
                 (void)usbd_ctl_status_recev(udev);
             }
+            break;
+
+        case USB_CTL_STATUS_IN:
+            udev->dev.control.ctl_state = (uint8_t)USB_CTL_IDLE;
             break;
 
         default:

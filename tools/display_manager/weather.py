@@ -36,7 +36,7 @@ def get_weather(lat: float, lon: float) -> Optional[Dict[str, Any]]:
             'is_day': is_day
         }
         
-        print(f"Weather Updated: {weather_info['temperature']}°C, Condition: {weather_info['icon']} (Day: {weather_info['is_day']})")
+        print(f"Weather Updated: {weather_info['temperature']}C, Condition: {weather_info['icon']} (Day: {weather_info['is_day']})")
         return weather_info
         
     except requests.exceptions.RequestException as e:

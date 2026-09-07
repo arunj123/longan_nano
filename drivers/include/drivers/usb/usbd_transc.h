@@ -53,4 +53,21 @@ uint8_t usbd_out_transc(usb_core_driver *udev, uint8_t ep_num);
 /* data IN stage processing */
 uint8_t usbd_in_transc(usb_core_driver *udev, uint8_t ep_num);
 
+struct UsbTraceEntry {
+    uint8_t  type; // 0=SETUP, 1=IN_TF, 2=TXFE, 3=OUT_TF, 4=STATUS_RECV
+    uint8_t  ep_num;
+    uint8_t  ctl_state;
+    uint8_t  status;
+    uint16_t val1;
+    uint16_t val2;
+    uint8_t  extra[4];
+};
+
+#define USB_TRACE_MAX 64
+extern UsbTraceEntry g_usb_trace[USB_TRACE_MAX];
+extern volatile uint8_t g_usb_trace_head;
+extern volatile uint8_t g_usb_trace_tail;
+
+void usb_trace_record(uint8_t type, uint8_t ep_num, uint8_t ctl_state, uint8_t status, uint16_t val1, uint16_t val2, const uint8_t *extra = nullptr);
+
 #endif /* USBD_TRANSC_H */
