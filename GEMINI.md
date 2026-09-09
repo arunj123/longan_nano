@@ -78,6 +78,17 @@
   - **Strict Control Request Dispatching**: HID request handlers must explicitly support `DESC_TYPE_HID` (`0x21`) alongside `DESC_TYPE_REPORT` (`0x22`). Any unhandled or unsupported control request (`GET_REPORT`, `SET_REPORT`) must return `USBD_FAIL` (STALL). Handlers must never return `USBD_OK` without setting buffer pointers and lengths.
   - **Windows HID Sizing Rule**:
     - When HID reports are 64 bytes without explicit Report IDs, Windows requires a 65-byte packet (`[0x00 Report ID] + 64 data bytes`). Passing 64 bytes causes `0x000003E5` Overlapped I/O timeouts.
+- **USB Mass Storage (MSC) Bulk-Only Transport (BOT) & SCSI Invariants**:
+  - **SCSI READ_10 / WRITE_10 0-Length Ambiguity**:
+    - In SCSI `READ_10` / `WRITE_10`, Windows hosts may send CDB Transfer Length bytes 7–8 = `0x0000` while specifying a non-zero byte count in the BOT CBW (`dCBWDataTransferLength`, e.g. 65,536 bytes).
+    - Firmware must never treat bytes 7–8 being 0 as an invalid or 0-block transfer if `dCBWDataTransferLength > 0`; it must compute `blocks = dCBWDataTransferLength / block_size` (e.g. `65536 / 512 = 128`).
+  - **BOT CSW Data Residue Compliance (Case 8 / Case 4)**:
+    - On any stalled or aborted transfer where fewer bytes than requested were transferred, `dCSWDataResidue` in the CSW must report the exact un-transferred byte count (`dCBWDataTransferLength - transferred_bytes`).
+    - Reporting residue as 0 when no data was transferred violates BOT Case 8, corrupting `USBSTOR.SYS` and causing Windows storage driver IRP deadlocks that freeze Windows Explorer.
+  - **Essential SCSI Queries in Windows**:
+    - **`0x9E` (`SERVICE_ACTION_IN_16` / `READ_CAPACITY_16`)**: Windows queries action `0x10` to check for 64-bit LBA. Returning the 32-byte capacity descriptor avoids fallback stalls.
+    - **`0xA2` (`SECURITY_PROTOCOL_IN`)**: Windows queries security protocol `0x00` to probe for IEEE 1667 Encrypted Drives (BitLocker Silo). Returning an 8-byte payload with Supported Security Protocol List Length = 0 cleanly signals that no encryption protocols are supported, preventing BitLocker error-recovery loops.
+    - **`0x35` (`SYNCHRONIZE_CACHE_10`)**: Sent by Windows during volume mount/flush; must return `CMD_PASSED`.
 - **Display Buffer RAM Policy (Ping-Pong Double Buffering)**:
   - Never allocate full-screen framebuffers (25.6 KB) or large static quad-buffers (16 KB) on GD32VF103 (32 KB total SRAM).
   - Always use a 2-slot ping-pong buffer (e.g. 2 $\times$ 6.4 KB or 2 $\times$ 3.2 KB) synchronized with DMA0 Channel 2 completion interrupts (`dma_interrupt_enable(DMA0, DMA_CH2, DMA_INT_FTF)`).

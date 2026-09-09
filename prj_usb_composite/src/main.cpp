@@ -17,8 +17,7 @@
 #include "display_manager.h"
 
 #if defined(USE_SD_CARD_MSC) && (USE_SD_CARD_MSC == 1)
-    #include "sd_card.h"
-    #include "sd_test.hpp"
+    #include "drivers/sdcard.hpp"
     #include "usbd_msc_mem.h"
 #endif
 
@@ -186,26 +185,23 @@ int main(void)
     delay_1ms(100);
     printf("\n\n--- System Initialized with Polling Architecture ---\n");
 
-// The preprocessor will now skip this whole block
 #if defined(USE_SD_CARD_MSC) && (USE_SD_CARD_MSC == 1)
     bool sd_card_is_ok = false;
-    printf("Attempting to initialize SD Card...\n");
-    if (!(sd_init() & STA_NOINIT)) {
+    printf("Attempting to initialize SD Card for MSC...\n");
+    if (drivers::sdcard::SdCard<>::init(true) == drivers::sdcard::SdResult::Success) {
         printf("INFO: SD Card initialized successfully.\n");
         sd_card_is_ok = true;
+        msc_mem_pre_init();
     } else {
         printf("WARN: SD Card initialization failed or card not present.\n");
     }
-    
-    if (sd_card_is_ok) {
-        msc_mem_pre_init();
-    }
+    printf("Proceeding with USB initialization (MSC=%s)...\n", sd_card_is_ok ? "ENABLED" : "DISABLED");
+    usb::init(sd_card_is_ok);
 #else
     printf("INFO: SD Card MSC feature is disabled in this build.\n");
-#endif
-
     printf("Proceeding with USB initialization...\n");
     usb::init(false); // MSC is disabled
+#endif
     printf("USB initialization complete.\n");
 
     printf("CfgDesc [len=%u]: ", (unsigned)composite_config_desc.config.wTotalLength);

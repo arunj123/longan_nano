@@ -11,7 +11,8 @@
 
 // Conditionally include the SD card driver
 #if defined(USE_SD_CARD_MSC) && (USE_SD_CARD_MSC == 1)
-    #include "sd_card.h"
+    #include "drivers/sdcard.hpp"
+    using Sd = drivers::sdcard::SdCard<>;
 #endif
 
 // --- State and Storage Properties ---
@@ -63,25 +64,28 @@ void msc_mem_pre_init() {
 #if defined(USE_SD_CARD_MSC) && (USE_SD_CARD_MSC == 1)
     printf("Pre-caching MSC drive properties...\n");
     // This is called once from main() before USB starts.
-    if ((sd_status() & STA_NOINIT) || (sd_status() & STA_NODISK)) {
+    if (!Sd::is_initialized) {
         printf("WARN: SD Card not ready for MSC.\n");
         is_media_present = false;
         return;
     }
 
-    if (sd_ioctl(GET_SECTOR_COUNT, &card_block_count) != RES_OK || card_block_count == 0) {
-        printf("WARN: Failed to get SD card sector count.\n");
+    card_block_count = Sd::sector_count;
+    card_block_size = 512;
+
+    if (card_block_count == 0) {
+        printf("WARN: SD card sector count is zero.\n");
         is_media_present = false;
         return;
     }
-    
-    sd_ioctl(GET_SECTOR_SIZE, &card_block_size);
 
     // Success! Update the fops structure with the correct, pre-cached values.
     usbd_storage_fops.mem_block_len[0] = card_block_count;
     usbd_storage_fops.mem_block_size[0] = card_block_size;
     is_media_present = true;
-    printf("INFO: MSC properties cached successfully. Block count: %lu\n", card_block_count);
+    printf("INFO: MSC properties cached successfully. Block count: %lu (~%lu MB)\n",
+           static_cast<unsigned long>(card_block_count),
+           static_cast<unsigned long>(card_block_count / 2048));
 #else
     // If SD card is disabled in the build, ensure we always report no media.
     is_media_present = false;
@@ -122,8 +126,7 @@ static int8_t mem_ready (uint8_t lun) {
 static int8_t mem_protected (uint8_t lun) {
     (void)lun;
 #if defined(USE_SD_CARD_MSC) && (USE_SD_CARD_MSC == 1)
-    if (!is_media_present) return 1;
-    return (sd_status() & STA_PROTECT) ? 1 : 0;
+    return is_media_present ? 0 : 1;
 #else
     return 1;
 #endif
@@ -133,7 +136,7 @@ static int8_t mem_protected (uint8_t lun) {
     \brief      read data from the memory media
     \param[in]  lun: logical unit number
     \param[in]  buf: pointer to the buffer to save data
-    \param[in]  block_addr: block address
+    \param[in]  block_addr: block address (byte offset)
     \param[in]  block_len: number of blocks to read
     \param[out] none
     \retval     status (0 for OK, -1 for fail)
@@ -142,7 +145,9 @@ static int8_t mem_read (uint8_t lun, uint8_t *buf, uint32_t block_addr, uint16_t
     (void)lun;
 #if defined(USE_SD_CARD_MSC) && (USE_SD_CARD_MSC == 1)
     if (!is_media_present) return -1;
-    return (sd_read_blocks(buf, block_addr, block_len) == RES_OK) ? 0 : -1;
+    uint32_t sector = block_addr / 512;
+    auto res = Sd::read_sectors(sector, buf, block_len);
+    return (res == drivers::sdcard::SdResult::Success) ? 0 : -1;
 #else
     (void)buf; (void)block_addr; (void)block_len;
     return -1;
@@ -153,7 +158,7 @@ static int8_t mem_read (uint8_t lun, uint8_t *buf, uint32_t block_addr, uint16_t
     \brief      write data to the memory media
     \param[in]  lun: logical unit number
     \param[in]  buf: pointer to the buffer to write data
-    \param[in]  block_addr: block address
+    \param[in]  block_addr: block address (byte offset)
     \param[in]  block_len: number of blocks to write
     \param[out] none
     \retval     status (0 for OK, -1 for fail)
@@ -162,7 +167,9 @@ static int8_t mem_write (uint8_t lun, const uint8_t *buf, uint32_t block_addr, u
     (void)lun;
 #if defined(USE_SD_CARD_MSC) && (USE_SD_CARD_MSC == 1)
     if (!is_media_present) return -1;
-    return (sd_write_blocks(buf, block_addr, block_len) == RES_OK) ? 0 : -1;
+    uint32_t sector = block_addr / 512;
+    auto res = Sd::write_sectors(sector, buf, block_len);
+    return (res == drivers::sdcard::SdResult::Success) ? 0 : -1;
 #else
     (void)buf; (void)block_addr; (void)block_len;
     return -1;

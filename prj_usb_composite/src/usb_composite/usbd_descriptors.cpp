@@ -9,7 +9,7 @@
 #include <cstring>
 
 #define USBD_VID                     0x28E9
-#define USBD_PID                     0xABE7 // Clean PID for composite enumeration test
+#define USBD_PID                     0xABE8 // Fresh PID to clear cached port state
 
 /* USB standard device descriptor */
 usb_desc_dev composite_dev_desc = {
