@@ -22,6 +22,21 @@
   - Flashing commands must software-resume execution at the flash entry point:
     `program "<hex_path>" verify; halt; reg pc 0x08000000; resume; shutdown`
 
+## Remote Linux Host Debugging & Flashing
+- **Remote Host**: `192.168.0.63` (`user: arun`, `password: arun`).
+- **Hardware Layout on Linux**:
+  - FT2232D: Interface 0 (`ttyUSB0`) for JTAG OpenOCD; Interface 1 (`/dev/ttyUSB1`) for Debug UART @ 115200 baud.
+  - GD32VF103 Device USB: `28e9:018a` (CDC-ACM `/dev/ttyACM0`).
+- **Permissions / Udev**:
+  - Rule at `/etc/udev/rules.d/99-ftdi.rules`: `SUBSYSTEM=="usb", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6010", MODE="0666", GROUP="plugdev", TAG+="uaccess"`.
+  - User `arun` is in `dialout` and `plugdev`.
+- **Remote Utilities**:
+  - Remote Flash: `$env:PYTHONUTF8=1; python tools/remote_flash.py <hex_path>`
+    - Uses SFTP to transfer binary to `/home/arun/longan_nano_tools/` and executes OpenOCD with SRST-less reset resume.
+  - Remote UART Monitor: `python tools/remote_uart_monitor.py`
+    - Streams live logs from `/dev/ttyUSB1` @ 115200 baud over SSH.
+
+
 ## Hardware & Architecture Reference
 - **MCU**: GD32VF103CBT6 (RISC-V 32-bit RV32IMAC @ up to 108MHz, 32KB SRAM, 128KB Flash).
 - **FPU Policy**: **No hardware FPU**. Strictly avoid software floating-point emulation (`float`/`double`). Use fixed-point integer arithmetic (e.g. mV, mA, mW) for all sensor and control processing.

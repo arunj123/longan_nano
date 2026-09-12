@@ -7,7 +7,7 @@
 #include "usbd_conf.h"
 
 #define USBD_VID                     0x28E9
-#define USBD_PID                     0xAB06 // Fresh PID to clear Windows cached port error state
+#define USBD_PID                     0xAB10 // Fresh PID to clear host cached port error state
 
 #define MSC_CONFIG_DESC_SIZE         32U
 
@@ -15,8 +15,8 @@
 struct UsbMscConfigDescSet {
     usb_desc_config config;
     usb_desc_itf    msc_itf;
-    usb_desc_ep     msc_epin;  // Bulk-IN MUST precede Bulk-OUT in USB MSC
-    usb_desc_ep     msc_epout; // Bulk-OUT
+    usb_desc_ep     msc_epout; // Bulk-OUT (0x01)
+    usb_desc_ep     msc_epin;  // Bulk-IN (0x81)
 };
 #pragma pack(pop)
 

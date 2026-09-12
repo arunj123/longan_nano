@@ -41,5 +41,7 @@ OF SUCH DAMAGE.
 /* function declarations */
 /* USB device-mode interrupts global service routine handler */
 void usbd_isr(usb_core_driver *udev);
+uint32_t usbd_emptytxfifo_write(usb_core_driver *udev, uint32_t ep_num);
+void ep1_debug_record(uint32_t step, uint32_t val1, uint32_t dieplen, uint32_t dieptfstat, uint32_t xfer_count, uint32_t xfer_len, uint32_t epctl);
 
 #endif /* DRV_USBD_INT_H */

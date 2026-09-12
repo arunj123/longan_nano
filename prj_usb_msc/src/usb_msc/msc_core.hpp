@@ -4,7 +4,9 @@
 #include <cstdint>
 #include "drivers/usb/usb_core.hpp"
 #include "drivers/usb/usbd_core.h"
-#include "usbd_conf.h"
+#ifndef MSC_PACED_64B_XFER
+#define MSC_PACED_64B_XFER 0
+#endif
 
 namespace msc {
 
@@ -31,6 +33,7 @@ uint8_t req_handler(usb_dev *udev, usb_req *req);
 uint8_t data_in(usb_dev *udev, uint8_t ep_num);
 uint8_t data_out(usb_dev *udev, uint8_t ep_num);
 void poll(usb_core_driver *udev);
+bool is_idle();
 
 extern usb_class_core msc_class;
 

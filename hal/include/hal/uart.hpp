@@ -32,9 +32,12 @@ struct UartDevice {
     static constexpr uint32_t STAT_TC   = 1U << 6;  // Transmission complete
     static constexpr uint32_t STAT_RBNE = 1U << 5;  // Read buffer not empty
 
-    static constexpr uint32_t CTL0_UEN = 1U << 13; // USART enable
-    static constexpr uint32_t CTL0_TEN = 1U << 3;  // Transmitter enable
-    static constexpr uint32_t CTL0_REN = 1U << 2;  // Receiver enable
+    static constexpr uint32_t CTL0_UEN    = 1U << 13; // USART enable
+    static constexpr uint32_t CTL0_TBEIE  = 1U << 7;  // Transmit buffer empty interrupt enable
+    static constexpr uint32_t CTL0_TCIE   = 1U << 6;  // Transmission complete interrupt enable
+    static constexpr uint32_t CTL0_RBNEIE = 1U << 5;  // Read buffer not empty interrupt enable
+    static constexpr uint32_t CTL0_TEN    = 1U << 3;  // Transmitter enable
+    static constexpr uint32_t CTL0_REN    = 1U << 2;  // Receiver enable
 
     /// Initialize USART with specified baud rate assuming APB2 clock.
     static inline void init(uint32_t baud, uint32_t apb_clock_hz = 0) noexcept {

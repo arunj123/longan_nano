@@ -2,7 +2,7 @@
 #include "drivers/usb/usb_types.hpp"
 
 /* USB standard device descriptor */
-usb_desc_dev msc_dev_desc = {
+alignas(4) usb_desc_dev msc_dev_desc = {
     .header = {
         .bLength          = USB_DEV_DESC_LEN, 
         .bDescriptorType  = USB_DESCTYPE_DEV
@@ -22,7 +22,7 @@ usb_desc_dev msc_dev_desc = {
 };
 
 /* USB MSC configuration descriptor */
-UsbMscConfigDescSet msc_config_desc = {
+alignas(4) UsbMscConfigDescSet msc_config_desc = {
     .config = {
         .header = {
             .bLength         = sizeof(usb_desc_config), 
@@ -32,7 +32,7 @@ UsbMscConfigDescSet msc_config_desc = {
         .bNumInterfaces       = 1U, // 1 MSC interface
         .bConfigurationValue  = 1U,
         .iConfiguration       = 0U,
-        .bmAttributes         = 0xC0, // Self-powered
+        .bmAttributes         = 0x80, // Bus-powered
         .bMaxPower            = 0x32  // 100mA
     },
 
@@ -47,43 +47,43 @@ UsbMscConfigDescSet msc_config_desc = {
         .iInterface          = 0x00
     },
 
-    .msc_epin = {
-        .header = { .bLength = sizeof(usb_desc_ep), .bDescriptorType = USB_DESCTYPE_EP },
-        .bEndpointAddress    = MSC_IN_EP,
-        .bmAttributes        = USB_EP_ATTR_BULK,
-        .wMaxPacketSize      = MSC_IN_PACKET,
-        .bInterval           = 0x00
-    },
-
     .msc_epout = {
         .header = { .bLength = sizeof(usb_desc_ep), .bDescriptorType = USB_DESCTYPE_EP },
         .bEndpointAddress    = MSC_OUT_EP,
         .bmAttributes        = USB_EP_ATTR_BULK,
         .wMaxPacketSize      = MSC_OUT_PACKET,
         .bInterval           = 0x00
+    },
+
+    .msc_epin = {
+        .header = { .bLength = sizeof(usb_desc_ep), .bDescriptorType = USB_DESCTYPE_EP },
+        .bEndpointAddress    = MSC_IN_EP,
+        .bmAttributes        = USB_EP_ATTR_BULK,
+        .wMaxPacketSize      = MSC_IN_PACKET,
+        .bInterval           = 0x00
     }
 };
 
 /* USB language ID Descriptor */
-static const usb_desc_LANGID usbd_language_id_desc = {
+alignas(4) static const usb_desc_LANGID usbd_language_id_desc = {
     .header = { .bLength = sizeof(usb_desc_LANGID), .bDescriptorType = USB_DESCTYPE_STR },
     .wLANGID = 0x0409U
 };
 
 /* USB manufacture string */
-static const usb_desc_str manufacturer_string = {
+alignas(4) static const usb_desc_str manufacturer_string = {
     .header = { .bLength = USB_STRING_LEN(6), .bDescriptorType = USB_DESCTYPE_STR },
     .unicode_string = {'S', 'i', 'p', 'e', 'e', 'd'}
 };
 
 /* USB product string */
-static const usb_desc_str product_string = {
+alignas(4) static const usb_desc_str product_string = {
     .header = { .bLength = USB_STRING_LEN(21), .bDescriptorType = USB_DESCTYPE_STR },
     .unicode_string = {'L', 'o', 'n', 'g', 'a', 'n', ' ', 'N', 'a', 'n', 'o', ' ', 'S', 'D', ' ', 'R', 'e', 'a', 'd', 'e', 'r'}
 };
 
 /* USBD serial string */
-static usb_desc_str serial_string = {
+alignas(4) static usb_desc_str serial_string = {
     .header = { .bLength = USB_STRING_LEN(12), .bDescriptorType = USB_DESCTYPE_STR },
     .unicode_string = {0}
 };
@@ -105,4 +105,3 @@ void set_custom_serial_string(const char *ascii_str) {
     serial_string.header.bLength = static_cast<uint8_t>(USB_STRING_LEN(len));
     serial_string.header.bDescriptorType = USB_DESCTYPE_STR;
 }
-

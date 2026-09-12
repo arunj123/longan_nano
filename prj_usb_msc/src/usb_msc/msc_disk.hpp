@@ -4,11 +4,14 @@
 #include <cstdint>
 #include <cstddef>
 
+#include "hal/time.hpp"
+
 struct MscDiskStats {
     uint32_t sectors_read{0};
     uint32_t sectors_written{0};
     uint32_t last_sector{0};
     bool is_active{false};
+    hal::time::Instant last_activity{hal::time::Instant::now()};
 };
 
 extern MscDiskStats g_msc_stats;

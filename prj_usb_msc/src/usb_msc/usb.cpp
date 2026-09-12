@@ -10,28 +10,32 @@
 #include "hal/exti.hpp"
 #include "hal/time.hpp"
 #include "hal/gpio.hpp"
+#include "hal/rcu.hpp"
 
 usb_core_driver msc_udev;
 static usb_desc msc_desc;
 
+extern "C" void enable_debug_uart_interrupt(void);
+
 namespace usb {
 
 void init() {
-    // 1. Reset and disable USBFS core so GPIO completely takes over PA11/PA12
-    hal::rcu::RegAHBRST::set_bits(1U << 12);
-    hal::time::delay_ms(10);
-    hal::rcu::RegAHBRST::clear_bits(1U << 12);
-    hal::rcu::disable(hal::rcu::Peripheral::Usbfs);
-
-    // 2. Drive PA11 and PA12 LOW (SE0 condition: Disconnect) for 500 ms
-    hal::gpio::GpioPin<hal::gpio::Port::A, 12>::init(hal::gpio::Mode::OutputPushPull);
-    hal::gpio::GpioPin<hal::gpio::Port::A, 11>::init(hal::gpio::Mode::OutputPushPull);
-    hal::gpio::GpioPin<hal::gpio::Port::A, 12>::reset();
-    hal::gpio::GpioPin<hal::gpio::Port::A, 11>::reset();
-    hal::time::delay_ms(500);
-
     hal::eclic::Eclic::set_priority_group(hal::eclic::PriorityGroup::Level2Prio2);
     hal::eclic::Eclic::enable_global_interrupts();
+    enable_debug_uart_interrupt();
+
+    // Hardware SE0 pulse: drive PA11 (D-) and PA12 (D+) LOW for 200 ms
+    // to guarantee the upstream host hub detects a physical detachment across resets.
+    using DmPin = hal::gpio::GpioPin<hal::gpio::Port::A, 11>;
+    using DpPin = hal::gpio::GpioPin<hal::gpio::Port::A, 12>;
+    DmPin::init(hal::gpio::Mode::OutputPushPull);
+    DpPin::init(hal::gpio::Mode::OutputPushPull);
+    DmPin::reset();
+    DpPin::reset();
+    hal::time::delay_ms(200);
+    DmPin::init(hal::gpio::Mode::InputFloating);
+    DpPin::init(hal::gpio::Mode::InputFloating);
+    hal::time::delay_ms(50);
 
     bsp::usb::rcu_config();
     bsp::usb::timer_init();
@@ -41,15 +45,10 @@ void init() {
     msc_desc.config_desc = reinterpret_cast<uint8_t*>(&msc_config_desc);
     msc_desc.strings = usbd_msc_strings;
 
+    // Set clean fresh serial number before usbd_init initializes descriptors
+    set_custom_serial_string("LNMSC0000028");
+
     usbd_init(&msc_udev, &msc_desc, &msc::msc_class);
-
-    // Set clean fresh serial number to prevent Windows using stale corrupted registry cache
-    set_custom_serial_string("LNMSC0000003");
-
-    // Force explicit 1200ms soft disconnect so upstream hub reliably registers disconnect
-    usbd_disconnect(&msc_udev);
-    hal::time::delay_ms(1200);
-    usbd_connect(&msc_udev);
 }
 
 void poll() {
@@ -57,7 +56,14 @@ void poll() {
 }
 
 bool is_configured() {
-    return (USBD_CONFIGURED == msc_udev.dev.cur_status);
+    // USB 2.0 §9.1.1.6: a suspended device retains its configuration.
+    // DWC2 sets cur_status = USBD_SUSPENDED after ~3 ms of bus idle; backup_status
+    // preserves the pre-suspend state. Treat both as "configured" to prevent main()
+    // from calling draw_string() on every idle interval (which would block for ~20 ms
+    // and cause the device to miss host resume tokens, creating a ping-pong freeze).
+    return (msc_udev.dev.cur_status == USBD_CONFIGURED) ||
+           (msc_udev.dev.cur_status == USBD_SUSPENDED &&
+            msc_udev.dev.backup_status == USBD_CONFIGURED);
 }
 
 } // namespace usb

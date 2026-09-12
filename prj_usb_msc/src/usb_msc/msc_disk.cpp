@@ -35,6 +35,7 @@ int8_t msc_disk_read(uint8_t *buf, uint32_t sector_addr, uint32_t sector_count) 
     if (!Sd::is_initialized) return -1;
     g_msc_stats.is_active = true;
     g_msc_stats.last_sector = sector_addr;
+    g_msc_stats.last_activity = hal::time::Instant::now();
 
     auto res = Sd::read_sectors(sector_addr, buf, sector_count);
     if (res == drivers::sdcard::SdResult::Success) {
@@ -52,6 +53,7 @@ int8_t msc_disk_write(const uint8_t *buf, uint32_t sector_addr, uint32_t sector_
     if (!Sd::is_initialized) return -1;
     g_msc_stats.is_active = true;
     g_msc_stats.last_sector = sector_addr;
+    g_msc_stats.last_activity = hal::time::Instant::now();
 
     auto res = Sd::write_sectors(sector_addr, buf, sector_count);
     if (res == drivers::sdcard::SdResult::Success) {

@@ -194,6 +194,18 @@ int main() {
         snprintf(cap_buf, sizeof(cap_buf), "Cap: %lu MB",
                  static_cast<unsigned long>(Sd::sector_count / 2048));
         draw_string(4, 28, cap_buf, color::White);
+
+        alignas(4) uint8_t test_mbr[512];
+        int8_t test_res = msc_disk_read(test_mbr, 0, 1);
+        if (test_res == 0) {
+            printf("[MAIN] SD sector 0 read verified OK. Sig: 0x%02X%02X\n", test_mbr[510], test_mbr[511]);
+        } else {
+            printf("[MAIN] WARNING: SD sector 0 read FAILED (err=%d)\n", test_res);
+        }
+        int8_t test_1024 = msc_disk_read(test_mbr, 1024, 1);
+        printf("[MAIN] SD sector 1024 self-test read: res=%d (Sig: 0x%02X%02X)\n", test_1024, test_mbr[510], test_mbr[511]);
+        g_msc_stats.sectors_read = 0;
+        g_msc_stats.is_active = false;
     } else {
         LedRed::reset(); // ON (Red = Card error)
         draw_string(4, 18, "SD Card: NOT FOUND", color::Red);
@@ -210,96 +222,41 @@ int main() {
 
     draw_string(4, 40, "USB: Initializing... ", color::Yellow);
     usb::init();
+    extern usb_core_driver msc_udev;
+    printf("[FIFO_CFG] GRFLEN=0x%08lX DIEP0=0x%08lX DIEP1=0x%08lX DIEPTFSTAT1=0x%08lX\n",
+           static_cast<unsigned long>(msc_udev.regs.gr->GRFLEN),
+           static_cast<unsigned long>(msc_udev.regs.gr->DIEP0TFLEN_HNPTFLEN),
+           static_cast<unsigned long>(msc_udev.regs.gr->DIEPTFLEN[0]),
+           static_cast<unsigned long>(msc_udev.regs.er_in[1]->DIEPTFSTAT));
     printf("[MAIN] USB stack initialized. Waiting for host enumeration...\n");
 
-    auto last_display_update = hal::time::Instant::now();
     auto last_heartbeat = hal::time::Instant::now();
     bool usb_was_configured = false;
 
     while (true) {
         usb::poll();
 
-        // Drain and print USB control setup trace
-        while (g_usb_trace_tail != g_usb_trace_head) {
-            auto e = g_usb_trace[g_usb_trace_tail];
-            g_usb_trace_tail = (g_usb_trace_tail + 1U) % USB_TRACE_MAX;
-            switch (e.type) {
-                case 0: // SETUP
-                    printf("[SETUP] bm=0x%02X bReq=0x%02X val=0x%04X idx=0x%04X len=%u -> %s\n",
-                           e.extra[0], e.extra[1], e.val1,
-                           static_cast<uint16_t>(e.extra[2] | (e.extra[3] << 8)),
-                           e.val2, (e.status == 0) ? "SUPP" : "NOTSUPP");
-                    break;
-                case 1: // IN_TF
-                    printf("  [IN_TF] ctl=%u remain=%u xfer_len=%u\n", e.ctl_state, e.val1, e.val2);
-                    break;
-                case 3: // OUT_TF
-                    printf("  [OUT_TF] ctl=%u\n", e.ctl_state);
-                    break;
-                case 4: // STATUS_RECV
-                    printf("  [STATUS_RECV] ctl=%u\n", e.ctl_state);
-                    break;
-            }
-        }
+        auto now = hal::time::Instant::now();
 
-        // Drain and print MSC SCSI/BOT trace
-        while (msc::g_msc_trace_tail != msc::g_msc_trace_head) {
-            auto e = msc::g_msc_trace[msc::g_msc_trace_tail];
-            msc::g_msc_trace_tail = (msc::g_msc_trace_tail + 1U) % MSC_TRACE_MAX;
-            switch (e.type) {
-                case 1: // CBW
-                    printf("[MSC:CBW] Opcode=0x%02X CBLen=%u rx=%u len=%lu tag=0x%08lX CDB:[%02X %02X %02X %02X %02X %02X %02X %02X %02X %02X]\n",
-                           e.opcode, e.val8, e.status,
-                           static_cast<unsigned long>(e.val32_1),
-                           static_cast<unsigned long>(e.val32_2),
-                           e.cdb[0], e.cdb[1], e.cdb[2], e.cdb[3], e.cdb[4],
-                           e.cdb[5], e.cdb[6], e.cdb[7], e.cdb[8], e.cdb[9]);
-                    break;
-                case 3: // CSW
-                    printf("  [MSC:CSW] Opcode=0x%02X Status=%u Residue=%lu\n",
-                           e.opcode, e.val8, static_cast<unsigned long>(e.val32_1));
-                    break;
-                case 4: // Abort
-                    printf("  [MSC:ABORT] Opcode=0x%02X Step=%u Err=%u val1=%lu val2=0x%08lX\n",
-                           e.opcode, e.val8, e.status,
-                           static_cast<unsigned long>(e.val32_1),
-                           static_cast<unsigned long>(e.val32_2));
-                    break;
-                case 5: // Class / Endpoint Req
-                    printf("[MSC:REQ] bReq=0x%02X val=%u\n", e.opcode, e.val8);
-                    break;
-            }
-        }
+        // In-memory trace buffers (g_usb_trace, g_msc_trace) remain accessible via OpenOCD
+        // (dump_trace.py). Runtime printing over UART0 is disabled to eliminate busy-wait
+        // TX polling latency during active USB communications.
 
         bool configured = usb::is_configured();
         if (configured && !usb_was_configured) {
             usb_was_configured = true;
+            draw_string(4, 40, "USB: CONFIGURED OK   ", color::Green);
             printf("[MAIN] >>> USB CONFIGURED BY HOST! <<<\n");
-            draw_string(4, 40, "USB: CONFIGURED OK ", color::Green);
         } else if (!configured && usb_was_configured) {
             usb_was_configured = false;
+            draw_string(4, 40, "USB: Disconnected... ", color::Yellow);
             printf("[MAIN] USB disconnected / reset.\n");
-            draw_string(4, 40, "USB: DISCONNECTED  ", color::Red);
         }
 
-        // Periodic telemetry display update (~100 ms)
-        auto now = hal::time::Instant::now();
-        if (now - last_display_update >= hal::time::Duration::from_ms(100)) {
-            last_display_update = now;
-
-            if (g_msc_stats.is_active) {
-                g_msc_stats.is_active = false;
-                LedBlue::toggle(); // Blink blue on disk access
-
-                char r_buf[32], w_buf[32], lba_buf[32];
-                snprintf(r_buf, sizeof(r_buf), "Read:  %lu blks", static_cast<unsigned long>(g_msc_stats.sectors_read));
-                snprintf(w_buf, sizeof(w_buf), "Write: %lu blks", static_cast<unsigned long>(g_msc_stats.sectors_written));
-                snprintf(lba_buf, sizeof(lba_buf), "LBA:   0x%08lX", static_cast<unsigned long>(g_msc_stats.last_sector));
-
-                draw_string(4, 50, r_buf, color::Cyan);
-                draw_string(4, 60, w_buf, color::Yellow);
-                draw_string(4, 70, lba_buf, color::White);
-            }
+        // Telemetry activity LED
+        if (g_msc_stats.is_active) {
+            g_msc_stats.is_active = false;
+            LedBlue::toggle();
         }
 
         // Heartbeat LED

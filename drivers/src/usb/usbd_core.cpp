@@ -190,7 +190,9 @@ uint32_t usbd_ep_recev(usb_core_driver *udev, uint8_t ep_addr, uint8_t *pbuf, ui
 */
 uint32_t usbd_ep_send(usb_core_driver *udev, uint8_t ep_addr, uint8_t *pbuf, uint32_t len)
 {
-    usb_transc *transc = &udev->dev.transc_in[EP_ID(ep_addr)];
+    uint8_t ep_num = EP_ID(ep_addr);
+
+    usb_transc *transc = &udev->dev.transc_in[ep_num];
 
     /* setup the transfer */
     transc->xfer_buf = pbuf;
@@ -200,7 +202,7 @@ uint32_t usbd_ep_send(usb_core_driver *udev, uint8_t ep_addr, uint8_t *pbuf, uin
     /* start the transfer */
     (void)usb_transc_inxfer(udev, transc);
 
-    return 0U;
+    return USBD_OK;
 }
 
 /*!

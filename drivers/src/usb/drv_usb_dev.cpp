@@ -34,6 +34,9 @@ OF SUCH DAMAGE.
 
 #include "drv_usb_hw.h"
 #include "drv_usb_dev.h"
+#include "drv_usbd_int.h"
+#include "usbd_transc.h"
+#include "hal/core.hpp"
 
 /* endpoint 0 max packet length */
 static const uint8_t EP0_MAXLEN[4] = {
@@ -121,8 +124,6 @@ usb_status usb_devcore_init(usb_core_driver *udev)
         /* clear all pending OUT endpoint interrupts */
         udev->regs.er_out[i]->DOEPINTF = 0xFFU;
     }
-
-    udev->regs.dr->DIEPINTEN |= DIEPINTEN_EPTXFUDEN;
 
     (void)usb_devint_enable(udev);
 
@@ -318,6 +319,8 @@ usb_status usb_transc_inxfer(usb_core_driver *udev, usb_transc *transc)
         }
     }
 
+    uint32_t prev_mstatus = hal::core::disable_interrupts();
+
     udev->regs.er_in[ep_num]->DIEPLEN = eplen;
 
     if((uint8_t)USB_EPTYPE_ISOC == transc->ep_type) {
@@ -335,14 +338,20 @@ usb_status usb_transc_inxfer(usb_core_driver *udev, usb_transc *transc)
 
     if((uint8_t)USB_USE_FIFO == udev->bp.transfer_mode) {
         if((uint8_t)USB_EPTYPE_ISOC != transc->ep_type) {
-            /* enable the TX FIFO empty interrupt for this endpoint */
             if(transc->xfer_len > 0U) {
+                /* Enable FIFO empty interrupt to load FIFO via standard DWC2 flow */
                 udev->regs.dr->DIEPFEINTEN |= 1U << ep_num;
             }
         } else {
             (void)usb_txfifo_write(&udev->regs, transc->xfer_buf, ep_num, (uint16_t)transc->xfer_len);
         }
     }
+
+    if(ep_num == 1) {
+        ep1_debug_record(1, epctl, udev->regs.er_in[1]->DIEPLEN, udev->regs.er_in[1]->DIEPTFSTAT, transc->xfer_count, transc->xfer_len, udev->regs.er_in[1]->DIEPCTL);
+    }
+
+    hal::core::restore_interrupts(prev_mstatus);
 
     return status;
 }
@@ -416,11 +425,6 @@ usb_status usb_transc_stall(usb_core_driver *udev, usb_transc *transc)
 
     if(transc->ep_addr.dir) {
         reg_addr = &(udev->regs.er_in[ep_num]->DIEPCTL);
-
-        /* set the endpoint disable bit */
-        if(*reg_addr & DEPCTL_EPEN) {
-            *reg_addr |= DEPCTL_EPD;
-        }
     } else {
         /* set the endpoint STALL bit */
         reg_addr = &(udev->regs.er_out[ep_num]->DOEPCTL);

@@ -117,8 +117,6 @@ usbd_status usbd_ctl_status_send(usb_core_driver *udev)
 
     (void)usbd_ep_send(udev, 0U, NULL, 0U);
 
-    usb_ctlep_startout(udev);
-
     return USBD_OK;
 }
 
@@ -150,6 +148,10 @@ uint8_t usbd_setup_transc(usb_core_driver *udev)
     usb_reqsta reqstat = REQ_NOTSUPP;
 
     udev->dev.control.ctl_zlp = 0U;
+
+    // Arrival of a Setup packet automatically clears any previous protocol STALL (USB 2.0 §8.5.3.4)
+    (void)usbd_ep_stall_clear(udev, 0x80U);
+    (void)usbd_ep_stall_clear(udev, 0x00U);
 
     usb_req req = udev->dev.control.req;
 
@@ -207,6 +209,10 @@ uint8_t usbd_setup_transc(usb_core_driver *udev)
 */
 uint8_t usbd_out_transc(usb_core_driver *udev, uint8_t ep_num)
 {
+    if((uint8_t)USBD_SUSPENDED == udev->dev.cur_status) {
+        udev->dev.cur_status = udev->dev.backup_status;
+    }
+
     if(0U == ep_num) {
         usb_trace_record(3, 0, udev->dev.control.ctl_state, 0, 0, 0);
         usb_transc *transc = &udev->dev.transc_out[0];
@@ -257,6 +263,10 @@ uint8_t usbd_out_transc(usb_core_driver *udev, uint8_t ep_num)
 */
 uint8_t usbd_in_transc(usb_core_driver *udev, uint8_t ep_num)
 {
+    if((uint8_t)USBD_SUSPENDED == udev->dev.cur_status) {
+        udev->dev.cur_status = udev->dev.backup_status;
+    }
+
     if(0U == ep_num) {
         usb_transc *transc = &udev->dev.transc_in[0];
         usb_trace_record(1, 0, udev->dev.control.ctl_state, 0, (uint16_t)transc->remain_len, (uint16_t)transc->xfer_len);
@@ -290,6 +300,7 @@ uint8_t usbd_in_transc(usb_core_driver *udev, uint8_t ep_num)
 
         case USB_CTL_STATUS_IN:
             udev->dev.control.ctl_state = (uint8_t)USB_CTL_IDLE;
+            usb_ctlep_startout(udev);
             break;
 
         default:

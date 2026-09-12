@@ -144,10 +144,15 @@ usb_reqsta usbd_vendor_request(usb_core_driver *udev, usb_req *req)
 */
 void usbd_enum_error(usb_core_driver *udev, usb_req *req)
 {
-    (void)req;
+    udev->dev.control.ctl_state = (uint8_t)USB_CTL_IDLE;
 
-    (void)usbd_ep_stall(udev, 0x80U);
-    (void)usbd_ep_stall(udev, 0x00U);
+    if (req != nullptr && (req->bmRequestType & 0x80U)) {
+        // Control IN request failed: stall EP0 IN
+        (void)usbd_ep_stall(udev, 0x80U);
+    } else {
+        // Control OUT / no-data request failed: stall EP0 OUT
+        (void)usbd_ep_stall(udev, 0x00U);
+    }
 
     usb_ctlep_startout(udev);
 }
@@ -185,6 +190,10 @@ void int_to_unicode(uint32_t value, uint8_t *pbuf, uint8_t len)
 */
 void serial_string_get(uint16_t *unicode_str)
 {
+    if (unicode_str[1] != 0) {
+        return; // Custom serial number already set by application — preserve it
+    }
+
     if(6U != (unicode_str[0] & 0x00FFU)) {
         uint32_t DeviceSerial0, DeviceSerial1, DeviceSerial2;
 

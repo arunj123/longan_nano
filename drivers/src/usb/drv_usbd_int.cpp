@@ -45,6 +45,29 @@ static const uint8_t USB_SPEED[4] = {
 
 __IO uint8_t setupc_flag = 0U;
 
+struct Ep1DebugEntry {
+    uint32_t step;       // 1 = inxfer, 2 = epin_entry, 4 = in_transc_called, 5 = csw_send
+    uint32_t val1;       // iepintr or epctl
+    uint32_t dieplen;    // DIEPLEN
+    uint32_t dieptfstat; // DIEPTFSTAT
+    uint32_t xfer_count; // transc->xfer_count
+    uint32_t xfer_len;   // transc->xfer_len
+    uint32_t epctl;      // DIEPCTL
+    uint32_t reserved;
+};
+
+#define EP1_DEBUG_MAX 64
+__attribute__((used)) Ep1DebugEntry g_ep1_debug[EP1_DEBUG_MAX] = {};
+__attribute__((used)) uint32_t g_ep1_debug_idx = 0;
+
+void ep1_debug_record(uint32_t step, uint32_t val1, uint32_t dieplen, uint32_t dieptfstat, uint32_t xfer_count, uint32_t xfer_len, uint32_t epctl)
+{
+    uint32_t idx = g_ep1_debug_idx % EP1_DEBUG_MAX;
+    uint32_t t = *(volatile const uint32_t*)0xD1000000;
+    g_ep1_debug[idx] = {step, val1, dieplen, dieptfstat, xfer_count, xfer_len, epctl, t};
+    g_ep1_debug_idx = g_ep1_debug_idx + 1U;
+}
+
 /* local function prototypes ('static') */
 static uint32_t usbd_int_epout(usb_core_driver *udev);
 static uint32_t usbd_int_epin(usb_core_driver *udev);
@@ -52,7 +75,7 @@ static uint32_t usbd_int_rxfifo(usb_core_driver *udev);
 static uint32_t usbd_int_reset(usb_core_driver *udev);
 static uint32_t usbd_int_enumfinish(usb_core_driver *udev);
 static uint32_t usbd_int_suspend(usb_core_driver *udev);
-static uint32_t usbd_emptytxfifo_write(usb_core_driver *udev, uint32_t ep_num);
+uint32_t usbd_emptytxfifo_write(usb_core_driver *udev, uint32_t ep_num);
 
 /*!
     \brief      USB device-mode interrupts global service routine handler
@@ -207,6 +230,12 @@ static uint32_t usbd_int_epout(usb_core_driver *udev)
                     setupc_flag = 0U;
                 }
             }
+
+            /* clear unhandled OUT endpoint interrupt flags */
+            uint32_t raw_oep = udev->regs.er_out[ep_num]->DOEPINTF;
+            if (raw_oep & ~(DOEPINTF_TF | DOEPINTF_STPF)) {
+                udev->regs.er_out[ep_num]->DOEPINTF = raw_oep & ~(DOEPINTF_TF | DOEPINTF_STPF);
+            }
         }
     }
 
@@ -228,8 +257,16 @@ static uint32_t usbd_int_epin(usb_core_driver *udev)
         if(epintnum & 0x1U) {
             __IO uint32_t iepintr = usb_iepintr_read(udev, ep_num);
 
+            if(ep_num == 1) {
+                ep1_debug_record(2, iepintr, udev->regs.er_in[1]->DIEPLEN, udev->regs.er_in[1]->DIEPTFSTAT, udev->dev.transc_in[1].xfer_count, udev->dev.transc_in[1].xfer_len, udev->regs.er_in[1]->DIEPCTL);
+            }
+
             if(iepintr & DIEPINTF_TF) {
                 udev->regs.er_in[ep_num]->DIEPINTF = DIEPINTF_TF;
+
+                if(ep_num == 1) {
+                    ep1_debug_record(4, iepintr, udev->regs.er_in[1]->DIEPLEN, udev->regs.er_in[1]->DIEPTFSTAT, udev->dev.transc_in[1].xfer_count, udev->dev.transc_in[1].xfer_len, udev->regs.er_in[1]->DIEPCTL);
+                }
 
                 /* data transmission is completed */
                 (void)usbd_in_transc(udev, ep_num);
@@ -330,11 +367,14 @@ static uint32_t usbd_int_reset(usb_core_driver *udev)
     /* clear the remote wakeup signaling */
     udev->regs.dr->DCTL &= ~DCTL_RWKUP;
 
-    /* flush the TX FIFO */
-    (void)usb_txfifo_flush(&udev->regs, 0U);
+    /* flush all TX FIFOs and RX FIFO */
+    (void)usb_txfifo_flush(&udev->regs, 0x10U);
+    (void)usb_rxfifo_flush(&udev->regs);
 
     for(i = 0U; i < udev->bp.num_ep; i++) {
+        udev->regs.er_in[i]->DIEPLEN = 0U;
         udev->regs.er_in[i]->DIEPINTF = 0xFFU;
+        udev->regs.er_out[i]->DOEPLEN = 0U;
         udev->regs.er_out[i]->DOEPINTF = 0xFFU;
     }
 
@@ -445,24 +485,14 @@ static uint32_t usbd_int_suspend(usb_core_driver *udev)
     \param[out] none
     \retval     status
 */
-static uint32_t usbd_emptytxfifo_write(usb_core_driver *udev, uint32_t ep_num)
+uint32_t usbd_emptytxfifo_write(usb_core_driver *udev, uint32_t ep_num)
 {
     uint32_t len;
     uint32_t word_count;
 
     usb_transc *transc = &udev->dev.transc_in[ep_num];
 
-    len = transc->xfer_len - transc->xfer_count;
-
-    /* get the data length to write */
-    if(len > transc->max_len) {
-        len = transc->max_len;
-    }
-
-    word_count = (len + 3U) / 4U;
-
-    while(((udev->regs.er_in[ep_num]->DIEPTFSTAT & DIEPTFSTAT_IEPTFS) >= word_count) && \
-            (transc->xfer_count < transc->xfer_len)) {
+    while(transc->xfer_count < transc->xfer_len) {
         len = transc->xfer_len - transc->xfer_count;
 
         if(len > transc->max_len) {
@@ -472,12 +502,15 @@ static uint32_t usbd_emptytxfifo_write(usb_core_driver *udev, uint32_t ep_num)
         /* write FIFO in word(4bytes) */
         word_count = (len + 3U) / 4U;
 
+        if((udev->regs.er_in[ep_num]->DIEPTFSTAT & DIEPTFSTAT_IEPTFS) < word_count) {
+            if (ep_num == 1) {
+                ep1_debug_record(7, word_count, udev->regs.er_in[1]->DIEPLEN, udev->regs.er_in[1]->DIEPTFSTAT, transc->xfer_count, transc->xfer_len, udev->regs.er_in[1]->DIEPCTL);
+            }
+            break;
+        }
+
         /* write the FIFO */
         (void)usb_txfifo_write(&udev->regs, transc->xfer_buf, (uint8_t)ep_num, (uint16_t)len);
-
-        if(0U == ep_num) {
-            usb_trace_record(2, 0, udev->dev.control.ctl_state, 0, (uint16_t)len, (uint16_t)transc->xfer_count);
-        }
 
         transc->xfer_buf += len;
         transc->xfer_count += len;
@@ -485,6 +518,7 @@ static uint32_t usbd_emptytxfifo_write(usb_core_driver *udev, uint32_t ep_num)
         if(transc->xfer_count == transc->xfer_len) {
             /* disable the device endpoint FIFO empty interrupt */
             udev->regs.dr->DIEPFEINTEN &= ~(0x01U << ep_num);
+            break;
         }
     }
 
