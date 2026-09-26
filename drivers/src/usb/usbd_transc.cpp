@@ -307,6 +307,10 @@ uint8_t usbd_in_transc(usb_core_driver *udev, uint8_t ep_num)
             break;
         }
     } else {
+        usb_transc *transc = &udev->dev.transc_in[ep_num];
+        if (transc->xfer_count < transc->xfer_len) {
+            return (uint8_t)USBD_OK;
+        }
         if(((uint8_t)USBD_CONFIGURED == udev->dev.cur_status) && (NULL != udev->dev.class_core->data_in)) {
             (void)udev->dev.class_core->data_in(udev, ep_num);
         }

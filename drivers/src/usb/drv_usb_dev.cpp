@@ -37,6 +37,7 @@ OF SUCH DAMAGE.
 #include "drv_usbd_int.h"
 #include "usbd_transc.h"
 #include "hal/core.hpp"
+#include "hal/time.hpp"
 
 /* endpoint 0 max packet length */
 static const uint8_t EP0_MAXLEN[4] = {
@@ -239,8 +240,12 @@ usb_status usb_transc_active(usb_core_driver *udev, usb_transc *transc)
             *reg_addr |= transc->max_len;
         }
 
-        /* activate endpoint */
-        *reg_addr |= ((uint32_t)transc->ep_type << 18) | ((uint32_t)ep_num << 22) | DEPCTL_SD0PID | DEPCTL_EPACT;
+        /* activate endpoint (non-control endpoints start in NAK state until explicitly armed) */
+        uint32_t act_val = ((uint32_t)transc->ep_type << 18) | ((uint32_t)ep_num << 22) | DEPCTL_SD0PID | DEPCTL_EPACT;
+        if (ep_num > 0U) {
+            act_val |= DEPCTL_SNAK;
+        }
+        *reg_addr |= act_val;
     }
 
     /* enable the interrupts for this endpoint */
@@ -292,10 +297,7 @@ usb_status usb_transc_inxfer(usb_core_driver *udev, usb_transc *transc)
 
     uint8_t ep_num = transc->ep_addr.num;
 
-    __IO uint32_t epctl = udev->regs.er_in[ep_num]->DIEPCTL;
-    __IO uint32_t eplen = udev->regs.er_in[ep_num]->DIEPLEN;
-
-    eplen &= ~(DEPLEN_TLEN | DEPLEN_PCNT);
+    __IO uint32_t eplen = 0U;
 
     /* zero length packet or endpoint 0 */
     if(0U == transc->xfer_len) {
@@ -319,7 +321,27 @@ usb_status usb_transc_inxfer(usb_core_driver *udev, usb_transc *transc)
         }
     }
 
+    /* Wait until TX FIFO has enough space to receive at least one packet (bounded, with interrupts enabled) */
+    if(ep_num > 0U && (uint8_t)USB_USE_FIFO == udev->bp.transfer_mode) {
+        uint32_t needed_words = USB_MIN((transc->xfer_len + 3U) / 4U, (uint32_t)(transc->max_len + 3U) / 4U);
+        uint32_t max_fifo = USBFS_TX_FIFO_SIZE[ep_num];
+        if(needed_words > max_fifo) needed_words = max_fifo;
+        auto deadline = hal::time::Instant::now() + hal::time::Duration::from_ms(10);
+        while(((udev->regs.er_in[ep_num]->DIEPTFSTAT & 0xFFFFU) < needed_words) && (hal::time::Instant::now() < deadline)) {}
+        if((udev->regs.er_in[ep_num]->DIEPTFSTAT & 0xFFFFU) < needed_words) {
+            return USB_FAIL;
+        }
+    }
+
     uint32_t prev_mstatus = hal::core::disable_interrupts();
+
+    /* Read live epctl inside critical section immediately before modifying */
+    __IO uint32_t epctl = udev->regs.er_in[ep_num]->DIEPCTL;
+
+    /* Clear stale IN endpoint flags (including TF) before arming a new transfer.
+     * TF must be cleared before EPEN is asserted; otherwise a TF left over from the
+     * previous transfer will immediately trigger premature completion in the ISR. */
+    udev->regs.er_in[ep_num]->DIEPINTF = DIEPINTF_TF | DIEPINTF_EPDIS | DIEPINTF_TXFUD;
 
     udev->regs.er_in[ep_num]->DIEPLEN = eplen;
 
@@ -331,21 +353,31 @@ usb_status usb_transc_inxfer(usb_core_driver *udev, usb_transc *transc)
         }
     }
 
-    /* enable the endpoint and clear the NAK */
-    epctl |= DEPCTL_CNAK | DEPCTL_EPEN;
+    /* Mask out write-sensitive toggle and control bits, arm endpoint with SNAK so host IN tokens NAK while FIFO fills */
+    epctl &= ~(DEPCTL_SD0PID | DEPCTL_SD1PID | DEPCTL_EPD | DEPCTL_CNAK);
+    epctl |= DEPCTL_EPEN | DEPCTL_SNAK;
 
     udev->regs.er_in[ep_num]->DIEPCTL = epctl;
 
+    /* Push data into TX FIFO after EP is armed */
     if((uint8_t)USB_USE_FIFO == udev->bp.transfer_mode) {
         if((uint8_t)USB_EPTYPE_ISOC != transc->ep_type) {
             if(transc->xfer_len > 0U) {
-                /* Enable FIFO empty interrupt to load FIFO via standard DWC2 flow */
-                udev->regs.dr->DIEPFEINTEN |= 1U << ep_num;
+                /* Push initial packet/sector into FIFO */
+                usbd_emptytxfifo_write(udev, ep_num);
+
+                /* If more data remains to be sent, enable TXFE interrupt for subsequent chunks */
+                if(transc->xfer_count < transc->xfer_len) {
+                    udev->regs.dr->DIEPFEINTEN |= 1U << ep_num;
+                }
             }
         } else {
             (void)usb_txfifo_write(&udev->regs, transc->xfer_buf, ep_num, (uint16_t)transc->xfer_len);
         }
     }
+
+    /* Now that data is safely present in the FIFO, clear NAK to allow packet transmission on wire */
+    udev->regs.er_in[ep_num]->DIEPCTL = (udev->regs.er_in[ep_num]->DIEPCTL & ~(DEPCTL_SD0PID | DEPCTL_SD1PID | DEPCTL_SNAK)) | DEPCTL_CNAK;
 
     if(ep_num == 1) {
         ep1_debug_record(1, epctl, udev->regs.er_in[1]->DIEPLEN, udev->regs.er_in[1]->DIEPTFSTAT, transc->xfer_count, transc->xfer_len, udev->regs.er_in[1]->DIEPCTL);
@@ -402,7 +434,8 @@ usb_status usb_transc_outxfer(usb_core_driver *udev, usb_transc *transc)
         }
     }
 
-    /* enable the endpoint and clear the NAK */
+    /* Mask out write-sensitive strobe and toggle bits, enable the endpoint and clear NAK */
+    epctl &= ~(DEPCTL_SD0PID | DEPCTL_SD1PID | DEPCTL_EPD | DEPCTL_SNAK | DEPCTL_CNAK);
     epctl |= DEPCTL_EPEN | DEPCTL_CNAK;
 
     udev->regs.er_out[ep_num]->DOEPCTL = epctl;

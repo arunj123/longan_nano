@@ -22,7 +22,10 @@ enum class BbbState : uint8_t {
     IDLE = 0,
     DATA_OUT,
     DATA_IN,
+    LAST_DATA_IN,
+    SEND_DATA,
     SEND_ZLP,
+    STATUS_PENDING,
     SEND_CSW   // CSW queued on IN EP; re-arm CBW OUT when this IN completes
 };
 
@@ -112,16 +115,19 @@ struct MscContext {
     uint32_t data_len{0};
     uint32_t lba{0};
     uint32_t total_blocks{0};
-    uint32_t remaining_bytes{0};
+    volatile uint32_t remaining_bytes{0};
     uint32_t csw_residue{0};   // BOT-correct residue = dCBWDataTransferLength - actual_transferred
     SenseKey sense_key{SenseKey::NO_SENSE};
     Asc sense_asc{Asc::NO_ASC};
     uint8_t max_lun{0};
+    CswStatus csw_status{CswStatus::CMD_PASSED};
+    hal::time::Instant data_done_time{};
     volatile bool csw_pending{false};   // True only when a stalled transfer owes a CSW to CLEAR_FEATURE
     volatile bool need_read{false};
+    hal::time::Instant need_read_time{};
     volatile bool need_write{false};
-    uint16_t sub_offset{0};
-    uint16_t sub_remaining{0};
+    volatile uint16_t sub_offset{0};
+    volatile uint16_t sub_remaining{0};
 
     inline BbbCbw& cbw() { return *reinterpret_cast<BbbCbw*>(cbw_buf); }
     inline const BbbCbw& cbw() const { return *reinterpret_cast<const BbbCbw*>(cbw_buf); }
@@ -165,9 +171,17 @@ static void set_sense(SenseKey key, Asc asc) {
     ctx.sense_asc = asc;
 }
 
+static void msc_ep_send(usb_core_driver *udev, uint8_t *pbuf, uint32_t len) {
+    usbd_ep_send(udev, MSC_IN_EP, pbuf, len);
+}
+
 static void csw_send(usb_core_driver *udev, CswStatus status) {
+    auto *er_in1 = udev->regs.er_in[EP_ID(MSC_IN_EP)];
     usb_transc *transc = &udev->dev.transc_in[EP_ID(MSC_IN_EP)];
-    ep1_debug_record(5, static_cast<uint32_t>(status), udev->regs.er_in[1]->DIEPLEN, udev->regs.er_in[1]->DIEPTFSTAT, transc->xfer_count, transc->xfer_len, udev->regs.er_in[1]->DIEPCTL);
+    ep1_debug_record(5, static_cast<uint32_t>(status), er_in1->DIEPLEN, er_in1->DIEPTFSTAT, transc->xfer_count, transc->xfer_len, er_in1->DIEPCTL);
+
+    /* Defensive cleanup of any stale data-phase flags before arming the 13-byte CSW transfer */
+    er_in1->DIEPINTF = DIEPINTF_TF | DIEPINTF_EPDIS | DIEPINTF_TXFUD;
 
     auto &csw = ctx.csw();
     auto &cbw = ctx.cbw();
@@ -180,7 +194,7 @@ static void csw_send(usb_core_driver *udev, CswStatus status) {
 
     msc_trace_record(3, cbw.CBWCB[0], static_cast<uint8_t>(status), 0, csw.dCSWDataResidue, 0);
 
-    usbd_ep_send(udev, MSC_IN_EP, ctx.csw_buf, BBB_CSW_LENGTH);
+    msc_ep_send(udev, ctx.csw_buf, BBB_CSW_LENGTH);
 }
 
 static void data_send(usb_core_driver *udev, uint8_t *pbuf, uint32_t len) {
@@ -188,18 +202,35 @@ static void data_send(usb_core_driver *udev, uint8_t *pbuf, uint32_t len) {
     len = USB_MIN(cbw.dCBWDataTransferLength, len);
     ctx.csw_residue = cbw.dCBWDataTransferLength - len; // residue = requested - actually sent
     ctx.remaining_bytes = 0; // All data for this command is dispatched; no subsequent sectors
+    ctx.p_data = pbuf;
+#if MSC_PACED_64B_XFER
+    ctx.sub_offset = 0;
+    ctx.sub_remaining = static_cast<uint16_t>(len);
+    uint32_t chunk = USB_MIN(ctx.sub_remaining, 64U);
+    ctx.sub_offset = static_cast<uint16_t>(ctx.sub_offset + chunk);
+    ctx.sub_remaining = static_cast<uint16_t>(ctx.sub_remaining - chunk);
     if (ctx.csw_residue > 0 && (len > 0) && ((len % MSC_IN_PACKET) == 0)) {
         ctx.state = BbbState::SEND_ZLP;
     } else {
-        ctx.state = BbbState::DATA_IN;
+        ctx.state = BbbState::SEND_DATA;
     }
-    usbd_ep_send(udev, MSC_IN_EP, pbuf, len);
+    msc_ep_send(udev, pbuf, chunk);
+#else
+    if (ctx.csw_residue > 0 && (len > 0) && ((len % MSC_IN_PACKET) == 0)) {
+        ctx.state = BbbState::SEND_ZLP;
+    } else {
+        ctx.state = BbbState::SEND_DATA;
+    }
+    msc_ep_send(udev, pbuf, len);
+#endif
 }
 
 static void abort_transfer(usb_core_driver *udev) {
     auto &cbw = ctx.cbw();
-    ctx.csw_residue = cbw.dCBWDataTransferLength; // nothing was transferred
-    ctx.remaining_bytes = cbw.dCBWDataTransferLength;
+    ctx.need_read = false;
+    ctx.need_write = false;
+    msc_trace_record(4, cbw.CBWCB[0], static_cast<uint8_t>(ctx.sense_key), static_cast<uint8_t>(ctx.sense_asc), ctx.lba, ctx.remaining_bytes, cbw.CBWCB);
+    ctx.csw_residue = ctx.remaining_bytes; // BOT-compliant: residue reflects untransferred bytes
     if (cbw.dCBWDataTransferLength == 0) {
         // No data phase: send CSW directly (no STALL, no CLEAR_FEATURE expected)
         csw_send(udev, CswStatus::CMD_FAILED);
@@ -216,6 +247,8 @@ static void abort_transfer(usb_core_driver *udev) {
     }
 }
 
+static void ep1_in_hard_reset(usb_core_driver *udev);
+
 static int8_t msc_process_read(usb_core_driver *udev) {
     uint32_t len = USB_MIN(ctx.remaining_bytes, MSC_MEDIA_PACKET_SIZE);
     uint32_t blocks = (len + 511U) / 512U;
@@ -223,6 +256,8 @@ static int8_t msc_process_read(usb_core_driver *udev) {
     msc_trace_record(2, 0x28, static_cast<uint8_t>(blocks), 0, ctx.lba, ctx.remaining_bytes);
 
     if (msc_disk_read(ctx.media_buffer, ctx.lba, blocks) != 0) {
+        printf("[MSC] msc_disk_read FAILED LBA %lu\n", static_cast<unsigned long>(ctx.lba));
+        ep1_in_hard_reset(udev);
         set_sense(SenseKey::HARDWARE_ERROR, Asc::UNRECOVERED_READ_ERROR);
         return -1;
     }
@@ -231,16 +266,7 @@ static int8_t msc_process_read(usb_core_driver *udev) {
     ctx.remaining_bytes -= len;
     ctx.state = BbbState::DATA_IN;
 
-#if MSC_PACED_64B_XFER
-    ctx.sub_offset = 0;
-    ctx.sub_remaining = static_cast<uint16_t>(len);
-    uint32_t chunk = USB_MIN(ctx.sub_remaining, 64U);
-    ctx.sub_offset += chunk;
-    ctx.sub_remaining -= chunk;
-    usbd_ep_send(udev, MSC_IN_EP, ctx.media_buffer, chunk);
-#else
-    usbd_ep_send(udev, MSC_IN_EP, ctx.media_buffer, len);
-#endif
+    msc_ep_send(udev, ctx.media_buffer, len);
     return 0;
 }
 
@@ -323,7 +349,10 @@ static int8_t process_scsi(usb_core_driver *udev) {
             uint32_t to_transfer_r6 = USB_MIN(cbw.dCBWDataTransferLength, blocks * 512U);
             ctx.remaining_bytes = to_transfer_r6;
             ctx.csw_residue = cbw.dCBWDataTransferLength - to_transfer_r6;
-            return msc_process_read(udev);
+
+            ctx.need_read = true;
+            ctx.need_read_time = hal::time::Instant::now();
+            return 0;
         }
 
         case ScsiCmd::WRITE_6: {
@@ -372,7 +401,7 @@ static int8_t process_scsi(usb_core_driver *udev) {
                     ctx.media_buffer[1] = 0x80; // Page code
                     ctx.media_buffer[2] = 0x00; // Reserved
                     ctx.media_buffer[3] = 12;   // Page length
-                    std::memcpy(&ctx.media_buffer[4], "LNMSC0000027", 12);
+                    std::memcpy(&ctx.media_buffer[4], "LNMSC0000073", 12);
                     ctx.data_len = USB_MIN(cbw.dCBWDataTransferLength, 16U);
                     return 0;
                 } else if (page_code == 0x83) { // Device Identification Page
@@ -499,6 +528,7 @@ static int8_t process_scsi(usb_core_driver *udev) {
             ctx.csw_residue = cbw.dCBWDataTransferLength - to_transfer_r10;
 
             ctx.need_read = true;
+            ctx.need_read_time = hal::time::Instant::now();
             return 0;
         }
 
@@ -632,6 +662,7 @@ static void cbw_decode(usb_core_driver *udev) {
     // Valid CBW received — exit any RECOVERY / ERROR state so CLEAR_FEATURE works
     ctx.status = BbbStatus::NORMAL;
     ctx.csw_pending = false; // new command cycle; any previous CSW debt is cleared
+    ctx.data_done_time = hal::time::Instant{}; // reset data phase timer for framing guard
     ctx.p_data = ctx.media_buffer;
     g_msc_stats.last_activity = hal::time::Instant::now();
 
@@ -657,6 +688,10 @@ uint8_t init(usb_dev *udev, uint8_t config_index) {
 
     usbd_fifo_flush(pcore, MSC_OUT_EP);
     usbd_fifo_flush(pcore, MSC_IN_EP);
+
+    /* Explicitly reset data toggle to DATA0 and assert NAK on both bulk endpoints per USB MSC BOT */
+    pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL |= DEPCTL_SD0PID | DEPCTL_SNAK;
+    pcore->regs.er_out[EP_ID(MSC_OUT_EP)]->DOEPCTL |= DEPCTL_SD0PID | DEPCTL_SNAK;
 
     usbd_ep_recev(pcore, MSC_OUT_EP, ctx.cbw_buf, BBB_CBW_LENGTH);
     msc_trace_record(5, 0xAA, config_index, 0, 0, 0);
@@ -686,12 +721,30 @@ uint8_t req_handler(usb_dev *udev, usb_req *req) {
                 msc_trace_record(5, REQ_GET_MAX_LUN, 0, 0, 1, 0);
                 return USBD_OK;
 
-            case REQ_BBB_RESET:
+            case REQ_BBB_RESET: {
+                // BOT reset resets the MSC transport state.
                 ctx = MscContext{};
                 ctx.status = BbbStatus::RECOVERY;
+
                 msc_trace_record(5, REQ_BBB_RESET, 0, 0, 0, 0);
+
+                // Clear any HALT left by the failed BOT transfer.
+                usbd_ep_stall_clear(pcore, MSC_IN_EP);
+                usbd_ep_stall_clear(pcore, MSC_OUT_EP);
+
+                // Flush stale endpoint FIFO contents.
+                usbd_fifo_flush(pcore, MSC_IN_EP);
+                usbd_fifo_flush(pcore, MSC_OUT_EP);
+
+                // Reset endpoint data PID after BOT reset.
+                pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL |= DEPCTL_SD0PID | DEPCTL_SNAK;
+                pcore->regs.er_out[EP_ID(MSC_OUT_EP)]->DOEPCTL |= DEPCTL_SD0PID | DEPCTL_SNAK;
+
+                // Ready for the next CBW.
                 usbd_ep_recev(pcore, MSC_OUT_EP, ctx.cbw_buf, BBB_CBW_LENGTH);
+
                 return USBD_OK;
+            }
 
             default:
                 return USBD_FAIL;
@@ -702,6 +755,21 @@ uint8_t req_handler(usb_dev *udev, usb_req *req) {
     if ((req->bmRequestType & USB_RECPTYPE_MASK) == USB_RECPTYPE_EP) {
         if (req->bRequest == USB_CLEAR_FEATURE) {
             uint8_t ep = static_cast<uint8_t>(req->wIndex);
+            /* Explicitly clear STALL and reset data toggle to DATA0 per USB 2.0 §9.4.5 & MSC BOT §4.4 */
+            if (ep & 0x80) {
+                auto *diepctl = &pcore->regs.er_in[EP_ID(ep)]->DIEPCTL;
+                *diepctl = (*diepctl & ~(DEPCTL_STALL | DEPCTL_CNAK)) | DEPCTL_SD0PID | DEPCTL_SNAK;
+            } else {
+                auto *doepctl = &pcore->regs.er_out[EP_ID(ep)]->DOEPCTL;
+                *doepctl = (*doepctl & ~(DEPCTL_STALL | DEPCTL_SNAK)) | DEPCTL_SD0PID | DEPCTL_CNAK;
+                /* Critical recovery step: After clearing HALT on Bulk-OUT, re-arm
+                 * the endpoint to receive the next Command Block Wrapper (CBW).
+                 * Without this, the endpoint stays in SNAK forever and NAKs the next CBW. */
+                if (EP_ID(ep) == EP_ID(MSC_OUT_EP)) {
+                    usbd_ep_recev(pcore, MSC_OUT_EP, ctx.cbw_buf, BBB_CBW_LENGTH);
+                }
+            }
+
             if (ctx.status == BbbStatus::ERROR) {
                 usbd_ep_stall(pcore, MSC_IN_EP);
             } else if ((ep & 0x80) && ctx.csw_pending) {
@@ -722,42 +790,35 @@ uint8_t req_handler(usb_dev *udev, usb_req *req) {
 uint8_t data_in(usb_dev *udev, uint8_t ep_num) {
     auto *pcore = reinterpret_cast<usb_core_driver*>(udev);
     if (ep_num != (MSC_IN_EP & 0x7F)) return USBD_FAIL;
-
     switch (ctx.state) {
         case BbbState::DATA_IN:
-#if MSC_PACED_64B_XFER
-            if (ctx.sub_remaining > 0) {
-                uint32_t chunk = USB_MIN(ctx.sub_remaining, 64U);
-                uint8_t *pbuf = ctx.media_buffer + ctx.sub_offset;
-                ctx.sub_offset += chunk;
-                ctx.sub_remaining -= chunk;
-                usbd_ep_send(pcore, MSC_IN_EP, pbuf, chunk);
-            } else if (ctx.remaining_bytes > 0) {
-                ctx.need_read = true;
-            } else {
-                csw_send(pcore, CswStatus::CMD_PASSED);
-            }
-#else
             if (ctx.remaining_bytes > 0) {
                 // Next sector needed from SD card (handled asynchronously in poll())
                 ctx.need_read = true;
+                ctx.need_read_time = hal::time::Instant::now();
             } else {
-                // All data sectors / payloads have completed and cleared the wire.
-                // Endpoint 1 is completely idle. Dispatch the CSW.
-                csw_send(pcore, CswStatus::CMD_PASSED);
+                ctx.csw_status = CswStatus::CMD_PASSED;
+                ctx.data_done_time = hal::time::Instant::now();
+                ctx.state = BbbState::STATUS_PENDING;
             }
-#endif
+            break;
+
+        case BbbState::LAST_DATA_IN:
+        case BbbState::SEND_DATA:
+            ctx.csw_status = CswStatus::CMD_PASSED;
+            ctx.data_done_time = hal::time::Instant::now();
+            ctx.state = BbbState::STATUS_PENDING;
             break;
 
         case BbbState::SEND_ZLP:
-            ctx.state = BbbState::DATA_IN;
-            usbd_ep_send(pcore, MSC_IN_EP, ctx.media_buffer, 0);
+            ctx.state = BbbState::SEND_DATA;
+            msc_ep_send(pcore, ctx.media_buffer, 0);
             break;
 
         case BbbState::SEND_CSW:
-            // 3. CSW transmission has completed on the wire.
+            // CSW transmission has completed on the wire.
             ctx.state = BbbState::IDLE;
-            // 4. Prime the OUT endpoint to receive the next CBW from the host.
+            // Prime the OUT endpoint to receive the next CBW from the host.
             usbd_ep_recev(pcore, MSC_OUT_EP, ctx.cbw_buf, BBB_CBW_LENGTH);
             break;
 
@@ -787,16 +848,75 @@ uint8_t data_out(usb_dev *udev, uint8_t ep_num) {
     return USBD_OK;
 }
 
+static void ep1_in_hard_reset(usb_core_driver *udev) {
+    auto *er_in1 = udev->regs.er_in[EP_ID(MSC_IN_EP)];
+    if (er_in1->DIEPCTL & DEPCTL_EPEN) {
+        er_in1->DIEPCTL |= DEPCTL_EPD | DEPCTL_SNAK;
+    }
+    udev->regs.dr->DIEPFEINTEN &= ~(1U << EP_ID(MSC_IN_EP));
+    er_in1->DIEPLEN = 0U;
+    er_in1->DIEPINTF = DIEPINTF_TF | DIEPINTF_EPDIS | DIEPINTF_TXFUD;
+    usbd_fifo_flush(udev, MSC_IN_EP);
+
+    /* Preserve the architectural endpoint configuration bits.
+     * Writing 0U to DIEPCTL would destroy TXFNUM (FIFO assignment),
+     * EPTYPE (Bulk), MPL (64), and EPACT (active), permanently
+     * bricking the IN endpoint until a hardware reset.
+     *
+     * EP1 is a Bulk IN endpoint on FIFO 1 with MPL = 64:
+     *   DIEPCTL = 0x00488040  (EPACT | Bulk<<18 | 1<<22 | 64)
+     */
+    constexpr uint32_t kEp1BaseCfg =
+        DEPCTL_EPACT |
+        (static_cast<uint32_t>(USB_EPTYPE_BULK) << 18) |
+        (1U << 22) |                    /* TXFNUM = 1 */
+        MSC_IN_PACKET;                  /* MPL = 64 */
+
+    er_in1->DIEPCTL = kEp1BaseCfg | DEPCTL_SD0PID | DEPCTL_SNAK;
+}
+
 void poll(usb_core_driver *udev) {
+    const auto kIoWatchdog = hal::time::Duration::from_ms(5000);
+
     if (ctx.need_read) {
         ctx.need_read = false;
         if (msc_process_read(udev) < 0) {
             abort_transfer(udev);
         }
-    }
-    if (ctx.need_write) {
+    } else if (ctx.need_write) {
         ctx.need_write = false;
         if (msc_process_write(udev) < 0) {
+            abort_transfer(udev);
+        }
+    } else if (ctx.state == BbbState::STATUS_PENDING) {
+        auto *er_in1 = udev->regs.er_in[EP_ID(MSC_IN_EP)];
+        usb_transc *transc = &udev->dev.transc_in[EP_ID(MSC_IN_EP)];
+
+        bool hw_done     = ((er_in1->DIEPLEN & (DEPLEN_TLEN | DEPLEN_PCNT)) == 0);
+        bool fifo_empty  = ((er_in1->DIEPTFSTAT & DIEPTFSTAT_IEPTFS) >= TX1_FIFO_FS_SIZE);
+        bool ep_disabled = !(er_in1->DIEPCTL & DEPCTL_EPEN);
+        bool sw_done     = (transc->xfer_count == transc->xfer_len);
+        bool no_pending  = ((er_in1->DIEPINTF & DIEPINTF_TF) == 0);
+
+        /* CSW framing guard: Enforce >= 2.5 ms (2.5 USB frames) between data ACK
+         * and CSW transmission. This ensures the host xHCI controller fully retires
+         * the Data URB before Endpoint 1 presents the 13-byte CSW, preventing the Data
+         * URB from absorbing the CSW as a short-packet premature completion. */
+        static const hal::time::Duration kCswFramingGuard = hal::time::Duration::from_us(2500);
+        bool guard_elapsed = (ctx.data_done_time.ticks != 0) &&
+                             (hal::time::Instant::now() - ctx.data_done_time >= kCswFramingGuard);
+
+        if (hw_done && fifo_empty && ep_disabled && sw_done && no_pending && guard_elapsed) {
+            csw_send(udev, ctx.csw_status);
+        } else if (ctx.data_done_time.ticks != 0 && hal::time::Instant::now() - ctx.data_done_time >= kIoWatchdog) {
+            ep1_in_hard_reset(udev);
+            set_sense(SenseKey::HARDWARE_ERROR, Asc::UNRECOVERED_READ_ERROR);
+            abort_transfer(udev);
+        }
+    } else if (ctx.state == BbbState::DATA_IN) {
+        if (ctx.need_read_time.ticks != 0 && hal::time::Instant::now() - ctx.need_read_time >= kIoWatchdog) {
+            ep1_in_hard_reset(udev);
+            set_sense(SenseKey::HARDWARE_ERROR, Asc::UNRECOVERED_READ_ERROR);
             abort_transfer(udev);
         }
     }

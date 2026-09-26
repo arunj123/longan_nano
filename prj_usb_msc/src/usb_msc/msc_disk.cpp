@@ -37,15 +37,19 @@ int8_t msc_disk_read(uint8_t *buf, uint32_t sector_addr, uint32_t sector_count) 
     g_msc_stats.last_sector = sector_addr;
     g_msc_stats.last_activity = hal::time::Instant::now();
 
-    auto res = Sd::read_sectors(sector_addr, buf, sector_count);
-    if (res == drivers::sdcard::SdResult::Success) {
-        g_msc_stats.sectors_read += sector_count;
-        return 0;
+    for (int retry = 0; retry < 3; ++retry) {
+        auto res = Sd::read_sectors(sector_addr, buf, sector_count);
+        g_msc_stats.last_sd_result = static_cast<uint32_t>(res);
+        if (res == drivers::sdcard::SdResult::Success) {
+            g_msc_stats.sectors_read += sector_count;
+            return 0;
+        }
+        g_msc_stats.last_sd_error_lba = sector_addr;
     }
     printf("[MSC_DISK] Read error at sector %lu (count %lu): %s\n",
            static_cast<unsigned long>(sector_addr),
            static_cast<unsigned long>(sector_count),
-           drivers::sdcard::result_to_string(res));
+           drivers::sdcard::result_to_string(static_cast<drivers::sdcard::SdResult>(g_msc_stats.last_sd_result)));
     return -1;
 }
 

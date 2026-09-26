@@ -1,0 +1,90 @@
+================================================================================
+  1. EXECUTIVE SUMMARY & SYSTEM ENVIRONMENT (BUILD 0073)
+================================================================================
+
+Date Generated:    2026-09-26 15:32:00 UTC
+Device Hardware:   Sipeed Longan Nano (GD32VF103CBT6, RV32IMAC @ 96 MHz)
+USB Peripheral:    Synopsys DWC2-compatible Full-Speed (12 Mbps) USB Device Core
+Firmware Release:  Build 0073 (VID: 0x28E9, PID: 0xAB39, Serial: LNMSC0000073)
+Target Medium:     MicroSD card (512 MB) on SPI1 @ ~6.75 MHz
+Remote Linux Host: 192.168.0.63 (Ubuntu Linux, xHCI Root Hub, usbmon enabled)
+
+SUMMARY OF CHANGES IN BUILD 0073:
+1. Restored sector-by-sector transmission architecture in prj_usb_msc/src/usb_msc/msc_core.cpp:
+   - Eliminated direct manipulation of DIEPLEN / DIEPCTL during multi-sector READ_6 / READ_10.
+   - Restored standard usbd_ep_send(udev, MSC_IN_EP, ctx.media_buffer, len) (512 bytes per sector)
+     driven via msc_process_read().
+2. Removed & ~DEPCTL_EPEN bug that corrupted endpoint state during streaming.
+3. Updated PID to 0xAB39 and Serial to LNMSC0000073.
+
+OBSERVED TEST RESULTS:
+1. Device successfully enumerates on Linux xHCI root hub as:
+   Bus 001 Device 011: ID 28e9:ab39 GDMicroelectronics Longan Nano SD Reader
+   Serial: LNMSC0000073
+   Detected disk: sdb: 983040 512-byte logical blocks (503 MB/480 MiB), sdb1 partition table read.
+2. Direct read test:
+   - Single-sector direct read (512B): dd if=/dev/sdb of=/dev/null bs=512 count=1 iflag=direct
+     Result: Failed with -121 (-EREMOTEIO).
+     Data URB completed with 461 bytes instead of 512 bytes. Residue: 51 bytes (512 - 461 = 51).
+   - Multi-sector direct read (4096B):
+     Result: Failed with -121 (-EREMOTEIO).
+     Data URB completed with 3981 bytes instead of 4096 bytes. Residue: 115 bytes (4096 - 3981 = 115).
+
+ROOT CAUSE ANALYSIS:
+1. Arithmetic decomposition of the unaligned completion:
+   461 bytes = (7 * 64 bytes) + 13 bytes!
+   3981 bytes = (62 * 64 bytes) + 13 bytes!
+   In both cases, exactly 1 packet of sector data (64 bytes) was missing when the 13-byte CSW packet
+   was transmitted on Endpoint 1 (Bulk IN).
+2. The active Data URB swallowed the 13-byte CSW packet directly from Endpoint 1, concluding as a
+   Short Packet Transfer (since 13 < 64 = wMaxPacketSize).
+3. The host usb-storage driver subsequently submitted a CSW URB for 13 bytes, which hung because EP1
+   had no remaining data in the FIFO.
+
+================================================================================
+  2. RAW USBMON CAPTURE (TAG 0x01 - TAG 0x04)
+================================================================================
+ffff8d8a45b9dc00 464583078 S Ci:1:011:0 s a1 fe 0000 0000 0001 1 <
+ffff8d8a45b9dc00 464583255 C Ci:1:011:0 0 1 = 00
+ffff8d8a45b9dc00 464583455 S Bo:1:011:1 -115 31 = 55534243 01000000 24000000 80000612 00000024 00000000 00000000 000000
+ffff8d8a45b9dc00 464583550 C Bo:1:011:1 0 31 >
+ffff8d8a45b9d900 464583579 S Bi:1:011:1 -115 36 <
+ffff8d8a45b9d900 464583678 C Bi:1:011:1 0 36 = 00800202 1f000000 53697065 65642020 4c6f6e67 616e204e 616e6f20 53442020
+ffff8d8a45b9dc00 464583820 S Bi:1:011:1 -115 13 <
+ffff8d8a45b9dc00 464586322 C Bi:1:011:1 0 13 = 55534253 01000000 00000000 00
+ffff8d8a45b9dc00 464587258 S Bo:1:011:1 -115 31 = 55534243 02000000 00000000 00000600 00000000 00000000 00000000 000000
+ffff8d8a45b9dc00 464587333 C Bo:1:011:1 0 31 >
+ffff8d8a45b9dc00 464587348 S Bi:1:011:1 -115 13 <
+ffff8d8a45b9dc00 464587380 C Bi:1:011:1 0 13 = 55534253 02000000 00000000 00
+ffff8d8a45b9dc00 464587455 S Bo:1:011:1 -115 31 = 55534243 03000000 08000000 80000a25 00000000 00000000 00000000 000000
+ffff8d8a45b9dc00 464587499 C Bo:1:011:1 0 31 >
+ffff8d8a45b9d900 464587513 S Bi:1:011:1 -115 8 <
+ffff8d8a45b9d900 464587547 C Bi:1:011:1 0 8 = 000effff 00000200
+ffff8d8a45b9dc00 464587557 S Bi:1:011:1 -115 13 <
+ffff8d8a45b9dc00 464590203 C Bi:1:011:1 0 13 = 55534253 03000000 00000000 00
+ffff8d8a45b9dc00 464591772 S Bo:1:011:1 -115 31 = 55534243 04000000 00020000 80000a28 00000000 00000001 00000000 000000
+ffff8d8a45b9dc00 464591844 C Bo:1:011:1 0 31 >
+ffff8d8a45b9d900 464591874 S Bi:1:011:1 -115 512 <
+ffff8d8a45b9d900 464596222 C Bi:1:011:1 -121 461 = fa33c08e d0bc007c 8bf45007 501ffbfc bf0006b9 0001f2a5 ea1d0600 00bebe07
+ffff8d8a45b9dc00 464596257 S Bi:1:011:1 -115 13 <
+
+================================================================================
+  3. DMESG KERNEL LOG
+================================================================================
+[Sat Sep 26 15:32:38 2026] usb 1-1: new full-speed USB device number 11 using xhci_hcd
+[Sat Sep 26 15:32:39 2026] usb 1-1: New USB device found, idVendor=28e9, idProduct=ab39, bcdDevice= 1.00
+[Sat Sep 26 15:32:39 2026] usb 1-1: New USB device strings: Mfr=1, Product=2, SerialNumber=3
+[Sat Sep 26 15:32:39 2026] usb 1-1: Product: Longan Nano SD Reader
+[Sat Sep 26 15:32:39 2026] usb 1-1: Manufacturer: Sipeed
+[Sat Sep 26 15:32:39 2026] usb 1-1: SerialNumber: LNMSC0000073
+[Sat Sep 26 15:32:39 2026] usb-storage 1-1:1.0: USB Mass Storage device detected
+[Sat Sep 26 15:32:39 2026] scsi host2: usb-storage 1-1:1.0
+[Sat Sep 26 15:32:40 2026] scsi 2:0:0:0: Direct-Access     Sipeed   Longan Nano SD   1.00 PQ: 0 ANSI: 2
+[Sat Sep 26 15:32:40 2026] sd 2:0:0:0: Attached scsi generic sg1 type 0
+[Sat Sep 26 15:32:40 2026] sd 2:0:0:0: [sdb] 983040 512-byte logical blocks: (503 MB/480 MiB)
+[Sat Sep 26 15:32:40 2026] sd 2:0:0:0: [sdb] Write Protect is off
+[Sat Sep 26 15:32:40 2026] sd 2:0:0:0: [sdb] Mode Sense: 03 00 00 00
+[Sat Sep 26 15:32:40 2026] sd 2:0:0:0: [sdb] No Caching mode page found
+[Sat Sep 26 15:32:40 2026] sd 2:0:0:0: [sdb] Assuming drive cache: write through
+[Sat Sep 26 15:32:40 2026]  sdb: sdb1
+[Sat Sep 26 15:32:40 2026] sd 2:0:0:0: [sdb] Attached SCSI removable disk

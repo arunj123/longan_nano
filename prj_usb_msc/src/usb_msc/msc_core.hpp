@@ -20,7 +20,7 @@ struct MscTraceEntry {
     uint8_t  cdb[10];
 };
 
-#define MSC_TRACE_MAX 32
+#define MSC_TRACE_MAX 64
 extern MscTraceEntry g_msc_trace[MSC_TRACE_MAX];
 extern volatile uint8_t g_msc_trace_head;
 extern volatile uint8_t g_msc_trace_tail;

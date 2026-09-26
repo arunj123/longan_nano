@@ -126,30 +126,39 @@ struct SpiPeripheral {
         }
     }
 
-    /// Wait until SPI is completely idle (no transmission ongoing)
-    static inline void wait_idle() noexcept {
-        while ((RegSTAT::read() & STAT_TRANS) != 0);
+    /// Wait until SPI is completely idle (no transmission ongoing) with timeout bound
+    static inline bool wait_idle(uint32_t timeout_loops = 100000) noexcept {
+        while ((RegSTAT::read() & STAT_TRANS) != 0) {
+            if (--timeout_loops == 0) return false;
+        }
+        return true;
     }
 
-    /// Wait until Transmit Buffer is Empty
-    static inline void wait_tbe() noexcept {
-        while ((RegSTAT::read() & STAT_TBE) == 0);
+    /// Wait until Transmit Buffer is Empty with timeout bound
+    static inline bool wait_tbe(uint32_t timeout_loops = 100000) noexcept {
+        while ((RegSTAT::read() & STAT_TBE) == 0) {
+            if (--timeout_loops == 0) return false;
+        }
+        return true;
     }
 
-    /// Wait until Receive Buffer is Not Empty
-    static inline void wait_rbne() noexcept {
-        while ((RegSTAT::read() & STAT_RBNE) == 0);
+    /// Wait until Receive Buffer is Not Empty with timeout bound
+    static inline bool wait_rbne(uint32_t timeout_loops = 100000) noexcept {
+        while ((RegSTAT::read() & STAT_RBNE) == 0) {
+            if (--timeout_loops == 0) return false;
+        }
+        return true;
     }
 
     /// Send 8-bit data (waits for TBE)
     static inline void send_8(uint8_t data) noexcept {
-        wait_tbe();
+        (void)wait_tbe();
         RegDATA::write(data);
     }
 
     /// Send 16-bit data (waits for TBE)
     static inline void send_16(uint16_t data) noexcept {
-        wait_tbe();
+        (void)wait_tbe();
         RegDATA::write(data);
     }
 
@@ -161,14 +170,14 @@ struct SpiPeripheral {
     /// Full duplex 8-bit transfer
     static inline uint8_t transfer_8(uint8_t data) noexcept {
         send_8(data);
-        wait_rbne();
+        if (!wait_rbne()) return 0xFF;
         return static_cast<uint8_t>(read_raw() & 0xFF);
     }
 
     /// Full duplex 16-bit transfer
     static inline uint16_t transfer_16(uint16_t data) noexcept {
         send_16(data);
-        wait_rbne();
+        if (!wait_rbne()) return 0xFFFF;
         return read_raw();
     }
 

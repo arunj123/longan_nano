@@ -15,16 +15,16 @@
  * RX FIFO: shared for all OUT endpoints (EP0 OUT, EP1 MSC OUT).
  * TX FIFOs: dedicated per IN endpoint.
  *
- * RX FIFO: 128 words (512 bytes = exactly 1 sector, ample space for OUT data packets + status)
- * TX0 FIFO (EP0 IN): 64 words (256 bytes = 4x 64-byte EP0 MPS)
- * TX1 FIFO (EP1 MSC Bulk IN): 128 words (512 bytes = exactly 1 sector, eliminates memory aliasing)
+ * RX FIFO: 96 words (384 bytes = 6x 64B packets, ample for OUT data packets + status)
+ * TX0 FIFO (EP0 IN): 32 words (128 bytes = 2x 64B EP0 MPS, double-buffered)
+ * TX1 FIFO (EP1 MSC Bulk IN): 192 words (768 bytes = 512B sector + 256B headroom, eliminates FIFO wrap/drop)
  * TX2 FIFO: 0 words (Unused)
  * TX3 FIFO: 0 words (Unused)
- * Total: 128 + 64 + 128 = 320 words (100% exact hardware fit)
+ * Total: 96 + 32 + 192 = 320 words (100% exact hardware fit)
  */
-#define RX_FIFO_FS_SIZE             128U
-#define TX0_FIFO_FS_SIZE            64U
-#define TX1_FIFO_FS_SIZE            128U
+#define RX_FIFO_FS_SIZE             96U
+#define TX0_FIFO_FS_SIZE            32U
+#define TX1_FIFO_FS_SIZE            192U
 #define TX2_FIFO_FS_SIZE            0U
 #define TX3_FIFO_FS_SIZE            0U
 

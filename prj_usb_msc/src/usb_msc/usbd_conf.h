@@ -17,7 +17,7 @@
 #define MSC_IN_PACKET                      64U
 #define MSC_OUT_PACKET                     64U
 
-#define MSC_MEDIA_PACKET_SIZE              512U  /* Media buffer: 512 bytes (1 sector, fits 100% in 768B TX1 FIFO) */
+#define MSC_MEDIA_PACKET_SIZE              512U  /* Media buffer: 512 bytes (1 sector, eliminates TT split-transaction NAK timeout) */
 #define MEM_LUN_NUM                        1U    /* 1 LUN for onboard MicroSD slot */
 
 #endif /* USBD_CONF_H */

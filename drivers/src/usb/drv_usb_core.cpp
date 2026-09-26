@@ -261,6 +261,12 @@ usb_status usb_rxfifo_flush(usb_core_regs *usb_regs)
 */
 void usb_set_txfifo(usb_core_regs *usb_regs, uint8_t fifo, uint16_t size)
 {
+    if(0U == size) {
+        if(fifo > 0U) {
+            usb_regs->gr->DIEPTFLEN[fifo - 1U] = 0U;
+        }
+        return;
+    }
     uint32_t tx_offset = usb_regs->gr->GRFLEN;
 
     if(0U == fifo) {

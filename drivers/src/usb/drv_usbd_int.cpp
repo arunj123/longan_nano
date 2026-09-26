@@ -56,7 +56,7 @@ struct Ep1DebugEntry {
     uint32_t reserved;
 };
 
-#define EP1_DEBUG_MAX 64
+#define EP1_DEBUG_MAX 256
 __attribute__((used)) Ep1DebugEntry g_ep1_debug[EP1_DEBUG_MAX] = {};
 __attribute__((used)) uint32_t g_ep1_debug_idx = 0;
 
@@ -261,6 +261,13 @@ static uint32_t usbd_int_epin(usb_core_driver *udev)
                 ep1_debug_record(2, iepintr, udev->regs.er_in[1]->DIEPLEN, udev->regs.er_in[1]->DIEPTFSTAT, udev->dev.transc_in[1].xfer_count, udev->dev.transc_in[1].xfer_len, udev->regs.er_in[1]->DIEPCTL);
             }
 
+            /* 1. Process TX FIFO empty FIRST to feed remaining data packets */
+            if(iepintr & DIEPINTF_TXFE) {
+                usbd_emptytxfifo_write(udev, (uint32_t)ep_num);
+                // Note: DIEPINTF_TXFE is a read-only status bit in DWC2; do not write 1 to it.
+            }
+
+            /* 2. Process Transfer Finished AFTER FIFO processing */
             if(iepintr & DIEPINTF_TF) {
                 udev->regs.er_in[ep_num]->DIEPINTF = DIEPINTF_TF;
 
@@ -268,14 +275,17 @@ static uint32_t usbd_int_epin(usb_core_driver *udev)
                     ep1_debug_record(4, iepintr, udev->regs.er_in[1]->DIEPLEN, udev->regs.er_in[1]->DIEPTFSTAT, udev->dev.transc_in[1].xfer_count, udev->dev.transc_in[1].xfer_len, udev->regs.er_in[1]->DIEPCTL);
                 }
 
-                /* data transmission is completed */
-                (void)usbd_in_transc(udev, ep_num);
+                /* Only signal transfer completion if hardware packet counter reached 0 (all packets ACKed by host) */
+                if((udev->regs.er_in[ep_num]->DIEPLEN & DEPLEN_PCNT) == 0U) {
+                    /* data transmission is completed */
+                    (void)usbd_in_transc(udev, ep_num);
+                }
             }
 
-            if(iepintr & DIEPINTF_TXFE) {
-                usbd_emptytxfifo_write(udev, (uint32_t)ep_num);
-
-                udev->regs.er_in[ep_num]->DIEPINTF = DIEPINTF_TXFE;
+            /* Clear unhandled rc_w1 IN endpoint interrupt flags (excluding read-only TXFE) */
+            uint32_t raw_iep = udev->regs.er_in[ep_num]->DIEPINTF;
+            if(raw_iep & ~(DIEPINTF_TF | DIEPINTF_TXFE)) {
+                udev->regs.er_in[ep_num]->DIEPINTF = raw_iep & ~(DIEPINTF_TF | DIEPINTF_TXFE);
             }
         }
     }
@@ -376,6 +386,13 @@ static uint32_t usbd_int_reset(usb_core_driver *udev)
         udev->regs.er_in[i]->DIEPINTF = 0xFFU;
         udev->regs.er_out[i]->DOEPLEN = 0U;
         udev->regs.er_out[i]->DOEPINTF = 0xFFU;
+        if(i > 0U) {
+            udev->regs.er_in[i]->DIEPCTL = DEPCTL_SD0PID | DEPCTL_SNAK;
+            udev->regs.er_out[i]->DOEPCTL = DEPCTL_SD0PID | DEPCTL_SNAK;
+        } else {
+            udev->regs.er_in[0]->DIEPCTL = DEPCTL_SNAK;
+            udev->regs.er_out[0]->DOEPCTL = DEPCTL_SNAK;
+        }
     }
 
     /* clear all pending device endpoint interrupts */

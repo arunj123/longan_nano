@@ -23,7 +23,7 @@ def flash_remote(hex_path):
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     try:
-        client.connect(HOST, username=USER, password=PASS, timeout=10)
+        client.connect(HOST, username=USER, password=PASS, allow_agent=False, look_for_keys=False, timeout=15, banner_timeout=30)
     except Exception as e:
         print(f"❌ SSH connection failed: {e}", file=sys.stderr)
         sys.exit(1)
@@ -46,10 +46,10 @@ def flash_remote(hex_path):
     err = stderr.read().decode()
 
     if exit_code == 0 and "Verified OK" in (out + err):
-        print("✅ Flashing and verification successful!")
+        print("[OK] Flashing and verification successful!")
         print(out + err)
     else:
-        print("❌ Flashing failed:", file=sys.stderr)
+        print("[FAIL] Flashing failed:", file=sys.stderr)
         print(out, file=sys.stdout)
         print(err, file=sys.stderr)
         client.close()

@@ -529,6 +529,7 @@ extern const uint32_t PIPE_DPID[2];
 #define DIEPINTF_TXFE             BIT(7)              /*!< transmit FIFO empty */
 #define DIEPINTF_IEPNE            BIT(6)              /*!< IN endpoint NAK effective */
 #define DIEPINTF_EPTXFUD          BIT(4)              /*!< endpoint TX FIFO underrun */
+#define DIEPINTF_TXFUD            DIEPINTF_EPTXFUD    /*!< endpoint TX FIFO underrun alias */
 #define DIEPINTF_CITO             BIT(3)              /*!< control In Timeout interrupt */
 #define DIEPINTF_EPDIS            BIT(1)              /*!< endpoint disabled */
 #define DIEPINTF_TF               BIT(0)              /*!< transfer finished */

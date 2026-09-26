@@ -35,6 +35,9 @@
     - Uses SFTP to transfer binary to `/home/arun/longan_nano_tools/` and executes OpenOCD with SRST-less reset resume.
   - Remote UART Monitor: `python tools/remote_uart_monitor.py`
     - Streams live logs from `/dev/ttyUSB1` @ 115200 baud over SSH.
+  - Remote xHCI Port Unsticking:
+    - When Linux xHCI disables the root hub port after enumeration or timeout loops (`unable to enumerate USB device`), re-enable it via sysfs without host reboot:
+      `echo 1 | sudo tee /sys/bus/usb/devices/usb1/1-0:1.0/usb1-port1/disable; sleep 1; echo 0 | sudo tee /sys/bus/usb/devices/usb1/1-0:1.0/usb1-port1/disable`
 
 
 ## Hardware & Architecture Reference
@@ -58,7 +61,7 @@
 - **Bus & Pinout**: Dedicated SPI1 peripheral (PB12 CS, PB13 SCK, PB14 MISO, PB15 MOSI).
 - **MISO Internal Pull-Up**: The MicroSD socket leaves MISO floating when unselected or uninitialized. PB14 (MISO) **must** be initialized with `InputPullUp` so idle reads yield `0xFF`.
 - **Power-Up Sequence**: Send $\ge 80$ dummy clocks ($\ge 10$ bytes of `0xFF`) with CS held HIGH at $\le 400\text{ kHz}$ SPI clock before issuing `CMD0`.
-- **Prescaler Switching**: Probe and initialize at $\le 400\text{ kHz}$ (`BaudRatePrescaler::Div256`); switch dynamically to high speed (`BaudRatePrescaler::Div4`, 13.5 MHz) only after operational initialization completes.
+- **Prescaler Switching**: Probe and initialize at $\le 400\text{ kHz}$ (SPI Mode 0: CPOL=0, CPHA=0, `BaudRatePrescaler::Div256`); switch dynamically to high speed (`BaudRatePrescaler::Div8`, ~6.75 MHz) only after operational initialization completes for sustained signal integrity over jumper wires.
 - **Write Busy Polling**: Always poll card ready (`wait_ready()`) after writing sector data before releasing CS or initiating subsequent commands.
 
 ## FatFs Architecture on 32-Bit RISC-V
@@ -80,6 +83,12 @@
   - **DWC2 EP0 Control State Machine Sequencing**:
     - Never invoke `usb_ctlep_startout(udev)` inside `usbd_ctl_status_recev()` prior to receiving the host's 0-length Status OUT packet. Doing so corrupts the DWC2 OUT transfer register state, causing a 5-second `DATA_STAGE_TIMEOUT` bus freeze.
     - EP0 OUT must only be re-armed (`usb_ctlep_startout`) inside `usbd_out_transc()` under `case USB_CTL_STATUS_OUT:`, which cleanly transitions `ctl_state = USB_CTL_IDLE`. Similarly, `usbd_in_transc()` must handle `case USB_CTL_STATUS_IN:` to reset `ctl_state = USB_CTL_IDLE`.
+  - **DWC2 IN Endpoint FIFO Loading & EP0 Invariants**:
+    - In Synopsys DWC2 / GD32VF103 USBFS slave mode, Tx FIFO writes must strictly occur **after** the endpoint is enabled: `udev->regs.er_in[ep_num]->DIEPCTL = epctl | DEPCTL_CNAK | DEPCTL_EPEN;` must precede `usbd_emptytxfifo_write(udev, ep_num);`. Writing data while `EPEN=0` causes the DWC2 core to reject packet routing, failing enumeration.
+    - Always mask write-only strobe bits prior to writing `DIEPCTL`: `epctl &= ~(DEPCTL_SD0PID | DEPCTL_SD1PID);`.
+    - Control Endpoint 0 lacks a dedicated `DIEPTFSTAT` register (register `0x918` is reserved on EP0 and reads 0 words remaining). `usbd_emptytxfifo_write()` must account for EP0 using `GNPTXFSTS` rather than `DIEPTFSTAT`.
+  - **usb_devcore_init Inactive Endpoint Zeroing Invariant**:
+    - Inactive endpoints must be cleared to zero on core initialization: `udev->regs.er_in[i]->DIEPCTL = 0U;` and `udev->regs.er_out[i]->DOEPCTL = 0U;`. Retaining bits or OR-ing `DEPCTL_SNAK` on EP0 prevents SETUP packet reception, resulting in persistent 5-second `-110` host timeouts on `GET_DESCRIPTOR`.
   - **Windows xHCI 8-Byte Initial Probe Invariant**:
     - When Windows connects to a Full-Speed device on an xHCI root hub, it issues `GET_DESCRIPTOR(Device, wLength=64)` solely to read `bMaxPacketSize0` (the 8th byte) and immediately resets the bus.
     - The firmware must enforce `if (64U == req->wLength) { transc->remain_len = 8U; }` in `usbd_enum.cpp`. Returning all 18 bytes causes Windows xHCI to fail immediately with `USB\VID_0000&PID_0002` ("Device Descriptor Request Failed").
@@ -126,4 +135,12 @@
     - CH6: I2C0_RX
   - **Timers**: Do not use hardware TIMER2 for simple delays (use core 64-bit `mtime` via `hal::time`).
   - **GPIO Pins**: Check all SPI, I2C, UART, Button, and LED mappings before assigning or reconfiguring pins.
+
+## Build Iteration & Debug Commit Protocol
+- **Per-Build Commits**: For each build / debug iteration (e.g. Build 0073, Build 0074, etc.), create a dedicated git commit.
+- **Descriptive Commit Message**: Detail:
+  - Changes made in the build.
+  - Test results observed (pass/fail status, sector counts, throughput, host dmesg / usbmon logs).
+  - Problems identified, register states, or root-cause findings.
+- **Debug Artifacts**: Include scripts or debug data in commits when appropriate (e.g., in `docs/` or `tools/`).
 

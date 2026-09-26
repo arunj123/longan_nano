@@ -88,6 +88,13 @@ public:
         CsPin::reset();
     }
 
+    static inline void release_bus() noexcept {
+        cs_high();
+        for (int i = 0; i < 2; ++i) {
+            (void)SpiPeriph::transfer_8(0xFF); // 16 dummy clocks to ensure card releases MISO
+        }
+    }
+
     static inline uint8_t xchg(uint8_t val = 0xFF) noexcept {
         return SpiPeriph::transfer_8(val);
     }
@@ -176,11 +183,11 @@ public:
         MosiPin::init(hal::gpio::Mode::AlternatePushPull, hal::gpio::Speed::Speed50MHz);
 
         // 3. Initialize SPI1 at slow speed (Prescaler Div256 = ~200-400 kHz)
-        // SD cards support SPI Mode 0 and Mode 3. We use Mode 3 (CPOL=1, CPHA=1)
+        // SD cards support SPI Mode 0 and Mode 3. We use Mode 0 (CPOL=0, CPHA=0)
         SpiPeriph::init_master(
             hal::spi::Prescaler::Div256,
-            hal::spi::ClockPolarity::High,
-            hal::spi::ClockPhase::Edge2,
+            hal::spi::ClockPolarity::Low,
+            hal::spi::ClockPhase::Edge1,
             hal::spi::FrameFormat::Bits8
         );
 
@@ -393,11 +400,11 @@ public:
         cs_high();
         xchg(0xFF);
 
-        // 11. Switch SPI1 to high-speed transfer mode (Prescaler Div4 -> ~13.5 MHz)
+        // 11. Switch SPI1 to high-speed transfer mode (Prescaler Div8 -> ~6.75 MHz)
         if (verbose) {
-            printf("[SD:Step 6] Switching SPI1 to High-Speed mode (Prescaler Div4 = ~13.5 MHz)...\n");
+            printf("[SD:Step 6] Switching SPI1 to High-Speed mode (Prescaler Div8 = ~6.75 MHz)...\n");
         }
-        SpiPeriph::set_prescaler(hal::spi::Prescaler::Div4);
+        SpiPeriph::set_prescaler(hal::spi::Prescaler::Div8);
 
         is_initialized = true;
         if (verbose) {
@@ -433,16 +440,14 @@ public:
 
         // Wait for card to be ready
         if (!wait_ready(500)) {
-            cs_high();
-            xchg(0xFF);
+            release_bus();
             return SdResult::Timeout;
         }
 
         // Send CMD17 (READ_SINGLE_BLOCK)
         uint8_t r1 = send_cmd(17, arg, 0x01);
         if (r1 != 0x00) {
-            cs_high();
-            xchg(0xFF);
+            release_bus();
             return SdResult::NoResponse;
         }
 
@@ -455,8 +460,7 @@ public:
         } while (hal::time::Instant::now() < deadline);
 
         if (token != 0xFE) {
-            cs_high();
-            xchg(0xFF);
+            release_bus();
             return SdResult::ReadTokenTimeout;
         }
 
@@ -469,8 +473,7 @@ public:
         (void)xchg(0xFF);
         (void)xchg(0xFF);
 
-        cs_high();
-        xchg(0xFF); // 8 dummy clocks after transfer
+        release_bus();
 
         return SdResult::Success;
     }
@@ -493,16 +496,14 @@ public:
         cs_low();
 
         if (!wait_ready(500)) {
-            cs_high();
-            xchg(0xFF);
+            release_bus();
             return SdResult::Timeout;
         }
 
         // Send CMD24 (WRITE_BLOCK)
         uint8_t r1 = send_cmd(24, arg, 0x01);
         if (r1 != 0x00) {
-            cs_high();
-            xchg(0xFF);
+            release_bus();
             return SdResult::WriteError;
         }
 
@@ -524,20 +525,17 @@ public:
         // Read Data Response token (xxx00101b = 0x05 -> data accepted)
         uint8_t resp = xchg(0xFF);
         if ((resp & 0x1F) != 0x05) {
-            cs_high();
-            xchg(0xFF);
+            release_bus();
             return SdResult::WriteError;
         }
 
         // Wait while card programs flash (MISO held LOW until programming completes)
         if (!wait_ready(1000)) {
-            cs_high();
-            xchg(0xFF);
+            release_bus();
             return SdResult::Timeout;
         }
 
-        cs_high();
-        xchg(0xFF); // 8 dummy clocks after transfer
+        release_bus();
 
         return SdResult::Success;
     }

@@ -7,7 +7,7 @@
 #include "usbd_conf.h"
 
 #define USBD_VID                     0x28E9
-#define USBD_PID                     0xAB10 // Fresh PID to clear host cached port error state
+#define USBD_PID                     0xAB39 // Fresh PID for Build 0073 (LNMSC0000073)
 
 #define MSC_CONFIG_DESC_SIZE         32U
 

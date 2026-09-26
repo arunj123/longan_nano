@@ -12,6 +12,8 @@ struct MscDiskStats {
     uint32_t last_sector{0};
     bool is_active{false};
     hal::time::Instant last_activity{hal::time::Instant::now()};
+    uint32_t last_sd_result{0};
+    uint32_t last_sd_error_lba{0};
 };
 
 extern MscDiskStats g_msc_stats;
