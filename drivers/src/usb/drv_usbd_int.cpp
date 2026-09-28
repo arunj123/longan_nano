@@ -405,7 +405,7 @@ static uint32_t usbd_int_reset(usb_core_driver *udev)
     udev->regs.dr->DOEPINTEN = DOEPINTEN_STPFEN | DOEPINTEN_TFEN;
 
     /* enable IN endpoint interrupts */
-    udev->regs.dr->DIEPINTEN = DIEPINTEN_TFEN | DIEPINTEN_TXFEEN;
+    udev->regs.dr->DIEPINTEN = DIEPINTEN_TFEN;
 
     /* reset device address */
     udev->regs.dr->DCFG &= ~DCFG_DAR;

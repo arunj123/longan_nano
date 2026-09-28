@@ -26,11 +26,12 @@ def run(cmd, sudo=False):
 print("1. Cleaning up...")
 run("pkill -9 tcpdump", sudo=True)
 run("pkill -9 dd", sudo=True)
-run("rm -f /tmp/msc_fresh.pcap")
+run("rm -f /tmp/msc_fresh.pcap", sudo=True)
 
 print("2. Starting tcpdump...")
+run("rm -f /tmp/msc_fresh.pcap", sudo=True)
 client.exec_command(f"echo '{PASS}' | sudo -S tcpdump -U -i usbmon1 -w /tmp/msc_fresh.pcap")
-time.sleep(0.5)
+time.sleep(1.0)
 
 print("3. Power cycling xHCI port 1...")
 run("sh -c 'echo 1 > /sys/bus/usb/devices/usb1/1-0:1.0/usb1-port1/disable; sleep 1; echo 0 > /sys/bus/usb/devices/usb1/1-0:1.0/usb1-port1/disable'", sudo=True)
@@ -47,6 +48,7 @@ _, dmesg_out, _ = run("dmesg | tail -n 25", sudo=True)
 print(dmesg_out)
 
 print("7. Downloading pcap...")
+run("chmod 666 /tmp/msc_fresh.pcap", sudo=True)
 sftp = client.open_sftp()
 with sftp.open('/tmp/msc_fresh.pcap', 'rb') as f:
     pcap_data = f.read()

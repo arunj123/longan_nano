@@ -353,7 +353,14 @@ usb_status usb_transc_inxfer(usb_core_driver *udev, usb_transc *transc)
         }
     }
 
-    /* Push data into TX FIFO before enabling endpoint so data is ready for host IN tokens */
+    /* Step 1: Arm endpoint with EPEN and SNAK so host IN tokens receive clean hardware NAKs while FIFO fills.
+     * Mask out write-sensitive strobe bits (SD0PID, SD1PID, EPD, CNAK). */
+    epctl &= ~(DEPCTL_SD0PID | DEPCTL_SD1PID | DEPCTL_EPD | DEPCTL_CNAK);
+    epctl |= DEPCTL_EPEN | DEPCTL_SNAK;
+
+    udev->regs.er_in[ep_num]->DIEPCTL = epctl;
+
+    /* Step 2: Push data into TX FIFO while NAKing */
     if((uint8_t)USB_USE_FIFO == udev->bp.transfer_mode) {
         if((uint8_t)USB_EPTYPE_ISOC != transc->ep_type) {
             if(transc->xfer_len > 0U) {
@@ -370,15 +377,15 @@ usb_status usb_transc_inxfer(usb_core_driver *udev, usb_transc *transc)
         }
     }
 
-    /* Single-step atomic arming: enable endpoint and clear NAK in ONE write.
-     * Mask out write-sensitive strobe bits (SD0PID, SD1PID, EPD, SNAK). */
-    epctl = udev->regs.er_in[ep_num]->DIEPCTL;
-    epctl &= ~(DEPCTL_SD0PID | DEPCTL_SD1PID | DEPCTL_EPD | DEPCTL_SNAK);
-    epctl |= DEPCTL_EPEN | DEPCTL_CNAK;
-    udev->regs.er_in[ep_num]->DIEPCTL = epctl;
+    /* Step 3: Now that FIFO is populated with valid data, clear NAK to allow transmission with correct Data PID.
+     * Mask out write-sensitive strobe bits (SD0PID, SD1PID, EPD, SNAK) prior to writing CNAK. */
+    __IO uint32_t cnak_ctl = udev->regs.er_in[ep_num]->DIEPCTL;
+    cnak_ctl &= ~(DEPCTL_SD0PID | DEPCTL_SD1PID | DEPCTL_EPD | DEPCTL_SNAK);
+    cnak_ctl |= DEPCTL_EPEN | DEPCTL_CNAK;
+    udev->regs.er_in[ep_num]->DIEPCTL = cnak_ctl;
 
     if(ep_num == 1) {
-        ep1_debug_record(1, epctl, udev->regs.er_in[1]->DIEPLEN, udev->regs.er_in[1]->DIEPTFSTAT, transc->xfer_count, transc->xfer_len, udev->regs.er_in[1]->DIEPCTL);
+        ep1_debug_record(1, cnak_ctl, udev->regs.er_in[1]->DIEPLEN, udev->regs.er_in[1]->DIEPTFSTAT, transc->xfer_count, transc->xfer_len, udev->regs.er_in[1]->DIEPCTL);
     }
 
     hal::core::restore_interrupts(prev_mstatus);
