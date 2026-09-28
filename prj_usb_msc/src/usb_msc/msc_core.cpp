@@ -361,7 +361,6 @@ static int8_t process_scsi(usb_core_driver *udev) {
 
             ctx.need_read = true;
             ctx.need_read_time = hal::time::Instant::now();
-            udev->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL |= DEPCTL_SNAK;
             return 0;
         }
 
@@ -411,7 +410,7 @@ static int8_t process_scsi(usb_core_driver *udev) {
                     ctx.media_buffer[1] = 0x80; // Page code
                     ctx.media_buffer[2] = 0x00; // Reserved
                     ctx.media_buffer[3] = 12;   // Page length
-                    std::memcpy(&ctx.media_buffer[4], "LNMSC0000076", 12);
+                    std::memcpy(&ctx.media_buffer[4], "LNMSC0000077", 12);
                     ctx.data_len = USB_MIN(cbw.dCBWDataTransferLength, 16U);
                     return 0;
                 } else if (page_code == 0x83) { // Device Identification Page
@@ -539,7 +538,6 @@ static int8_t process_scsi(usb_core_driver *udev) {
 
             ctx.need_read = true;
             ctx.need_read_time = hal::time::Instant::now();
-            udev->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL |= DEPCTL_SNAK;
             return 0;
         }
 
@@ -824,7 +822,6 @@ uint8_t data_in(usb_dev *udev, uint8_t ep_num) {
                 // Next sector needed from SD card (handled asynchronously in poll())
                 ctx.need_read = true;
                 ctx.need_read_time = hal::time::Instant::now();
-                pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL |= DEPCTL_SNAK;
             } else {
                 ctx.csw_status = CswStatus::CMD_PASSED;
                 ctx.data_done_time = hal::time::Instant::now();
