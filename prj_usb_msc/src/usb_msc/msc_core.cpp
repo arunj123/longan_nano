@@ -266,7 +266,16 @@ static int8_t msc_process_read(usb_core_driver *udev) {
     ctx.remaining_bytes -= len;
     ctx.state = BbbState::DATA_IN;
 
+#if MSC_PACED_64B_XFER
+    ctx.sub_offset = 0;
+    ctx.sub_remaining = static_cast<uint16_t>(len);
+    uint32_t chunk = USB_MIN(ctx.sub_remaining, 64U);
+    ctx.sub_offset = static_cast<uint16_t>(ctx.sub_offset + chunk);
+    ctx.sub_remaining = static_cast<uint16_t>(ctx.sub_remaining - chunk);
+    msc_ep_send(udev, ctx.media_buffer, chunk);
+#else
     msc_ep_send(udev, ctx.media_buffer, len);
+#endif
     return 0;
 }
 
@@ -352,6 +361,7 @@ static int8_t process_scsi(usb_core_driver *udev) {
 
             ctx.need_read = true;
             ctx.need_read_time = hal::time::Instant::now();
+            udev->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL |= DEPCTL_SNAK;
             return 0;
         }
 
@@ -401,7 +411,7 @@ static int8_t process_scsi(usb_core_driver *udev) {
                     ctx.media_buffer[1] = 0x80; // Page code
                     ctx.media_buffer[2] = 0x00; // Reserved
                     ctx.media_buffer[3] = 12;   // Page length
-                    std::memcpy(&ctx.media_buffer[4], "LNMSC0000073", 12);
+                    std::memcpy(&ctx.media_buffer[4], "LNMSC0000076", 12);
                     ctx.data_len = USB_MIN(cbw.dCBWDataTransferLength, 16U);
                     return 0;
                 } else if (page_code == 0x83) { // Device Identification Page
@@ -529,6 +539,7 @@ static int8_t process_scsi(usb_core_driver *udev) {
 
             ctx.need_read = true;
             ctx.need_read_time = hal::time::Instant::now();
+            udev->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL |= DEPCTL_SNAK;
             return 0;
         }
 
@@ -792,7 +803,14 @@ uint8_t data_in(usb_dev *udev, uint8_t ep_num) {
     if (ep_num != (MSC_IN_EP & 0x7F)) return USBD_FAIL;
     switch (ctx.state) {
         case BbbState::DATA_IN:
-            if (ctx.remaining_bytes > 0) {
+#if MSC_PACED_64B_XFER
+            if (ctx.sub_remaining > 0) {
+                uint32_t chunk = USB_MIN(ctx.sub_remaining, 64U);
+                uint8_t *pbuf = ctx.media_buffer + ctx.sub_offset;
+                ctx.sub_offset = static_cast<uint16_t>(ctx.sub_offset + chunk);
+                ctx.sub_remaining = static_cast<uint16_t>(ctx.sub_remaining - chunk);
+                msc_ep_send(pcore, pbuf, chunk);
+            } else if (ctx.remaining_bytes > 0) {
                 // Next sector needed from SD card (handled asynchronously in poll())
                 ctx.need_read = true;
                 ctx.need_read_time = hal::time::Instant::now();
@@ -801,10 +819,32 @@ uint8_t data_in(usb_dev *udev, uint8_t ep_num) {
                 ctx.data_done_time = hal::time::Instant::now();
                 ctx.state = BbbState::STATUS_PENDING;
             }
+#else
+            if (ctx.remaining_bytes > 0) {
+                // Next sector needed from SD card (handled asynchronously in poll())
+                ctx.need_read = true;
+                ctx.need_read_time = hal::time::Instant::now();
+                pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL |= DEPCTL_SNAK;
+            } else {
+                ctx.csw_status = CswStatus::CMD_PASSED;
+                ctx.data_done_time = hal::time::Instant::now();
+                ctx.state = BbbState::STATUS_PENDING;
+            }
+#endif
             break;
 
         case BbbState::LAST_DATA_IN:
         case BbbState::SEND_DATA:
+#if MSC_PACED_64B_XFER
+            if (ctx.sub_remaining > 0) {
+                uint32_t chunk = USB_MIN(ctx.sub_remaining, 64U);
+                uint8_t *pbuf = ctx.p_data + ctx.sub_offset;
+                ctx.sub_offset = static_cast<uint16_t>(ctx.sub_offset + chunk);
+                ctx.sub_remaining = static_cast<uint16_t>(ctx.sub_remaining - chunk);
+                msc_ep_send(pcore, pbuf, chunk);
+                break;
+            }
+#endif
             ctx.csw_status = CswStatus::CMD_PASSED;
             ctx.data_done_time = hal::time::Instant::now();
             ctx.state = BbbState::STATUS_PENDING;

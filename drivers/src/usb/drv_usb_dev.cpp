@@ -353,9 +353,9 @@ usb_status usb_transc_inxfer(usb_core_driver *udev, usb_transc *transc)
         }
     }
 
-    /* Mask out write-sensitive toggle and control bits, arm endpoint with SNAK so host IN tokens NAK while FIFO fills */
-    epctl &= ~(DEPCTL_SD0PID | DEPCTL_SD1PID | DEPCTL_EPD | DEPCTL_CNAK);
-    epctl |= DEPCTL_EPEN | DEPCTL_SNAK;
+    /* Mask out write-sensitive strobe and toggle bits, arm endpoint with CNAK and EPEN */
+    epctl &= ~(DEPCTL_SD0PID | DEPCTL_SD1PID | DEPCTL_EPD | DEPCTL_SNAK | DEPCTL_CNAK);
+    epctl |= DEPCTL_EPEN | DEPCTL_CNAK;
 
     udev->regs.er_in[ep_num]->DIEPCTL = epctl;
 
@@ -375,9 +375,6 @@ usb_status usb_transc_inxfer(usb_core_driver *udev, usb_transc *transc)
             (void)usb_txfifo_write(&udev->regs, transc->xfer_buf, ep_num, (uint16_t)transc->xfer_len);
         }
     }
-
-    /* Now that data is safely present in the FIFO, clear NAK to allow packet transmission on wire */
-    udev->regs.er_in[ep_num]->DIEPCTL = (udev->regs.er_in[ep_num]->DIEPCTL & ~(DEPCTL_SD0PID | DEPCTL_SD1PID | DEPCTL_SNAK)) | DEPCTL_CNAK;
 
     if(ep_num == 1) {
         ep1_debug_record(1, epctl, udev->regs.er_in[1]->DIEPLEN, udev->regs.er_in[1]->DIEPTFSTAT, transc->xfer_count, transc->xfer_len, udev->regs.er_in[1]->DIEPCTL);

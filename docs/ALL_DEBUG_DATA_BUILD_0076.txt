@@ -1,0 +1,50 @@
+================================================================================
+  1. EXECUTIVE SUMMARY & SYSTEM ENVIRONMENT (BUILD 0076)
+================================================================================
+
+Date Generated:    2026-09-28 07:00:00 UTC
+Device Hardware:   Sipeed Longan Nano (GD32VF103CBT6, RV32IMAC @ 96 MHz)
+USB Peripheral:    Synopsys DWC2-compatible Full-Speed (12 Mbps) USB Device Core
+Firmware Release:  Build 0076 (VID: 0x28E9, PID: 0xAB76, Serial: LNMSC0000076)
+Target Medium:     MicroSD card (512 MB) on SPI1 @ ~6.75 MHz
+Remote Linux Host: 192.168.0.63 (Ubuntu Linux 6.8.0, xHCI Root Hub, usbmon enabled)
+
+SUMMARY OF CHANGES IN BUILD 0076:
+1. Native 512-Byte Sector Multi-Packet Streaming:
+   - Configured MSC_PACED_64B_XFER = 0 in prj_usb_msc/src/usb_msc/msc_core.hpp.
+   - Pushes entire 512-byte sector (128 words) directly into dedicated TX1 FIFO (192 words).
+   - Allows DWC2 hardware to packetize 8x 64-byte packets autonomously over Full-Speed USB.
+2. Hardware Flow Control & Explicit SNAK:
+   - Added explicit DEPCTL_SNAK assertion in ScsiCmd::READ_6, ScsiCmd::READ_10, and data_in()
+     during intermediate sector reads while fetching data from MicroSD card over SPI1 (~1.15 ms).
+3. Clean DIEPCTL Arming in drv_usb_dev.cpp:
+   - Single-step arming: epctl |= DEPCTL_EPEN | DEPCTL_CNAK without clearing or corrupting
+     hardware bitfields or doing secondary RMW cycles during transfer execution.
+4. Assigned PID 0xAB76 and Serial LNMSC0000076.
+
+OBSERVED TEST RESULTS:
+1. Enumeration:
+   - Enumerated cleanly as '28e9:ab76' (LNMSC0000076) on Linux xHCI root hub.
+   - Attached SCSI disk: /dev/sdb (480 MiB, 983040 sectors) and partition /dev/sdb1.
+2. Single-Sector Direct Read (bs=512 count=1 iflag=direct):
+   - PASSED 100%!
+   - 1+0 records in, 1+0 records out, 512 bytes copied in 0.0204s (25.1 kB/s). Zero error, zero residue.
+3. Multi-Sector Direct Read (bs=4096 count=1 iflag=direct, 8 sectors):
+   - Failed with Unaligned partial completion (resid=115, sector_sz=512).
+   - Received bytes: 4096 - 115 = 3981 = (62 * 64 bytes) + 13 bytes CSW.
+   - Exactly 2 packets (128 bytes) missing on Linux host side when the 13-byte CSW arrived.
+
+ROOT CAUSE ANALYSIS:
+1. Hardware Ring Buffer Dissection (Entries #580 - #607):
+   - All 8 sectors (64 packets) were written into FIFO 1 and ACKed by the host.
+   - The 2.5 ms CSW framing guard elapsed, and the 13-byte CSW was transmitted and ACKed.
+   - However, inspection of Data PID toggles across sectors revealed:
+     * Sector 0: DPID = 1 (DATA1)
+     * Sector 1: DPID = 1 (DATA1)
+     * Sector 2: DPID = 0 (DATA0)
+2. USB 2.0 Specification Compliance (§8.4.5 & §8.6.1):
+   - When a receiver receives an IN packet with a duplicate or unexpected Data PID, the receiver
+     ACMs the packet to keep the transmitter moving, but silently discards the payload from the buffer.
+   - Because the Data PID toggle sequence between sectors was desynchronized, the Linux xHCI host
+     silently dropped 2 packets, leaving the Data URB 128 bytes short when the 13-byte CSW arrived.
+   - The CSW packet caused premature termination of the Data URB with -121 (-EREMOTEIO).

@@ -24,6 +24,9 @@ with sftp.open('/tmp/ep1_debug.bin', 'rb') as f:
 sftp.close()
 client.close()
 
+with open('scratch/ep1_debug.bin', 'wb') as f:
+    f.write(data)
+
 idx = struct.unpack_from('<I', data, 0)[0]
 print(f"Total debug entries logged: {idx}")
 
@@ -38,7 +41,7 @@ step_names = {
 }
 
 num_entries = 256
-start_idx = max(0, idx - 50)
+start_idx = max(0, idx - 80)
 for i in range(start_idx, idx):
     slot = i % num_entries
     offset = base_offset + slot * 32
