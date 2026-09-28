@@ -338,30 +338,34 @@ usb_status usb_transc_inxfer(usb_core_driver *udev, usb_transc *transc)
     /* Read live epctl inside critical section immediately before modifying */
     __IO uint32_t epctl = udev->regs.er_in[ep_num]->DIEPCTL;
 
-    /* Step 1: If endpoint is not already pre-armed with EPEN and SNAK, configure DIEPLEN and arm now */
-    if(!(epctl & DEPCTL_EPEN)) {
-        /* Clear stale IN endpoint flags (including TF) before arming a new transfer.
-         * TF must be cleared before EPEN is asserted; otherwise a TF left over from the
-         * previous transfer will immediately trigger premature completion in the ISR. */
-        udev->regs.er_in[ep_num]->DIEPINTF = DIEPINTF_TF | DIEPINTF_EPDIS | DIEPINTF_TXFUD;
-
-        udev->regs.er_in[ep_num]->DIEPLEN = eplen;
-
-        if((uint8_t)USB_EPTYPE_ISOC == transc->ep_type) {
-            if(((udev->regs.dr->DSTAT & DSTAT_FNRSOF) >> 8) & 0x01U) {
-                epctl |= DEPCTL_SEVNFRM;
-            } else {
-                epctl |= DEPCTL_SODDFRM;
-            }
-        }
-
-        /* Arm endpoint with EPEN and SNAK so host IN tokens receive clean hardware NAKs while FIFO fills.
-         * Mask out write-sensitive strobe bits (SD0PID, SD1PID, EPD, CNAK). */
+    /* Step 1: Ensure NAK is active before enabling endpoint */
+    if(!(udev->regs.er_in[ep_num]->DIEPCTL & DEPCTL_NAKS)) {
         epctl &= ~(DEPCTL_SD0PID | DEPCTL_SD1PID | DEPCTL_EPD | DEPCTL_CNAK);
-        epctl |= DEPCTL_EPEN | DEPCTL_SNAK;
-
-        udev->regs.er_in[ep_num]->DIEPCTL = epctl;
+        udev->regs.er_in[ep_num]->DIEPCTL = epctl | DEPCTL_SNAK;
+        uint32_t timeout = 1000;
+        while(!(udev->regs.er_in[ep_num]->DIEPCTL & DEPCTL_NAKS) && --timeout) {}
     }
+
+    /* Clear stale IN endpoint flags and configure DIEPLEN for the transfer */
+    udev->regs.er_in[ep_num]->DIEPINTF = DIEPINTF_TF | DIEPINTF_EPDIS | DIEPINTF_TXFUD;
+
+    udev->regs.er_in[ep_num]->DIEPLEN = eplen;
+
+    if((uint8_t)USB_EPTYPE_ISOC == transc->ep_type) {
+        if(((udev->regs.dr->DSTAT & DSTAT_FNRSOF) >> 8) & 0x01U) {
+            epctl |= DEPCTL_SEVNFRM;
+        } else {
+            epctl |= DEPCTL_SODDFRM;
+        }
+    }
+
+    /* Arm endpoint with EPEN while NAK is active so host IN tokens receive clean hardware NAKs while FIFO fills.
+     * Mask out write-sensitive strobe bits (SD0PID, SD1PID, EPD, CNAK). */
+    epctl = udev->regs.er_in[ep_num]->DIEPCTL;
+    epctl &= ~(DEPCTL_SD0PID | DEPCTL_SD1PID | DEPCTL_EPD | DEPCTL_CNAK | DEPCTL_SNAK);
+    epctl |= DEPCTL_EPEN;
+
+    udev->regs.er_in[ep_num]->DIEPCTL = epctl;
 
     /* Step 2: Push data into TX FIFO while NAKing */
     if((uint8_t)USB_USE_FIFO == udev->bp.transfer_mode) {
@@ -409,9 +413,27 @@ void usbd_ep_nak_arm(usb_core_driver *udev, uint8_t ep_addr, uint32_t len)
     uint8_t ep_num = EP_ID(ep_addr);
     uint32_t prev_mstatus = hal::core::disable_interrupts();
 
-    /* Clear stale IN endpoint flags before arming */
+    /* If endpoint is already armed with EPEN and NAK, avoid reprogramming */
+    __IO uint32_t live_ctl = udev->regs.er_in[ep_num]->DIEPCTL;
+    if ((live_ctl & DEPCTL_EPEN) && (live_ctl & DEPCTL_NAKS)) {
+        hal::core::restore_interrupts(prev_mstatus);
+        return;
+    }
+
+    /* Step A: Assert SNAK first and verify hardware confirms NAK status (NAKS=1).
+     * Asserting SNAK before EPEN guarantees the core is already NAKing incoming IN tokens,
+     * completely eliminating any race where an empty FIFO could trigger a spurious ZLP. */
+    __IO uint32_t epctl = live_ctl;
+    epctl &= ~(DEPCTL_SD0PID | DEPCTL_SD1PID | DEPCTL_EPD | DEPCTL_CNAK | DEPCTL_SNAK);
+    udev->regs.er_in[ep_num]->DIEPCTL = epctl | DEPCTL_SNAK;
+
+    uint32_t timeout = 1000;
+    while(!(udev->regs.er_in[ep_num]->DIEPCTL & DEPCTL_NAKS) && --timeout) {}
+
+    /* Step B: Clear stale IN endpoint flags before arming */
     udev->regs.er_in[ep_num]->DIEPINTF = DIEPINTF_TF | DIEPINTF_EPDIS | DIEPINTF_TXFUD;
 
+    /* Step C: Program transfer length and packet count */
     uint32_t max_len = udev->dev.transc_in[ep_num].max_len;
     if(max_len == 0U) max_len = 64U;
     uint32_t packet_count = (len + max_len - 1U) / max_len;
@@ -419,14 +441,13 @@ void usbd_ep_nak_arm(usb_core_driver *udev, uint8_t ep_addr, uint32_t len)
 
     udev->regs.er_in[ep_num]->DIEPLEN = (packet_count << 19) | len;
 
-    /* Arm endpoint with EPEN and SNAK so host IN tokens receive clean hardware NAKs */
-    __IO uint32_t epctl = udev->regs.er_in[ep_num]->DIEPCTL;
-    epctl &= ~(DEPCTL_SD0PID | DEPCTL_SD1PID | DEPCTL_EPD | DEPCTL_CNAK);
-    epctl |= DEPCTL_EPEN | DEPCTL_SNAK;
-    udev->regs.er_in[ep_num]->DIEPCTL = epctl;
+    /* Step D: Enable endpoint. Since NAKS is already active, all IN tokens will be hardware NAKed */
+    epctl = udev->regs.er_in[ep_num]->DIEPCTL;
+    epctl &= ~(DEPCTL_SD0PID | DEPCTL_SD1PID | DEPCTL_EPD | DEPCTL_CNAK | DEPCTL_SNAK);
+    udev->regs.er_in[ep_num]->DIEPCTL = epctl | DEPCTL_EPEN;
 
     if(ep_num == 1) {
-        ep1_debug_record(1, epctl, udev->regs.er_in[1]->DIEPLEN, udev->regs.er_in[1]->DIEPTFSTAT, 0, len, udev->regs.er_in[1]->DIEPCTL);
+        ep1_debug_record(1, epctl | DEPCTL_EPEN, udev->regs.er_in[1]->DIEPLEN, udev->regs.er_in[1]->DIEPTFSTAT, 0, len, udev->regs.er_in[1]->DIEPCTL);
     }
 
     hal::core::restore_interrupts(prev_mstatus);

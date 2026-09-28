@@ -25,6 +25,9 @@ with sftp.open('/tmp/msc_trace.bin', 'rb') as f:
 sftp.close()
 client.close()
 
+with open('scratch/msc_trace.bin', 'wb') as f:
+    f.write(data)
+
 # tail: 0x200001ee, head: 0x200001ef
 tail = data[0x200001ee - 0x200001e0]
 head = data[0x200001ef - 0x200001e0]

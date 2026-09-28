@@ -113,6 +113,22 @@
     - **`0x9E` (`SERVICE_ACTION_IN_16` / `READ_CAPACITY_16`)**: Windows queries action `0x10` to check for 64-bit LBA. Returning the 32-byte capacity descriptor avoids fallback stalls.
     - **`0xA2` (`SECURITY_PROTOCOL_IN`)**: Windows queries security protocol `0x00` to probe for IEEE 1667 Encrypted Drives (BitLocker Silo). Returning an 8-byte payload with Supported Security Protocol List Length = 0 cleanly signals that no encryption protocols are supported, preventing BitLocker error-recovery loops.
     - **`0x35` (`SYNCHRONIZE_CACHE_10`)**: Sent by Windows during volume mount/flush; must return `CMD_PASSED`.
+  - **DWC2 Empty-FIFO ZLP Race Elimination**:
+    - In Synopsys DWC2 USBFS slave mode, if `EPEN=1` is asserted while `NAKS=0` and the TX FIFO is empty, incoming host IN tokens trigger an empty-FIFO Zero-Length Packet (ZLP), prematurely decrementing the hardware packet counter `PCNT` (`DIEPLEN`).
+    - Writing `DEPCTL_EPEN | DEPCTL_SNAK` in a single register write does NOT prevent this race because `SNAK` is a write-only strobe requiring 1-2 USB clock cycles to latch `NAKS=1`.
+    - Firmware must enforce a two-phase arming protocol:
+      1. Write `DEPCTL_SNAK` (with strobe bits masked).
+      2. Poll `while (!(DIEPCTL & DEPCTL_NAKS) && --timeout) {}` to guarantee hardware confirmation of NAK status.
+      3. Program `DIEPLEN`.
+      4. Only then assert `DEPCTL_EPEN`.
+  - **Immediate Inter-Phase NAK Pre-Arming (Elimination of xHCI EPROTO -71)**:
+    - Host controllers (e.g. xHCI) submit the Bulk-IN data phase URB immediately upon receiving the CBW ACK (often within $\le 35\ \mu\text{s}$). If endpoint arming is deferred to the main application loop (`poll()`), the IN endpoint remains disabled (`EPEN=0`).
+    - An in-flight IN token arriving while the endpoint is disabled triggers an xHCI transaction error (`COMP_USB_TRANSACTION_ERROR` / `stat=-71 EPROTO`), causing the host to issue a bus reset.
+    - Pre-arming via `usbd_ep_nak_arm()` must be invoked immediately inside `process_scsi()` for `READ_6` and `READ_10` before exiting the CBW receive ISR.
+    - `usbd_ep_nak_arm()` must be idempotent: if `(DIEPCTL & (DEPCTL_EPEN | DEPCTL_NAKS)) == (DEPCTL_EPEN | DEPCTL_NAKS)`, it must return immediately to avoid corrupting active transfers when re-invoked in `poll()`.
+  - **BOT Inter-Command NAK Guarding & Toggle Continuity**:
+    - On CSW completion (`case BbbState::SEND_CSW:`), the IN endpoint must be returned to NAK state (`DIEPCTL |= DEPCTL_SNAK`) with write-sensitive strobe bits masked.
+    - Data toggle bits must never be reset between normal commands; reset only on BOT reset or CLEAR_FEATURE.
 - **Display Buffer RAM Policy (Ping-Pong Double Buffering)**:
   - Never allocate full-screen framebuffers (25.6 KB) or large static quad-buffers (16 KB) on GD32VF103 (32 KB total SRAM).
   - Always use a 2-slot ping-pong buffer (e.g. 2 $\times$ 6.4 KB or 2 $\times$ 3.2 KB) synchronized with DMA0 Channel 2 completion interrupts (`dma_interrupt_enable(DMA0, DMA_CH2, DMA_INT_FTF)`).

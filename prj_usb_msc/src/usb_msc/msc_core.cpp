@@ -256,6 +256,8 @@ static int8_t msc_process_read(usb_core_driver *udev) {
 
     msc_trace_record(2, 0x28, static_cast<uint8_t>(blocks), 0, ctx.lba, ctx.remaining_bytes);
 
+    usbd_ep_nak_arm(udev, MSC_IN_EP, len);
+
     if (msc_disk_read(ctx.media_buffer, ctx.lba, blocks) != 0) {
         printf("[MSC] msc_disk_read FAILED LBA %lu\n", static_cast<unsigned long>(ctx.lba));
         ep1_in_hard_reset(udev);
@@ -864,6 +866,11 @@ uint8_t data_in(usb_dev *udev, uint8_t ep_num) {
 
         case BbbState::SEND_CSW:
             // CSW transmission has completed on the wire.
+            {
+                __IO uint32_t ctl = pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL;
+                ctl &= ~(DEPCTL_SD0PID | DEPCTL_SD1PID | DEPCTL_EPD | DEPCTL_CNAK | DEPCTL_EPEN);
+                pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL = ctl | DEPCTL_SNAK;
+            }
             ctx.state = BbbState::IDLE;
             // Prime the OUT endpoint to receive the next CBW from the host.
             usbd_ep_recev(pcore, MSC_OUT_EP, ctx.cbw_buf, BBB_CBW_LENGTH);
