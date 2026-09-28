@@ -405,7 +405,7 @@ static uint32_t usbd_int_reset(usb_core_driver *udev)
     udev->regs.dr->DOEPINTEN = DOEPINTEN_STPFEN | DOEPINTEN_TFEN;
 
     /* enable IN endpoint interrupts */
-    udev->regs.dr->DIEPINTEN = DIEPINTEN_TFEN;
+    udev->regs.dr->DIEPINTEN = DIEPINTEN_TFEN | DIEPINTEN_TXFEEN;
 
     /* reset device address */
     udev->regs.dr->DCFG &= ~DCFG_DAR;
@@ -519,7 +519,14 @@ uint32_t usbd_emptytxfifo_write(usb_core_driver *udev, uint32_t ep_num)
         /* write FIFO in word(4bytes) */
         word_count = (len + 3U) / 4U;
 
-        if((udev->regs.er_in[ep_num]->DIEPTFSTAT & DIEPTFSTAT_IEPTFS) < word_count) {
+        uint32_t fifo_space;
+        if(0U == ep_num) {
+            fifo_space = udev->regs.gr->HNPTFQSTAT & 0xFFFFU;
+        } else {
+            fifo_space = udev->regs.er_in[ep_num]->DIEPTFSTAT & DIEPTFSTAT_IEPTFS;
+        }
+
+        if(fifo_space < word_count) {
             if (ep_num == 1) {
                 ep1_debug_record(7, word_count, udev->regs.er_in[1]->DIEPLEN, udev->regs.er_in[1]->DIEPTFSTAT, transc->xfer_count, transc->xfer_len, udev->regs.er_in[1]->DIEPCTL);
             }
