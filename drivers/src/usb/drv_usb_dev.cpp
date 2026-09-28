@@ -338,27 +338,30 @@ usb_status usb_transc_inxfer(usb_core_driver *udev, usb_transc *transc)
     /* Read live epctl inside critical section immediately before modifying */
     __IO uint32_t epctl = udev->regs.er_in[ep_num]->DIEPCTL;
 
-    /* Clear stale IN endpoint flags (including TF) before arming a new transfer.
-     * TF must be cleared before EPEN is asserted; otherwise a TF left over from the
-     * previous transfer will immediately trigger premature completion in the ISR. */
-    udev->regs.er_in[ep_num]->DIEPINTF = DIEPINTF_TF | DIEPINTF_EPDIS | DIEPINTF_TXFUD;
+    /* Step 1: If endpoint is not already pre-armed with EPEN and SNAK, configure DIEPLEN and arm now */
+    if(!(epctl & DEPCTL_EPEN)) {
+        /* Clear stale IN endpoint flags (including TF) before arming a new transfer.
+         * TF must be cleared before EPEN is asserted; otherwise a TF left over from the
+         * previous transfer will immediately trigger premature completion in the ISR. */
+        udev->regs.er_in[ep_num]->DIEPINTF = DIEPINTF_TF | DIEPINTF_EPDIS | DIEPINTF_TXFUD;
 
-    udev->regs.er_in[ep_num]->DIEPLEN = eplen;
+        udev->regs.er_in[ep_num]->DIEPLEN = eplen;
 
-    if((uint8_t)USB_EPTYPE_ISOC == transc->ep_type) {
-        if(((udev->regs.dr->DSTAT & DSTAT_FNRSOF) >> 8) & 0x01U) {
-            epctl |= DEPCTL_SEVNFRM;
-        } else {
-            epctl |= DEPCTL_SODDFRM;
+        if((uint8_t)USB_EPTYPE_ISOC == transc->ep_type) {
+            if(((udev->regs.dr->DSTAT & DSTAT_FNRSOF) >> 8) & 0x01U) {
+                epctl |= DEPCTL_SEVNFRM;
+            } else {
+                epctl |= DEPCTL_SODDFRM;
+            }
         }
+
+        /* Arm endpoint with EPEN and SNAK so host IN tokens receive clean hardware NAKs while FIFO fills.
+         * Mask out write-sensitive strobe bits (SD0PID, SD1PID, EPD, CNAK). */
+        epctl &= ~(DEPCTL_SD0PID | DEPCTL_SD1PID | DEPCTL_EPD | DEPCTL_CNAK);
+        epctl |= DEPCTL_EPEN | DEPCTL_SNAK;
+
+        udev->regs.er_in[ep_num]->DIEPCTL = epctl;
     }
-
-    /* Step 1: Arm endpoint with EPEN and SNAK so host IN tokens receive clean hardware NAKs while FIFO fills.
-     * Mask out write-sensitive strobe bits (SD0PID, SD1PID, EPD, CNAK). */
-    epctl &= ~(DEPCTL_SD0PID | DEPCTL_SD1PID | DEPCTL_EPD | DEPCTL_CNAK);
-    epctl |= DEPCTL_EPEN | DEPCTL_SNAK;
-
-    udev->regs.er_in[ep_num]->DIEPCTL = epctl;
 
     /* Step 2: Push data into TX FIFO while NAKing */
     if((uint8_t)USB_USE_FIFO == udev->bp.transfer_mode) {
@@ -391,6 +394,42 @@ usb_status usb_transc_inxfer(usb_core_driver *udev, usb_transc *transc)
     hal::core::restore_interrupts(prev_mstatus);
 
     return status;
+}
+
+/*!
+    \brief      pre-arm an IN endpoint with EPEN and SNAK to maintain hardware NAK flow control while fetching data
+    \param[in]  udev: pointer to USB device
+    \param[in]  ep_addr: endpoint address (e.g. 0x81)
+    \param[in]  len: expected transfer length in bytes
+    \param[out] none
+    \retval     none
+*/
+void usbd_ep_nak_arm(usb_core_driver *udev, uint8_t ep_addr, uint32_t len)
+{
+    uint8_t ep_num = EP_ID(ep_addr);
+    uint32_t prev_mstatus = hal::core::disable_interrupts();
+
+    /* Clear stale IN endpoint flags before arming */
+    udev->regs.er_in[ep_num]->DIEPINTF = DIEPINTF_TF | DIEPINTF_EPDIS | DIEPINTF_TXFUD;
+
+    uint32_t max_len = udev->dev.transc_in[ep_num].max_len;
+    if(max_len == 0U) max_len = 64U;
+    uint32_t packet_count = (len + max_len - 1U) / max_len;
+    if(packet_count == 0U) packet_count = 1U;
+
+    udev->regs.er_in[ep_num]->DIEPLEN = (packet_count << 19) | len;
+
+    /* Arm endpoint with EPEN and SNAK so host IN tokens receive clean hardware NAKs */
+    __IO uint32_t epctl = udev->regs.er_in[ep_num]->DIEPCTL;
+    epctl &= ~(DEPCTL_SD0PID | DEPCTL_SD1PID | DEPCTL_EPD | DEPCTL_CNAK);
+    epctl |= DEPCTL_EPEN | DEPCTL_SNAK;
+    udev->regs.er_in[ep_num]->DIEPCTL = epctl;
+
+    if(ep_num == 1) {
+        ep1_debug_record(1, epctl, udev->regs.er_in[1]->DIEPLEN, udev->regs.er_in[1]->DIEPTFSTAT, 0, len, udev->regs.er_in[1]->DIEPCTL);
+    }
+
+    hal::core::restore_interrupts(prev_mstatus);
 }
 
 /*!

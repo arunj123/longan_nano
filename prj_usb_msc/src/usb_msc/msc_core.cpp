@@ -2,6 +2,7 @@
 #include "msc_disk.hpp"
 #include "usbd_descriptors.hpp"
 #include "drivers/usb/drv_usbd_int.h"
+#include "drivers/usb/drv_usb_dev.h"
 #include "usb_conf.h"
 #include "hal/time.hpp"
 #include <cstring>
@@ -359,6 +360,9 @@ static int8_t process_scsi(usb_core_driver *udev) {
             ctx.remaining_bytes = to_transfer_r6;
             ctx.csw_residue = cbw.dCBWDataTransferLength - to_transfer_r6;
 
+            uint32_t first_len_r6 = USB_MIN(ctx.remaining_bytes, MSC_MEDIA_PACKET_SIZE);
+            usbd_ep_nak_arm(udev, MSC_IN_EP, first_len_r6);
+
             ctx.need_read = true;
             ctx.need_read_time = hal::time::Instant::now();
             return 0;
@@ -535,6 +539,9 @@ static int8_t process_scsi(usb_core_driver *udev) {
             uint32_t to_transfer_r10 = USB_MIN(cbw.dCBWDataTransferLength, blocks * 512U);
             ctx.remaining_bytes = to_transfer_r10;
             ctx.csw_residue = cbw.dCBWDataTransferLength - to_transfer_r10;
+
+            uint32_t first_len_r10 = USB_MIN(ctx.remaining_bytes, MSC_MEDIA_PACKET_SIZE);
+            usbd_ep_nak_arm(udev, MSC_IN_EP, first_len_r10);
 
             ctx.need_read = true;
             ctx.need_read_time = hal::time::Instant::now();
@@ -820,6 +827,9 @@ uint8_t data_in(usb_dev *udev, uint8_t ep_num) {
 #else
             if (ctx.remaining_bytes > 0) {
                 // Next sector needed from SD card (handled asynchronously in poll())
+                uint32_t next_len = USB_MIN(ctx.remaining_bytes, MSC_MEDIA_PACKET_SIZE);
+                usbd_ep_nak_arm(pcore, MSC_IN_EP, next_len);
+
                 ctx.need_read = true;
                 ctx.need_read_time = hal::time::Instant::now();
             } else {

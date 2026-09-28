@@ -7,7 +7,7 @@
 #include "usbd_conf.h"
 
 #define USBD_VID                     0x28E9
-#define USBD_PID                     0xAB80 // Fresh PID for Build 0080 (LNMSC0000080)
+#define USBD_PID                     0xAB81 // Fresh PID for Build 0081 (LNMSC0000081)
 
 #define MSC_CONFIG_DESC_SIZE         32U
 

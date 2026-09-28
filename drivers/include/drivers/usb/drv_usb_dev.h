@@ -175,6 +175,8 @@ usb_status usb_transc_active(usb_core_driver *udev, usb_transc *transc);
 usb_status usb_transc_deactivate(usb_core_driver *udev, usb_transc *transc);
 /* configure USB transaction to start IN transfer */
 usb_status usb_transc_inxfer(usb_core_driver *udev, usb_transc *transc);
+/* pre-arm an IN endpoint with EPEN and SNAK to maintain hardware NAK flow control while fetching data */
+void usbd_ep_nak_arm(usb_core_driver *udev, uint8_t ep_addr, uint32_t len);
 /* configure USB transaction to start OUT transfer */
 usb_status usb_transc_outxfer(usb_core_driver *udev, usb_transc *transc);
 /* set the USB transaction STALL status */
