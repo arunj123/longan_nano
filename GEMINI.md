@@ -153,10 +153,12 @@
   - **GPIO Pins**: Check all SPI, I2C, UART, Button, and LED mappings before assigning or reconfiguring pins.
 
 ## Build Iteration & Debug Commit Protocol
-- **Per-Build Commits**: For each build / debug iteration (e.g. Build 0073, Build 0074, etc.), create a dedicated git commit.
-- **Descriptive Commit Message**: Detail:
-  - Changes made in the build.
-  - Test results observed (pass/fail status, sector counts, throughput, host dmesg / usbmon logs).
-  - Problems identified, register states, or root-cause findings.
-- **Debug Artifacts**: Include scripts or debug data in commits when appropriate (e.g., in `docs/` or `tools/`).
+- **Mandatory Per-Build Commits**: For EVERY build and debug iteration (e.g., Build 0084, Build 0085, etc.), a dedicated git commit MUST be created immediately upon completing testing before proceeding to the next iteration or ending the session.
+- **Strict Commit Message Structure**: Every build commit message must follow this standardized schema:
+  - **Header**: `build(<component>): Build <NNNN> - <Concise Headline>` (e.g., `build(msc): Build 0085 - Fix Tag 0x39 data toggle tracking`)
+  - **Summary of Changes**: Explicit, bulleted breakdown of code, register, timing, or configuration adjustments across modified files and the design rationale behind them.
+  - **Test Results**: Concrete empirical observations from hardware/host testing (e.g., pass/fail status of SCSI tags, sector counts, host `dmesg`, `usbmon` packet trace status, transfer throughput).
+  - **Root Cause & Diagnostics**: Detailed register states, hardware counter readings, or findings explaining any observed failures.
+  - **What Next**: Prioritized, actionable roadmap outlining the exact steps and hypotheses to investigate in the subsequent build iteration.
+- **Debug Artifacts & Tools**: Commit all associated test scripts, diagnostic parsers, or trace analysis tools (e.g., in `tools/` or `scratch/`) alongside the firmware changes so the exact verification environment is preserved in git history.
 
