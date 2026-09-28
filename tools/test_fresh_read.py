@@ -36,8 +36,8 @@ time.sleep(1.0)
 print("3. Power cycling xHCI port 1...")
 run("sh -c 'echo 1 > /sys/bus/usb/devices/usb1/1-0:1.0/usb1-port1/disable; sleep 1; echo 0 > /sys/bus/usb/devices/usb1/1-0:1.0/usb1-port1/disable'", sudo=True)
 
-print("4. Waiting for enumeration (6.0s)...")
-time.sleep(6.0)
+print("4. Waiting for enumeration (8.0s)...")
+time.sleep(8.0)
 
 print("5. Stopping tcpdump...")
 run("pkill -2 tcpdump", sudo=True)
