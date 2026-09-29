@@ -930,7 +930,7 @@ static void ep1_in_hard_reset(usb_core_driver *udev) {
 }
 
 void poll(usb_core_driver *udev) {
-    const auto kIoWatchdog = hal::time::Duration::from_ms(5000);
+    static const auto kIoWatchdog = hal::time::Duration::from_ms(5000);
 
     if (ctx.need_read) {
         ctx.need_read = false;

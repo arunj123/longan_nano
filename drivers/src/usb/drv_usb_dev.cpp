@@ -65,6 +65,11 @@ usb_status usb_devcore_init(usb_core_driver *udev)
 {
     uint8_t i = 0U;
 
+    extern volatile bool g_ep1_freeze;
+    extern uint32_t g_ep1_debug_idx;
+    g_ep1_freeze = false;
+    g_ep1_debug_idx = 0;
+
     /* restart the PHY clock (maybe don't need to...) */
     *udev->regs.PWRCLKCTL = 0U;
 

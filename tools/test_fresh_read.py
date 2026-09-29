@@ -25,29 +25,50 @@ def run(cmd, sudo=False):
 
 print("1. Cleaning up...")
 run("pkill -9 tcpdump", sudo=True)
+run("pkill -9 -f uart_monitor", sudo=True)
 run("pkill -9 dd", sudo=True)
-run("rm -f /tmp/msc_fresh.pcap", sudo=True)
+run("rm -f /tmp/msc_fresh.pcap /tmp/msc_uart.log /tmp/ep1_debug.bin /tmp/idx.bin", sudo=True)
 
-print("2. Starting tcpdump...")
-run("rm -f /tmp/msc_fresh.pcap", sudo=True)
-client.exec_command(f"echo '{PASS}' | sudo -S tcpdump -U -i usbmon1 -w /tmp/msc_fresh.pcap")
+print("2. Starting tcpdump & uart_monitor in background...")
+client.exec_command(f"echo '{PASS}' | sudo -S nohup tcpdump -U -i usbmon1 -w /tmp/msc_fresh.pcap >/dev/null 2>&1 &")
+client.exec_command("nohup python3 -u /home/arun/longan_nano_tools/uart_monitor.py > /tmp/msc_uart.log 2>&1 &")
 time.sleep(1.0)
 
 print("3. Power cycling xHCI port 1...")
 run("sh -c 'echo 1 > /sys/bus/usb/devices/usb1/1-0:1.0/usb1-port1/disable; sleep 1; echo 0 > /sys/bus/usb/devices/usb1/1-0:1.0/usb1-port1/disable'", sudo=True)
 
-print("4. Waiting for enumeration (8.0s)...")
-time.sleep(8.0)
+print("4. Waiting for enumeration (6.0s)...")
+time.sleep(6.0)
 
-print("5. Stopping tcpdump...")
+code, out, _ = run("ls /sys/block/ | grep -E '^sd[b-z]$' | head -n 1")
+dev_name = out.strip()
+if not dev_name:
+    dev_name = "sdb"
+dev_path = f"/dev/{dev_name}"
+print(f"Detected target block device: {dev_path}")
+
+print(f"5. Testing multi-sector read with dd on {dev_path} (sectors 0-2048 = 1MB)...")
+code, dd_out, dd_err = run(f"echo 'arun' | sudo -S dd if={dev_path} of=/dev/null bs=512 count=2048 iflag=direct", sudo=False)
+print(f"dd exit code: {code}")
+if dd_out.strip(): print(f"dd stdout: {dd_out.strip()}")
+if dd_err.strip(): print(f"dd stderr: {dd_err.strip()}")
+
+print("6. Stopping tcpdump & uart_monitor...")
 run("pkill -2 tcpdump", sudo=True)
+run("pkill -9 -f uart_monitor", sudo=True)
 time.sleep(0.5)
 
-print("6. Checking dmesg...")
+print("7. Checking dmesg...")
 _, dmesg_out, _ = run("dmesg | tail -n 25", sudo=True)
 print(dmesg_out)
 
-print("7. Downloading pcap...")
+print("8. Checking UART logs...")
+_, uart_out, _ = run("cat /tmp/msc_uart.log", sudo=False)
+print("=== UART LOGS ===")
+print(uart_out)
+print("=================")
+
+print("9. Downloading pcap...")
 run("chmod 666 /tmp/msc_fresh.pcap", sudo=True)
 sftp = client.open_sftp()
 with sftp.open('/tmp/msc_fresh.pcap', 'rb') as f:
