@@ -28,9 +28,8 @@ client.close()
 with open('scratch/msc_trace.bin', 'wb') as f:
     f.write(data)
 
-# tail: 0x200001ee, head: 0x200001ef
-tail = data[0x200001ee - 0x200001e0]
-head = data[0x200001ef - 0x200001e0]
+tail = data[0x200001fe - 0x200001e0]
+head = data[0x200001ff - 0x200001e0]
 print(f"MSC Trace: tail={tail}, head={head}")
 
 type_names = {
@@ -41,7 +40,7 @@ type_names = {
     5: "CLASS_RQ"
 }
 
-trace_base = 0x20000890 - 0x200001e0
+trace_base = 0x200008a0 - 0x200001e0
 entry_size = 24
 
 cur = tail
@@ -53,12 +52,3 @@ while cur != head:
     cdb_hex = " ".join(f"{b:02x}" for b in cdb)
     print(f"[{cur:02d}] {tname:10s} | op=0x{opcode:02x} val8=0x{val8:02x} status=0x{status:02x} | v1=0x{val32_1:08x} ({val32_1}) v2=0x{val32_2:08x} ({val32_2}) | cdb={cdb_hex}")
     cur = (cur + 1) % 64
-
-# Also inspect ctx state (ctx is at 0x20000600)
-ctx_offset = 0x20000600 - 0x200001e0
-# media_buffer: 512, cbw_buf: 64, csw_buf: 16 (total 592 = 0x250)
-state_offset = ctx_offset + 592
-state, status_val = struct.unpack_from('<II', data, state_offset)
-state_names = ["IDLE", "DATA_IN", "LAST_DATA_IN", "DATA_OUT", "SEND_DATA", "SEND_ZLP", "STATUS_PENDING", "SEND_CSW"]
-sname = state_names[state] if state < len(state_names) else f"UNKNOWN({state})"
-print(f"\nCTX State: {sname} ({state}), status: {status_val}")

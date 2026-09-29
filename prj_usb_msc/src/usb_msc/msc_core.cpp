@@ -256,7 +256,12 @@ static int8_t msc_process_read(usb_core_driver *udev) {
 
     msc_trace_record(2, 0x28, static_cast<uint8_t>(blocks), 0, ctx.lba, ctx.remaining_bytes);
 
+#if MSC_PACED_64B_XFER
+    uint32_t prearm_len = USB_MIN(len, 64U);
+    usbd_ep_nak_arm(udev, MSC_IN_EP, prearm_len);
+#else
     usbd_ep_nak_arm(udev, MSC_IN_EP, len);
+#endif
 
     if (msc_disk_read(ctx.media_buffer, ctx.lba, blocks) != 0) {
         printf("[MSC] msc_disk_read FAILED LBA %lu\n", static_cast<unsigned long>(ctx.lba));
@@ -362,7 +367,11 @@ static int8_t process_scsi(usb_core_driver *udev) {
             ctx.remaining_bytes = to_transfer_r6;
             ctx.csw_residue = cbw.dCBWDataTransferLength - to_transfer_r6;
 
+#if MSC_PACED_64B_XFER
+            uint32_t first_len_r6 = USB_MIN(ctx.remaining_bytes, 64U);
+#else
             uint32_t first_len_r6 = USB_MIN(ctx.remaining_bytes, MSC_MEDIA_PACKET_SIZE);
+#endif
             usbd_ep_nak_arm(udev, MSC_IN_EP, first_len_r6);
 
             ctx.need_read = true;
@@ -542,7 +551,11 @@ static int8_t process_scsi(usb_core_driver *udev) {
             ctx.remaining_bytes = to_transfer_r10;
             ctx.csw_residue = cbw.dCBWDataTransferLength - to_transfer_r10;
 
+#if MSC_PACED_64B_XFER
+            uint32_t first_len_r10 = USB_MIN(ctx.remaining_bytes, 64U);
+#else
             uint32_t first_len_r10 = USB_MIN(ctx.remaining_bytes, MSC_MEDIA_PACKET_SIZE);
+#endif
             usbd_ep_nak_arm(udev, MSC_IN_EP, first_len_r10);
 
             ctx.need_read = true;
@@ -819,6 +832,9 @@ uint8_t data_in(usb_dev *udev, uint8_t ep_num) {
                 msc_ep_send(pcore, pbuf, chunk);
             } else if (ctx.remaining_bytes > 0) {
                 // Next sector needed from SD card (handled asynchronously in poll())
+                uint32_t next_len = USB_MIN(ctx.remaining_bytes, 64U);
+                usbd_ep_nak_arm(pcore, MSC_IN_EP, next_len);
+
                 ctx.need_read = true;
                 ctx.need_read_time = hal::time::Instant::now();
             } else {
