@@ -678,6 +678,9 @@ static void cbw_decode(usb_core_driver *udev) {
 
     msc_trace_record(1, cbw.CBWCB[0], cbw.bCBWCBLength, static_cast<uint8_t>(rx_count), cbw.dCBWDataTransferLength, cbw.dCBWTag, cbw.CBWCB);
 
+    __IO uint32_t ctl_ep1 = udev->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL;
+    ep1_debug_record(11, (static_cast<uint32_t>(cbw.CBWCB[0]) << 24) | (cbw.dCBWTag & 0x00FFFFFF), udev->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPLEN, udev->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPTFSTAT, cbw.dCBWDataTransferLength, 0, ctl_ep1);
+
     if (rx_count != BBB_CBW_LENGTH ||
         cbw.dCBWSignature != BBB_CBW_SIGNATURE ||
         cbw.bCBWLUN != 0 ||
@@ -851,6 +854,13 @@ uint8_t data_in(usb_dev *udev, uint8_t ep_num) {
                 ctx.need_read = true;
                 ctx.need_read_time = hal::time::Instant::now();
             } else {
+                __IO uint32_t ctl_before = pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL;
+                __IO uint32_t ctl = ctl_before;
+                ctl &= ~(DEPCTL_SD0PID | DEPCTL_SD1PID | DEPCTL_EPD | DEPCTL_CNAK | DEPCTL_EPEN);
+                pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL = ctl | DEPCTL_SNAK;
+                __IO uint32_t ctl_after = pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL;
+                ep1_debug_record(9, ctl_before, pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPLEN, pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPTFSTAT, 0, 0, ctl_after);
+
                 ctx.csw_status = CswStatus::CMD_PASSED;
                 ctx.data_done_time = hal::time::Instant::now();
                 ctx.state = BbbState::STATUS_PENDING;
@@ -870,6 +880,15 @@ uint8_t data_in(usb_dev *udev, uint8_t ep_num) {
                 break;
             }
 #endif
+            {
+                __IO uint32_t ctl_before = pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL;
+                __IO uint32_t ctl = ctl_before;
+                ctl &= ~(DEPCTL_SD0PID | DEPCTL_SD1PID | DEPCTL_EPD | DEPCTL_CNAK | DEPCTL_EPEN);
+                pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL = ctl | DEPCTL_SNAK;
+                __IO uint32_t ctl_after = pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL;
+                ep1_debug_record(9, ctl_before, pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPLEN, pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPTFSTAT, 0, 0, ctl_after);
+            }
+
             ctx.csw_status = CswStatus::CMD_PASSED;
             ctx.data_done_time = hal::time::Instant::now();
             ctx.state = BbbState::STATUS_PENDING;
@@ -883,9 +902,12 @@ uint8_t data_in(usb_dev *udev, uint8_t ep_num) {
         case BbbState::SEND_CSW:
             // CSW transmission has completed on the wire.
             {
-                __IO uint32_t ctl = pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL;
+                __IO uint32_t ctl_before = pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL;
+                __IO uint32_t ctl = ctl_before;
                 ctl &= ~(DEPCTL_SD0PID | DEPCTL_SD1PID | DEPCTL_EPD | DEPCTL_CNAK | DEPCTL_EPEN);
                 pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL = ctl | DEPCTL_SNAK;
+                __IO uint32_t ctl_after = pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL;
+                ep1_debug_record(10, ctl_before, pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPLEN, pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPTFSTAT, 0, 0, ctl_after);
             }
             ctx.state = BbbState::IDLE;
             // Prime the OUT endpoint to receive the next CBW from the host.

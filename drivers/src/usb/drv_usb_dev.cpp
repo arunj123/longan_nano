@@ -65,9 +65,7 @@ usb_status usb_devcore_init(usb_core_driver *udev)
 {
     uint8_t i = 0U;
 
-    extern volatile bool g_ep1_freeze;
     extern uint32_t g_ep1_debug_idx;
-    g_ep1_freeze = false;
     g_ep1_debug_idx = 0;
 
     /* restart the PHY clock (maybe don't need to...) */
@@ -345,7 +343,7 @@ usb_status usb_transc_inxfer(usb_core_driver *udev, usb_transc *transc)
     bool already_armed = (epctl & DEPCTL_EPEN) != 0;
 
     if(!already_armed) {
-        /* Step 1: Ensure NAK is active before enabling endpoint */
+        /* Step 1: Ensure NAK is active before modifying transfer parameters */
         if(!(epctl & DEPCTL_NAKS)) {
             epctl &= ~(DEPCTL_SD0PID | DEPCTL_SD1PID | DEPCTL_EPD | DEPCTL_CNAK);
             udev->regs.er_in[ep_num]->DIEPCTL = epctl | DEPCTL_SNAK;
@@ -367,7 +365,7 @@ usb_status usb_transc_inxfer(usb_core_driver *udev, usb_transc *transc)
         }
 
         /* Arm endpoint with EPEN while NAK is active so host IN tokens receive clean hardware NAKs while FIFO fills.
-         * Mask out write-sensitive strobe bits (SD0PID, SD1PID, EPD, CNAK). */
+         * Mask out write-sensitive strobe bits (SD0PID, SD1PID, EPD, CNAK, SNAK). */
         epctl = udev->regs.er_in[ep_num]->DIEPCTL;
         epctl &= ~(DEPCTL_SD0PID | DEPCTL_SD1PID | DEPCTL_EPD | DEPCTL_CNAK | DEPCTL_SNAK);
         epctl |= DEPCTL_EPEN;

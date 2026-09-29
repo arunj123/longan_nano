@@ -59,11 +59,9 @@ struct Ep1DebugEntry {
 #define EP1_DEBUG_MAX 256
 __attribute__((used)) Ep1DebugEntry g_ep1_debug[EP1_DEBUG_MAX] = {};
 __attribute__((used)) uint32_t g_ep1_debug_idx = 0;
-__attribute__((used)) volatile bool g_ep1_freeze = false;
 
 void ep1_debug_record(uint32_t step, uint32_t val1, uint32_t dieplen, uint32_t dieptfstat, uint32_t xfer_count, uint32_t xfer_len, uint32_t epctl)
 {
-    if (g_ep1_freeze) return;
     uint32_t idx = g_ep1_debug_idx % EP1_DEBUG_MAX;
     uint32_t t = *(volatile const uint32_t*)0xD1000000;
     g_ep1_debug[idx] = {step, val1, dieplen, dieptfstat, xfer_count, xfer_len, epctl, t};
@@ -375,11 +373,6 @@ static uint32_t usbd_int_rxfifo(usb_core_driver *udev)
 static uint32_t usbd_int_reset(usb_core_driver *udev)
 {
     uint32_t i;
-
-    /* Freeze debug recording on USB reset if activity occurred */
-    if (g_ep1_debug_idx > 20) {
-        g_ep1_freeze = true;
-    }
 
     /* clear the remote wakeup signaling */
     udev->regs.dr->DCTL &= ~DCTL_RWKUP;
