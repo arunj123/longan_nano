@@ -227,6 +227,7 @@ int main() {
                drivers::sdcard::result_to_string(res_1024),
                static_cast<unsigned long>(dt_1024.to_us()),
                test_sec[510], test_sec[511]);
+
         g_msc_stats.sectors_read = 0;
         g_msc_stats.is_active = false;
     } else {
