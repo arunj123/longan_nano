@@ -400,11 +400,11 @@ public:
         cs_high();
         xchg(0xFF);
 
-        // 11. Switch SPI1 to high-speed transfer mode (Prescaler Div8 -> ~6.75 MHz)
+        // 11. Switch SPI1 to high-speed transfer mode (Prescaler Div4 -> ~12.0 MHz)
         if (verbose) {
-            printf("[SD:Step 6] Switching SPI1 to High-Speed mode (Prescaler Div8 = ~6.75 MHz)...\n");
+            printf("[SD:Step 6] Switching SPI1 to High-Speed mode (Prescaler Div4 = ~12.0 MHz)...\n");
         }
-        SpiPeriph::set_prescaler(hal::spi::Prescaler::Div8);
+        SpiPeriph::set_prescaler(hal::spi::Prescaler::Div4);
 
         is_initialized = true;
         if (verbose) {
@@ -464,10 +464,8 @@ public:
             return SdResult::ReadTokenTimeout;
         }
 
-        // Read 512 data bytes
-        for (size_t i = 0; i < 512; ++i) {
-            buffer[i] = xchg(0xFF);
-        }
+        // Read 512 data bytes using continuous pipelined SPI
+        SpiPeriph::read_block_fast(buffer.data(), 512);
 
         // Read 2-byte CRC16 (ignored in SPI mode)
         (void)xchg(0xFF);
@@ -513,10 +511,8 @@ public:
         // Send Data Start Token (0xFE)
         xchg(0xFE);
 
-        // Transmit 512 data bytes
-        for (size_t i = 0; i < 512; ++i) {
-            xchg(buffer[i]);
-        }
+        // Transmit 512 data bytes using continuous pipelined SPI
+        SpiPeriph::write_block_fast(buffer.data(), 512);
 
         // Send dummy CRC16
         xchg(0xFF);

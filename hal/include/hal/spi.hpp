@@ -181,6 +181,31 @@ struct SpiPeripheral {
         return read_raw();
     }
 
+    /// Pipelined fast block read (sends dummy 0xFF while receiving data with zero inter-byte gaps)
+    static inline void read_block_fast(uint8_t *dest, size_t count) noexcept {
+        if (count == 0) return;
+        (void)wait_tbe();
+        RegDATA::write(0xFF);
+        for (size_t i = 0; i < count - 1; ++i) {
+            while (!(RegSTAT::read() & STAT_RBNE)) {}
+            uint8_t b = static_cast<uint8_t>(RegDATA::read() & 0xFF);
+            RegDATA::write(0xFF);
+            dest[i] = b;
+        }
+        while (!(RegSTAT::read() & STAT_RBNE)) {}
+        dest[count - 1] = static_cast<uint8_t>(RegDATA::read() & 0xFF);
+    }
+
+    /// Pipelined fast block write
+    static inline void write_block_fast(const uint8_t *src, size_t count) noexcept {
+        for (size_t i = 0; i < count; ++i) {
+            (void)wait_tbe();
+            RegDATA::write(src[i]);
+            while (!(RegSTAT::read() & STAT_RBNE)) {}
+            (void)RegDATA::read(); // Clear RBNE
+        }
+    }
+
     /// Enable DMA Transmit trigger
     static inline void enable_dma_tx() noexcept {
         RegCTL1::set_bits(CTL1_DMATEN);

@@ -414,7 +414,7 @@ static int8_t process_scsi(usb_core_driver *udev) {
                     ctx.media_buffer[1] = 0x80; // Page code
                     ctx.media_buffer[2] = 0x00; // Reserved
                     ctx.media_buffer[3] = 12;   // Page length
-                    std::memcpy(&ctx.media_buffer[4], "LNMSC0000077", 12);
+                    std::memcpy(&ctx.media_buffer[4], "LNMSC000009C", 12);
                     ctx.data_len = USB_MIN(cbw.dCBWDataTransferLength, 16U);
                     return 0;
                 } else if (page_code == 0x83) { // Device Identification Page
