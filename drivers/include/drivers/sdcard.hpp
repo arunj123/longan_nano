@@ -101,11 +101,8 @@ public:
 
     /// Wait until card is ready (MISO goes high 0xFF)
     static inline bool wait_ready(uint32_t timeout_ms = 500) noexcept {
-        auto deadline = hal::time::Instant::now() + hal::time::Duration::from_ms(timeout_ms);
-        do {
-            if (xchg(0xFF) == 0xFF) return true;
-        } while (hal::time::Instant::now() < deadline);
-        return false;
+        uint32_t max_bytes = timeout_ms * 1500;
+        return SpiPeriph::wait_ready_fast(max_bytes);
     }
 
     /// Send a 6-byte SD command packet and wait for R1 response
@@ -451,13 +448,8 @@ public:
             return SdResult::NoResponse;
         }
 
-        // Wait for data start token (0xFE)
-        auto deadline = hal::time::Instant::now() + hal::time::Duration::from_ms(300);
-        uint8_t token = 0xFF;
-        do {
-            token = xchg(0xFF);
-            if (token != 0xFF) break;
-        } while (hal::time::Instant::now() < deadline);
+        // Wait for data start token (0xFE) using pipelined fast token wait
+        uint8_t token = SpiPeriph::wait_token_fast(60000);
 
         if (token != 0xFE) {
             release_bus();

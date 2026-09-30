@@ -206,6 +206,40 @@ struct SpiPeripheral {
         }
     }
 
+    /// Pipelined fast token wait (polls for token != 0xFF with zero inter-byte dead time)
+    static inline uint8_t wait_token_fast(uint32_t max_bytes = 60000) noexcept {
+        (void)wait_tbe();
+        RegDATA::write(0xFF);
+        while (max_bytes--) {
+            while (!(RegSTAT::read() & STAT_RBNE)) {}
+            uint8_t b = static_cast<uint8_t>(RegDATA::read() & 0xFF);
+            if (b != 0xFF) {
+                return b;
+            }
+            if (max_bytes > 0) {
+                RegDATA::write(0xFF);
+            }
+        }
+        return 0xFF;
+    }
+
+    /// Pipelined fast wait ready (polls until MISO returns 0xFF with zero inter-byte dead time)
+    static inline bool wait_ready_fast(uint32_t max_bytes = 60000) noexcept {
+        (void)wait_tbe();
+        RegDATA::write(0xFF);
+        while (max_bytes--) {
+            while (!(RegSTAT::read() & STAT_RBNE)) {}
+            uint8_t b = static_cast<uint8_t>(RegDATA::read() & 0xFF);
+            if (b == 0xFF) {
+                return true;
+            }
+            if (max_bytes > 0) {
+                RegDATA::write(0xFF);
+            }
+        }
+        return false;
+    }
+
     /// Enable DMA Transmit trigger
     static inline void enable_dma_tx() noexcept {
         RegCTL1::set_bits(CTL1_DMATEN);
