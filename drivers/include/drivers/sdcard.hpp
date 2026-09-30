@@ -397,11 +397,11 @@ public:
         cs_high();
         xchg(0xFF);
 
-        // 11. Switch SPI1 to high-speed transfer mode (Prescaler Div4 -> ~12.0 MHz)
+        // 11. Switch SPI1 to high-speed transfer mode (Prescaler Div2 -> ~24.0 MHz)
         if (verbose) {
-            printf("[SD:Step 6] Switching SPI1 to High-Speed mode (Prescaler Div4 = ~12.0 MHz)...\n");
+            printf("[SD:Step 6] Switching SPI1 to High-Speed mode (Prescaler Div2 = ~24.0 MHz)...\n");
         }
-        SpiPeriph::set_prescaler(hal::spi::Prescaler::Div4);
+        SpiPeriph::set_prescaler(hal::spi::Prescaler::Div2);
 
         is_initialized = true;
         if (verbose) {
@@ -434,12 +434,6 @@ public:
         uint32_t arg = (card_type == CardType::SD2HC) ? sector : (sector * 512);
 
         cs_low();
-
-        // Wait for card to be ready
-        if (!wait_ready(500)) {
-            release_bus();
-            return SdResult::Timeout;
-        }
 
         // Send CMD17 (READ_SINGLE_BLOCK)
         uint8_t r1 = send_cmd(17, arg, 0x01);

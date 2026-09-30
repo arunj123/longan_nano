@@ -46,7 +46,7 @@ void init() {
     msc_desc.strings = usbd_msc_strings;
 
     // Set clean fresh serial number before usbd_init initializes descriptors
-    set_custom_serial_string("LNMSC000009D");
+    set_custom_serial_string("LNMSC000009E");
 
     usbd_init(&msc_udev, &msc_desc, &msc::msc_class);
 }
