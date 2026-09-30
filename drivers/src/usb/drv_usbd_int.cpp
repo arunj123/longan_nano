@@ -382,18 +382,24 @@ static uint32_t usbd_int_reset(usb_core_driver *udev)
     (void)usb_rxfifo_flush(&udev->regs);
 
     for(i = 0U; i < udev->bp.num_ep; i++) {
+        udev->dev.transc_in[i].is_prearmed = 0U;
+        if (i > 0U) {
+            __IO uint32_t epctl = udev->regs.er_in[i]->DIEPCTL;
+            if (epctl & DEPCTL_EPEN) {
+                epctl &= ~(DEPCTL_SD0PID | DEPCTL_SD1PID | DEPCTL_CNAK);
+                udev->regs.er_in[i]->DIEPCTL = epctl | DEPCTL_EPD | DEPCTL_SNAK;
+                uint32_t timeout = 1000;
+                while ((udev->regs.er_in[i]->DIEPCTL & DEPCTL_EPEN) && --timeout) {}
+            }
+            udev->regs.er_in[i]->DIEPCTL = (epctl & ~(DEPCTL_EPEN | DEPCTL_EPD | DEPCTL_CNAK)) | DEPCTL_SD0PID | DEPCTL_SNAK;
+        }
         udev->regs.er_in[i]->DIEPLEN = 0U;
         udev->regs.er_in[i]->DIEPINTF = 0xFFU;
         udev->regs.er_out[i]->DOEPLEN = 0U;
         udev->regs.er_out[i]->DOEPINTF = 0xFFU;
-        if(i > 0U) {
-            udev->regs.er_in[i]->DIEPCTL = DEPCTL_SD0PID | DEPCTL_SNAK;
-            udev->regs.er_out[i]->DOEPCTL = DEPCTL_SD0PID | DEPCTL_SNAK;
-        } else {
-            udev->regs.er_in[0]->DIEPCTL = DEPCTL_SNAK;
-            udev->regs.er_out[0]->DOEPCTL = DEPCTL_SNAK;
-        }
     }
+
+
 
     /* clear all pending device endpoint interrupts */
     udev->regs.dr->DAEPINT = 0xFFFFFFFFU;

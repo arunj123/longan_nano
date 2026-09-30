@@ -254,18 +254,12 @@ static int8_t msc_process_read(usb_core_driver *udev) {
     uint32_t len = USB_MIN(ctx.remaining_bytes, MSC_MEDIA_PACKET_SIZE);
     uint32_t blocks = (len + 511U) / 512U;
 
-    msc_trace_record(2, 0x28, static_cast<uint8_t>(blocks), 0, ctx.lba, ctx.remaining_bytes);
-
-#if MSC_PACED_64B_XFER
-    uint32_t prearm_len = USB_MIN(len, 64U);
-    usbd_ep_nak_arm(udev, MSC_IN_EP, prearm_len);
-#else
+    /* Pre-arm EP1 IN with EPEN=1, confirmed NAKS=1, and DIEPLEN=len to guarantee
+     * incoming host IN tokens receive hardware NAKs while reading SD card over SPI (~1.1 ms) */
     usbd_ep_nak_arm(udev, MSC_IN_EP, len);
-#endif
 
     if (msc_disk_read(ctx.media_buffer, ctx.lba, blocks) != 0) {
         printf("[MSC] msc_disk_read FAILED LBA %lu\n", static_cast<unsigned long>(ctx.lba));
-        ep1_in_hard_reset(udev);
         set_sense(SenseKey::HARDWARE_ERROR, Asc::UNRECOVERED_READ_ERROR);
         return -1;
     }
@@ -362,16 +356,11 @@ static int8_t process_scsi(usb_core_driver *udev) {
                 set_sense(SenseKey::ILLEGAL_REQUEST, Asc::ADDRESS_OUT_OF_RANGE);
                 return -1;
             }
-            ctx.state = BbbState::DATA_IN;
             uint32_t to_transfer_r6 = USB_MIN(cbw.dCBWDataTransferLength, blocks * 512U);
             ctx.remaining_bytes = to_transfer_r6;
             ctx.csw_residue = cbw.dCBWDataTransferLength - to_transfer_r6;
 
-#if MSC_PACED_64B_XFER
-            uint32_t first_len_r6 = USB_MIN(ctx.remaining_bytes, 64U);
-#else
             uint32_t first_len_r6 = USB_MIN(ctx.remaining_bytes, MSC_MEDIA_PACKET_SIZE);
-#endif
             usbd_ep_nak_arm(udev, MSC_IN_EP, first_len_r6);
 
             ctx.need_read = true;
@@ -546,16 +535,11 @@ static int8_t process_scsi(usb_core_driver *udev) {
             }
 
             ctx.state = BbbState::DATA_IN;
-            // Use min(CBW length, actual data) so CSW residue is correct (BOT Case 5/8)
             uint32_t to_transfer_r10 = USB_MIN(cbw.dCBWDataTransferLength, blocks * 512U);
             ctx.remaining_bytes = to_transfer_r10;
             ctx.csw_residue = cbw.dCBWDataTransferLength - to_transfer_r10;
 
-#if MSC_PACED_64B_XFER
-            uint32_t first_len_r10 = USB_MIN(ctx.remaining_bytes, 64U);
-#else
             uint32_t first_len_r10 = USB_MIN(ctx.remaining_bytes, MSC_MEDIA_PACKET_SIZE);
-#endif
             usbd_ep_nak_arm(udev, MSC_IN_EP, first_len_r10);
 
             ctx.need_read = true;
@@ -723,8 +707,16 @@ uint8_t init(usb_dev *udev, uint8_t config_index) {
     usbd_fifo_flush(pcore, MSC_OUT_EP);
     usbd_fifo_flush(pcore, MSC_IN_EP);
 
-    /* Explicitly reset data toggle to DATA0 and assert NAK on both bulk endpoints per USB MSC BOT */
-    pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL |= DEPCTL_SD0PID | DEPCTL_SNAK;
+    pcore->dev.transc_in[EP_ID(MSC_IN_EP)].is_prearmed = 0U;
+
+    auto *er_in1 = pcore->regs.er_in[EP_ID(MSC_IN_EP)];
+    if (er_in1->DIEPCTL & DEPCTL_EPEN) {
+        er_in1->DIEPCTL |= DEPCTL_EPD | DEPCTL_SNAK;
+        uint32_t timeout = 1000;
+        while ((er_in1->DIEPCTL & DEPCTL_EPEN) && --timeout) {}
+    }
+    er_in1->DIEPLEN = 0U;
+    er_in1->DIEPCTL = (er_in1->DIEPCTL & ~(DEPCTL_EPEN | DEPCTL_EPD | DEPCTL_CNAK)) | DEPCTL_SD0PID | DEPCTL_SNAK;
     pcore->regs.er_out[EP_ID(MSC_OUT_EP)]->DOEPCTL |= DEPCTL_SD0PID | DEPCTL_SNAK;
 
     usbd_ep_recev(pcore, MSC_OUT_EP, ctx.cbw_buf, BBB_CBW_LENGTH);
@@ -770,8 +762,16 @@ uint8_t req_handler(usb_dev *udev, usb_req *req) {
                 usbd_fifo_flush(pcore, MSC_IN_EP);
                 usbd_fifo_flush(pcore, MSC_OUT_EP);
 
-                // Reset endpoint data PID after BOT reset.
-                pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL |= DEPCTL_SD0PID | DEPCTL_SNAK;
+                pcore->dev.transc_in[EP_ID(MSC_IN_EP)].is_prearmed = 0U;
+
+                auto *er_in1 = pcore->regs.er_in[EP_ID(MSC_IN_EP)];
+                if (er_in1->DIEPCTL & DEPCTL_EPEN) {
+                    er_in1->DIEPCTL |= DEPCTL_EPD | DEPCTL_SNAK;
+                    uint32_t timeout = 1000;
+                    while ((er_in1->DIEPCTL & DEPCTL_EPEN) && --timeout) {}
+                }
+                er_in1->DIEPLEN = 0U;
+                er_in1->DIEPCTL = (er_in1->DIEPCTL & ~(DEPCTL_EPEN | DEPCTL_EPD | DEPCTL_CNAK)) | DEPCTL_SD0PID | DEPCTL_SNAK;
                 pcore->regs.er_out[EP_ID(MSC_OUT_EP)]->DOEPCTL |= DEPCTL_SD0PID | DEPCTL_SNAK;
 
                 // Ready for the next CBW.
@@ -855,7 +855,12 @@ uint8_t data_in(usb_dev *udev, uint8_t ep_num) {
                 ctx.need_read_time = hal::time::Instant::now();
             } else {
                 __IO uint32_t ctl_before = pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL;
-                __IO uint32_t ctl = ctl_before;
+                if (ctl_before & DEPCTL_EPEN) {
+                    pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL = (ctl_before & ~(DEPCTL_SD0PID | DEPCTL_SD1PID | DEPCTL_CNAK)) | DEPCTL_EPD | DEPCTL_SNAK;
+                    uint32_t timeout = 1000;
+                    while((pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL & DEPCTL_EPEN) && --timeout) {}
+                }
+                __IO uint32_t ctl = pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL;
                 ctl &= ~(DEPCTL_SD0PID | DEPCTL_SD1PID | DEPCTL_EPD | DEPCTL_CNAK | DEPCTL_EPEN);
                 pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL = ctl | DEPCTL_SNAK;
                 __IO uint32_t ctl_after = pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL;
@@ -882,7 +887,12 @@ uint8_t data_in(usb_dev *udev, uint8_t ep_num) {
 #endif
             {
                 __IO uint32_t ctl_before = pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL;
-                __IO uint32_t ctl = ctl_before;
+                if (ctl_before & DEPCTL_EPEN) {
+                    pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL = (ctl_before & ~(DEPCTL_SD0PID | DEPCTL_SD1PID | DEPCTL_CNAK)) | DEPCTL_EPD | DEPCTL_SNAK;
+                    uint32_t timeout = 1000;
+                    while((pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL & DEPCTL_EPEN) && --timeout) {}
+                }
+                __IO uint32_t ctl = pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL;
                 ctl &= ~(DEPCTL_SD0PID | DEPCTL_SD1PID | DEPCTL_EPD | DEPCTL_CNAK | DEPCTL_EPEN);
                 pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL = ctl | DEPCTL_SNAK;
                 __IO uint32_t ctl_after = pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL;
@@ -903,7 +913,12 @@ uint8_t data_in(usb_dev *udev, uint8_t ep_num) {
             // CSW transmission has completed on the wire.
             {
                 __IO uint32_t ctl_before = pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL;
-                __IO uint32_t ctl = ctl_before;
+                if (ctl_before & DEPCTL_EPEN) {
+                    pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL = (ctl_before & ~(DEPCTL_SD0PID | DEPCTL_SD1PID | DEPCTL_CNAK)) | DEPCTL_EPD | DEPCTL_SNAK;
+                    uint32_t timeout = 1000;
+                    while((pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL & DEPCTL_EPEN) && --timeout) {}
+                }
+                __IO uint32_t ctl = pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL;
                 ctl &= ~(DEPCTL_SD0PID | DEPCTL_SD1PID | DEPCTL_EPD | DEPCTL_CNAK | DEPCTL_EPEN);
                 pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL = ctl | DEPCTL_SNAK;
                 __IO uint32_t ctl_after = pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL;

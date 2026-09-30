@@ -1,6 +1,8 @@
 import struct
 
-with open('build/prj_usb_msc/msc_fresh.pcap', 'rb') as f:
+import sys
+pcap_path = sys.argv[1] if len(sys.argv) > 1 else 'build/prj_usb_msc/msc_fresh.pcap'
+with open(pcap_path, 'rb') as f:
     hdr = f.read(24)
     magic, ver_maj, ver_min, thiszone, sigfigs, snaplen, linktype = struct.unpack('<IHHiIII', hdr)
     print(f'Magic: {magic:#x}, LinkType: {linktype}')

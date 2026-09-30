@@ -13,12 +13,15 @@ client = paramiko.SSHClient()
 client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 client.connect(HOST, username=USER, password=PASS, allow_agent=False, look_for_keys=False, timeout=15, banner_timeout=30)
 
-cmd = 'openocd -f /home/arun/longan_nano_tools/openocd-sipeed-libusb.cfg -c "init; halt; dump_image /tmp/ep1_debug.bin 0x200001f8 12000; resume; shutdown"'
+cmd = 'openocd -f /home/arun/longan_nano_tools/openocd-sipeed-libusb.cfg -c "init; halt; dump_image /tmp/idx.bin 0x20000210 4; dump_image /tmp/ep1_debug.bin 0x20000f50 8192; resume; shutdown"'
+
 stdin, stdout, stderr = client.exec_command(cmd)
 out = stdout.read().decode('utf-8', errors='replace')
 err = stderr.read().decode('utf-8', errors='replace')
 
 sftp = client.open_sftp()
+with sftp.open('/tmp/idx.bin', 'rb') as f:
+    idx_data = f.read()
 with sftp.open('/tmp/ep1_debug.bin', 'rb') as f:
     data = f.read()
 sftp.close()
@@ -27,24 +30,27 @@ client.close()
 with open('scratch/ep1_debug.bin', 'wb') as f:
     f.write(data)
 
-idx = struct.unpack_from('<I', data, 0)[0]
+idx = struct.unpack_from('<I', idx_data, 0)[0]
 print(f"Total debug entries logged: {idx}")
 
-base_offset = 0x20000ec0 - 0x200001f8
-
 step_names = {
-    1: "IN_XFER (poll)",
-    2: "EPIN_ENT (isr)",
-    4: "IN_TRSC (isr)",
+    1: "IN_XFER_FRESH",
+    2: "EPIN_ENT",
+    4: "IN_TRSC",
     5: "CSW_SEND",
-    7: "TXFE_WR"
+    6: "NAK_ARM",
+    7: "TXFE_WR",
+    8: "IN_XFER_ARMED",
+    9: "DATA_DONE",
+    10: "CSW_DONE",
+    11: "CBW_DEC"
 }
 
 num_entries = 256
-start_idx = max(0, idx - 80)
+start_idx = max(0, idx - 50)
 for i in range(start_idx, idx):
     slot = i % num_entries
-    offset = base_offset + slot * 32
+    offset = slot * 32
     step, val1, dieplen, dieptfstat, xfer_count, xfer_len, epctl, t = struct.unpack_from('<8I', data, offset)
     sname = step_names.get(step, f"STEP_{step}")
     pcnt = (dieplen >> 19) & 0x7F

@@ -9,7 +9,7 @@ client = paramiko.SSHClient()
 client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 client.connect(HOST, username=USER, password=PASS, allow_agent=False, look_for_keys=False, timeout=15)
 
-cmd = 'openocd -f /home/arun/longan_nano_tools/openocd-sipeed-libusb.cfg -c "init; halt; dump_image /tmp/ctx_dump.bin 0x20000610 656; resume; shutdown"'
+cmd = 'openocd -f /home/arun/longan_nano_tools/openocd-sipeed-libusb.cfg -c "init; halt; dump_image /tmp/ctx_dump.bin 0x20000690 656; resume; shutdown"'
 stdin, stdout, stderr = client.exec_command(cmd)
 code = stdout.channel.recv_exit_status()
 

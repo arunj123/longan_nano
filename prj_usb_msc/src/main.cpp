@@ -195,15 +195,38 @@ int main() {
                  static_cast<unsigned long>(Sd::sector_count / 2048));
         draw_string(4, 28, cap_buf, color::White);
 
-        alignas(4) uint8_t test_mbr[512];
-        int8_t test_res = msc_disk_read(test_mbr, 0, 1);
-        if (test_res == 0) {
-            printf("[MAIN] SD sector 0 read verified OK. Sig: 0x%02X%02X\n", test_mbr[510], test_mbr[511]);
-        } else {
-            printf("[MAIN] WARNING: SD sector 0 read FAILED (err=%d)\n", test_res);
-        }
-        int8_t test_1024 = msc_disk_read(test_mbr, 1024, 1);
-        printf("[MAIN] SD sector 1024 self-test read: res=%d (Sig: 0x%02X%02X)\n", test_1024, test_mbr[510], test_mbr[511]);
+        alignas(4) uint8_t test_sec[512];
+        auto t0 = hal::time::Instant::now();
+        auto res_0 = Sd::read_sector(0, test_sec);
+        auto dt_0 = hal::time::Instant::now() - t0;
+        printf("[MAIN] Real SD Sector 0: %s (%lu us, Sig: 0x%02X%02X)\n",
+               drivers::sdcard::result_to_string(res_0),
+               static_cast<unsigned long>(dt_0.to_us()),
+               test_sec[510], test_sec[511]);
+
+        auto t1 = hal::time::Instant::now();
+        auto res_496 = Sd::read_sector(496, test_sec);
+        auto dt_496 = hal::time::Instant::now() - t1;
+        printf("[MAIN] Real SD Sector 496 (VBR): %s (%lu us, Sig: 0x%02X%02X)\n",
+               drivers::sdcard::result_to_string(res_496),
+               static_cast<unsigned long>(dt_496.to_us()),
+               test_sec[510], test_sec[511]);
+
+        auto t2 = hal::time::Instant::now();
+        auto res_560 = Sd::read_sector(560, test_sec);
+        auto dt_560 = hal::time::Instant::now() - t2;
+        printf("[MAIN] Real SD Sector 560 (FAT): %s (%lu us, Sig: 0x%02X%02X)\n",
+               drivers::sdcard::result_to_string(res_560),
+               static_cast<unsigned long>(dt_560.to_us()),
+               test_sec[510], test_sec[511]);
+
+        auto t3 = hal::time::Instant::now();
+        auto res_1024 = Sd::read_sector(1024, test_sec);
+        auto dt_1024 = hal::time::Instant::now() - t3;
+        printf("[MAIN] Real SD Sector 1024: %s (%lu us, Sig: 0x%02X%02X)\n",
+               drivers::sdcard::result_to_string(res_1024),
+               static_cast<unsigned long>(dt_1024.to_us()),
+               test_sec[510], test_sec[511]);
         g_msc_stats.sectors_read = 0;
         g_msc_stats.is_active = false;
     } else {

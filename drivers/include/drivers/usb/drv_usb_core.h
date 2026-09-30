@@ -134,6 +134,7 @@ typedef struct {
     uint32_t       xfer_count;                                                  /*!< transmit buffer count */
 
     uint32_t       remain_len;                                                  /*!< remain packet length */
+    uint8_t        is_prearmed;                                                 /*!< endpoint pre-armed via usbd_ep_nak_arm */
 } usb_transc;
 
 typedef struct _usb_core_driver usb_dev;
