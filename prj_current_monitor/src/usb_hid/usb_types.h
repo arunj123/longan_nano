@@ -5,10 +5,10 @@
     \version 2025-02-10, firmware for GD32VF103
 */
 
-#ifndef USB_TYPES_H
-#define USB_TYPES_H
+#pragma once
 
 #include <cstdint>
+#include "usbd_conf.h"
 
 // Ensure structs are packed correctly, matching hardware/protocol requirements
 #pragma pack(1)
@@ -202,12 +202,6 @@ namespace msc {
         };
     } // namespace scsi
 
-#ifndef MSC_MEDIA_PACKET_SIZE
-#define MSC_MEDIA_PACKET_SIZE 512
-#endif
-#ifndef MEM_LUN_NUM
-#define MEM_LUN_NUM 1
-#endif
 
     struct MscHandler {
         uint8_t bbb_data[MSC_MEDIA_PACKET_SIZE];
@@ -231,5 +225,3 @@ namespace msc {
 } // namespace usb
 
 #pragma pack()
-
-#endif // USB_TYPES_H

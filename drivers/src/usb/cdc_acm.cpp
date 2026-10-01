@@ -2,20 +2,12 @@
 #include "drivers/usb/usb_ch9.hpp"
 #include <cstring>
 
-#define USBD_VID                          0x28E9U
-#define USBD_PID                          0x018AU
-
-#ifndef CDC_DATA_IN_EP
-#define CDC_DATA_IN_EP                    0x81U  /* EP1 IN */
-#endif
-#ifndef CDC_DATA_OUT_EP
-#define CDC_DATA_OUT_EP                   0x03U  /* EP3 OUT */
-#endif
-#ifndef CDC_CMD_EP
-#define CDC_CMD_EP                        0x82U  /* EP2 IN */
-#endif
-
-#define USB_CDC_ACM_CONFIG_DESC_SIZE      67U
+inline constexpr uint16_t USBD_VID                     = 0x28E9U;
+inline constexpr uint16_t USBD_PID                     = 0x018AU;
+inline constexpr uint8_t  CDC_DATA_IN_EP               = 0x81U;  /* EP1 IN */
+inline constexpr uint8_t  CDC_DATA_OUT_EP              = 0x03U;  /* EP3 OUT */
+inline constexpr uint8_t  CDC_CMD_EP                   = 0x82U;  /* EP2 IN */
+inline constexpr uint16_t USB_CDC_ACM_CONFIG_DESC_SIZE = 67U;
 
 /* USB standard device descriptor */
 static const usb_desc_dev cdc_dev_desc = {

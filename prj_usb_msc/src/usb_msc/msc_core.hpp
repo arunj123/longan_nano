@@ -1,12 +1,11 @@
-#ifndef MSC_CORE_HPP
-#define MSC_CORE_HPP
+#pragma once
 
 #include <cstdint>
+#include <cstddef>
 #include "drivers/usb/usb_core.hpp"
 #include "drivers/usb/usbd_core.h"
-#ifndef MSC_PACED_64B_XFER
-#define MSC_PACED_64B_XFER 0
-#endif
+
+inline constexpr uint32_t MSC_PACED_64B_XFER = 0U;
 
 namespace msc {
 
@@ -20,7 +19,7 @@ struct MscTraceEntry {
     uint8_t  cdb[10];
 };
 
-#define MSC_TRACE_MAX 64
+inline constexpr size_t MSC_TRACE_MAX = 64;
 extern MscTraceEntry g_msc_trace[MSC_TRACE_MAX];
 extern volatile uint8_t g_msc_trace_head;
 extern volatile uint8_t g_msc_trace_tail;
@@ -38,5 +37,3 @@ bool is_idle();
 extern usb_class_core msc_class;
 
 } // namespace msc
-
-#endif /* MSC_CORE_HPP */

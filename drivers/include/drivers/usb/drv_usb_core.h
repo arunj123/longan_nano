@@ -15,14 +15,28 @@
  * and minimized SRAM footprint.
  */
 
-#define USB_FS_EP0_MAX_LEN                  64U
-#define HC_MAX_PACKET_COUNT                 140U
+inline constexpr uint8_t  USB_FS_EP0_MAX_LEN      = 64U;
+inline constexpr uint32_t HC_MAX_PACKET_COUNT     = 140U;
+inline constexpr uint32_t EP_MAX_PACKET_SIZE_MASK = 0x07FFU;
 
-#define EP_ID(x)                            (static_cast<uint8_t>((x) & 0x7FU))
-#define EP_DIR(x)                           (static_cast<uint8_t>((x) >> 7))
-#define EP_IN(x)                            (static_cast<uint8_t>(0x80U | ((x) & 0x7FU)))
-#define EP_OUT(x)                           (static_cast<uint8_t>((x) & 0x7FU))
-#define EP_MAX_PACKET_SIZE_MASK             0x07FFU
+constexpr uint8_t ep_id(uint8_t x) noexcept {
+    return static_cast<uint8_t>(x & 0x7FU);
+}
+constexpr uint8_t ep_dir(uint8_t x) noexcept {
+    return static_cast<uint8_t>(x >> 7);
+}
+constexpr uint8_t ep_in(uint8_t x) noexcept {
+    return static_cast<uint8_t>(0x80U | (x & 0x7FU));
+}
+constexpr uint8_t ep_out(uint8_t x) noexcept {
+    return static_cast<uint8_t>(x & 0x7FU);
+}
+
+// Zero-overhead constexpr compatibility wrappers
+constexpr uint8_t EP_ID(uint8_t x) noexcept { return ep_id(x); }
+constexpr uint8_t EP_DIR(uint8_t x) noexcept { return ep_dir(x); }
+constexpr uint8_t EP_IN(uint8_t x) noexcept { return ep_in(x); }
+constexpr uint8_t EP_OUT(uint8_t x) noexcept { return ep_out(x); }
 
 enum _usb_mode {
     DEVICE_MODE = 0U,

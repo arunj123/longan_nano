@@ -5,8 +5,7 @@
     \version 2025-02-10, firmware for GD32VF103
 */
 
-#ifndef USBD_DESCRIPTORS_H
-#define USBD_DESCRIPTORS_H
+#pragma once
 
 #include "drivers/usb/usb_core.hpp"
 
@@ -128,24 +127,24 @@ const uint8_t custom_hid_report_descriptor[] = {
 };
 
 /* Report descriptor lengths */
-#define STD_HID_REPORT_DESC_LEN       sizeof(std_hid_report_descriptor)
-#define CUSTOM_HID_REPORT_DESC_LEN    sizeof(custom_hid_report_descriptor)
+inline constexpr size_t STD_HID_REPORT_DESC_LEN       = sizeof(std_hid_report_descriptor);
+inline constexpr size_t CUSTOM_HID_REPORT_DESC_LEN    = sizeof(custom_hid_report_descriptor);
 
 /* Define a size for the configuration when MSC is disabled */
-#define HID_ONLY_CONFIG_DESC_SIZE     (sizeof(usb_desc_config) + \
-                                       sizeof(usb_desc_itf) + sizeof(usb::hid::DescHid) + sizeof(usb_desc_ep) + \
-                                       sizeof(usb_desc_itf) + sizeof(usb::hid::DescHid) + sizeof(usb_desc_ep) * 2)
+inline constexpr size_t HID_ONLY_CONFIG_DESC_SIZE     = sizeof(usb_desc_config) +
+                                                        sizeof(usb_desc_itf) + sizeof(usb::hid::DescHid) + sizeof(usb_desc_ep) +
+                                                        sizeof(usb_desc_itf) + sizeof(usb::hid::DescHid) + sizeof(usb_desc_ep) * 2;
 
 /* Total size of the full composite descriptor (remains the same) */
-#define COMPOSITE_CONFIG_DESC_SIZE    (sizeof(usb_desc_config) + \
-                                       sizeof(usb_desc_itf) + sizeof(usb::hid::DescHid) + sizeof(usb_desc_ep) + \
-                                       sizeof(usb_desc_itf) + sizeof(usb::hid::DescHid) + sizeof(usb_desc_ep) * 2 + \
-                                       sizeof(usb_desc_itf) + sizeof(usb_desc_ep) * 2)
+inline constexpr size_t COMPOSITE_CONFIG_DESC_SIZE    = sizeof(usb_desc_config) +
+                                                        sizeof(usb_desc_itf) + sizeof(usb::hid::DescHid) + sizeof(usb_desc_ep) +
+                                                        sizeof(usb_desc_itf) + sizeof(usb::hid::DescHid) + sizeof(usb_desc_ep) * 2 +
+                                                        sizeof(usb_desc_itf) + sizeof(usb_desc_ep) * 2;
 
 /* Report IDs */
-#define REPORT_ID_MOUSE             1U
-#define REPORT_ID_KEYBOARD          2U
-#define REPORT_ID_CONSUMER          3U
+inline constexpr uint8_t REPORT_ID_MOUSE             = 1U;
+inline constexpr uint8_t REPORT_ID_KEYBOARD          = 2U;
+inline constexpr uint8_t REPORT_ID_CONSUMER          = 3U;
 
 /* Composite descriptor structure */
 #pragma pack(push, 1)
@@ -174,5 +173,3 @@ typedef struct
 extern usb_desc_dev composite_dev_desc;
 extern usb_composite_desc_config_set composite_config_desc;
 extern void *const usbd_composite_strings[];
-
-#endif /* USBD_DESCRIPTORS_H */

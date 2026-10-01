@@ -1,12 +1,11 @@
-#ifndef USBD_DESCRIPTORS_H
-#define USBD_DESCRIPTORS_H
+#pragma once
 
 #include "drivers/usb/usb_core.hpp"
-
 #include "usb_types.h"
+#include "usbd_conf.h"
 
 /* Custom HID Report Descriptor for Data Streaming */
-const uint8_t custom_hid_report_descriptor[] = {
+inline const uint8_t custom_hid_report_descriptor[] = {
     0x06, 0x00, 0xFF,  // Usage Page (Vendor-Defined)
     0x09, 0x01,        // Usage (Vendor-Defined)
     0xA1, 0x01,        // Collection (Application)
@@ -24,28 +23,18 @@ const uint8_t custom_hid_report_descriptor[] = {
     0xC0               // End Collection
 };
 
-#define CUSTOM_HID_REPORT_DESC_LEN    sizeof(custom_hid_report_descriptor)
+/* Report descriptor lengths */
+inline constexpr size_t CUSTOM_HID_REPORT_DESC_LEN = sizeof(custom_hid_report_descriptor);
 
 /* Configuration Descriptor Size */
-#define CONFIG_DESC_SIZE              (sizeof(usb_desc_config) + \
-                                       sizeof(usb_desc_itf) + \
-                                       sizeof(usb::hid::DescHid) + \
-                                       sizeof(usb_desc_ep) + \
-                                       sizeof(usb_desc_ep))
-
-#include "usbd_conf.h"
-
-#ifndef CUSTOM_HID_IN_EP
-#define CUSTOM_HID_IN_EP              0x81U
-#endif
-#ifndef CUSTOM_HID_OUT_EP
-#define CUSTOM_HID_OUT_EP             0x01U
-#endif
-#ifndef CUSTOM_HID_IN_PACKET
-#define CUSTOM_HID_IN_PACKET          64U
-#endif
+inline constexpr size_t CONFIG_DESC_SIZE           = sizeof(usb_desc_config) +
+                                                     sizeof(usb_desc_itf) +
+                                                     sizeof(usb::hid::DescHid) +
+                                                     sizeof(usb_desc_ep) +
+                                                     sizeof(usb_desc_ep);
 
 /* Descriptor structure */
+#pragma pack(push, 1)
 typedef struct
 {
     usb_desc_config         config;
@@ -54,9 +43,8 @@ typedef struct
     usb_desc_ep             custom_hid_epin;
     usb_desc_ep             custom_hid_epout;
 } usb_hid_desc_config_set;
+#pragma pack(pop)
 
 extern usb_desc_dev dev_desc;
 extern usb_hid_desc_config_set config_desc;
 extern void *const usbd_strings[];
-
-#endif /* USBD_DESCRIPTORS_H */

@@ -2,8 +2,8 @@
 #include "drivers/usb/usb_ch9.hpp"
 #include <cstring>
 
-#define USBD_VID                     0x28E9
-#define USBD_PID                     0x1234 // Specific PID for Current Monitor
+inline constexpr uint16_t USBD_VID = 0x28E9U;
+inline constexpr uint16_t USBD_PID = 0x1234U; // Specific PID for Current Monitor
 
 /* USB standard device descriptor */
 usb_desc_dev dev_desc = {

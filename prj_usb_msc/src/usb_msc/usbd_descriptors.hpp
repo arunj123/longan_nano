@@ -1,15 +1,13 @@
-#ifndef USBD_DESCRIPTORS_HPP
-#define USBD_DESCRIPTORS_HPP
+#pragma once
 
 #include <cstdint>
 #include "drivers/usb/usb_core.hpp"
 #include "drivers/usb/usbd_core.h"
 #include "usbd_conf.h"
 
-#define USBD_VID                     0x28E9
-#define USBD_PID                     0xABA3 // Fresh PID for Build 00A3 (LNMSC00000A3)
-
-#define MSC_CONFIG_DESC_SIZE         32U
+inline constexpr uint16_t USBD_VID             = 0x28E9U;
+inline constexpr uint16_t USBD_PID             = 0xABA3U; // Fresh PID for Build 00A3 (LNMSC00000A3)
+inline constexpr uint16_t MSC_CONFIG_DESC_SIZE = 32U;
 
 #pragma pack(push, 1)
 struct UsbMscConfigDescSet {
@@ -25,5 +23,3 @@ extern UsbMscConfigDescSet msc_config_desc;
 extern void *const usbd_msc_strings[];
 
 void set_custom_serial_string(const char *ascii_str);
-
-#endif /* USBD_DESCRIPTORS_HPP */

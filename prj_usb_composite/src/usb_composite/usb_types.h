@@ -5,8 +5,7 @@
     \version 2025-02-10, firmware for GD32VF103
 */
 
-#ifndef USB_TYPES_H
-#define USB_TYPES_H
+#pragma once
 
 #include <cstdint>
 #include "usbd_conf.h"
@@ -229,5 +228,3 @@ namespace msc {
 } // namespace usb
 
 #pragma pack()
-
-#endif // USB_TYPES_H

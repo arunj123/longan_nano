@@ -1,17 +1,9 @@
-/*!
-    \file    usbd_msc_mem.h
-    \brief   Header file for the MSC memory interface
-
-    \version 2025-02-10, V1.5.0, firmware for GD32VF103
-*/
-
-#ifndef USBD_MSC_MEM_H
-#define USBD_MSC_MEM_H
+#pragma once
 
 #include "usbd_conf.h"
 #include <cstdint>
 
-#define USBD_STD_INQUIRY_LENGTH          36U
+inline constexpr uint16_t USBD_STD_INQUIRY_LENGTH = 36U;
 
 // This structure defines the function pointers that your storage driver must provide.
 typedef struct {
@@ -37,5 +29,3 @@ usbd_mem_cb& get_msc_mem_fops();
  * @return void
  */
 void msc_mem_pre_init();
-
-#endif /* USBD_MSC_MEM_H */

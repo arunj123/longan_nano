@@ -5,8 +5,7 @@
     \version 2025-02-10, firmware for GD32VF103
 */
 
-#ifndef USB_DEVICE_H
-#define USB_DEVICE_H
+#pragma once
 
 #include "drivers/usb/usb_core.hpp"
 
@@ -145,5 +144,3 @@ private:
     friend bool usb::send_custom_hid_report(const uint8_t*, size_t);
     friend bool usb::is_std_hid_transfer_complete();
 };
-
-#endif // USB_DEVICE_H

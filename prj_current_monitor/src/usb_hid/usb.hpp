@@ -1,5 +1,4 @@
-#ifndef USB_HPP
-#define USB_HPP
+#pragma once
 
 #include <cstdint>
 #include <cstddef>
@@ -15,5 +14,3 @@ namespace usb {
     // Check if the previous transfer is complete
     bool is_transfer_complete();
 } // namespace usb
-
-#endif // USB_HPP

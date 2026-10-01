@@ -1,5 +1,4 @@
-#ifndef DISPLAY_MANAGER_H
-#define DISPLAY_MANAGER_H
+#pragma once
 
 #include <cstdint>
 #include <array>
@@ -100,5 +99,3 @@ private:
 };
 
 } // namespace display
-
-#endif // DISPLAY_MANAGER_H

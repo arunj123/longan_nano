@@ -1,12 +1,13 @@
-#ifndef __LCD_H__
-#define __LCD_H__
+#pragma once
+
+#include <cstdint>
 
 // ------------------------------------------------------------------------
 
-#define LCD_WIDTH               160
-#define LCD_HEIGHT              80
-#define LCD_FRAMEBUFFER_PIXELS  (LCD_WIDTH * LCD_HEIGHT)
-#define LCD_FRAMEBUFFER_BYTES   (LCD_WIDTH * LCD_HEIGHT * 2)
+inline constexpr uint16_t LCD_WIDTH              = 160;
+inline constexpr uint16_t LCD_HEIGHT             = 80;
+inline constexpr uint32_t LCD_FRAMEBUFFER_PIXELS = LCD_WIDTH * LCD_HEIGHT;
+inline constexpr uint32_t LCD_FRAMEBUFFER_BYTES  = LCD_WIDTH * LCD_HEIGHT * 2;
 
 // ------------------------------------------------------------------------
 // Public API for the LCD Driver
@@ -105,5 +106,3 @@ void lcd_fb_disable(void);
 // ------------------------------------------------------------------------
 
 
-
-#endif // __LCD_H__

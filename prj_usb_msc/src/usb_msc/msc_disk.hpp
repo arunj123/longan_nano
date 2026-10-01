@@ -1,9 +1,7 @@
-#ifndef MSC_DISK_HPP
-#define MSC_DISK_HPP
+#pragma once
 
 #include <cstdint>
 #include <cstddef>
-
 #include "hal/time.hpp"
 
 struct MscDiskStats {
@@ -23,5 +21,3 @@ bool msc_disk_ready();
 bool msc_disk_get_capacity(uint32_t &block_count, uint32_t &block_size);
 int8_t msc_disk_read(uint8_t *buf, uint32_t sector_addr, uint32_t sector_count);
 int8_t msc_disk_write(const uint8_t *buf, uint32_t sector_addr, uint32_t sector_count);
-
-#endif /* MSC_DISK_HPP */

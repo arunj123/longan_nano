@@ -1,5 +1,4 @@
-#ifndef USB_HPP
-#define USB_HPP
+#pragma once
 
 #include "drivers/usb/cdc_acm.hpp"
 
@@ -27,5 +26,3 @@ void poll();
 bool is_configured();
 
 } // namespace usb
-
-#endif // USB_HPP

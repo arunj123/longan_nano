@@ -5,13 +5,13 @@
 #include "lcd.h"
 
 // Color definitions (RGB565)
-#define BLACK   0x0000
-#define WHITE   0xFFFF
-#define RED     0xF800
-#define GREEN   0x07E0
-#define BLUE    0x001F
-#define CYAN    0x07FF
-#define YELLOW  0xFFE0
+inline constexpr uint16_t BLACK  = 0x0000;
+inline constexpr uint16_t WHITE  = 0xFFFF;
+inline constexpr uint16_t RED    = 0xF800;
+inline constexpr uint16_t GREEN  = 0x07E0;
+inline constexpr uint16_t BLUE   = 0x001F;
+inline constexpr uint16_t CYAN   = 0x07FF;
+inline constexpr uint16_t YELLOW = 0xFFE0;
 
 namespace display {
 

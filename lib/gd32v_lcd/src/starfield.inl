@@ -4,8 +4,9 @@
 
 // Jenkins hash functions (https://en.wikipedia.org/wiki/Jenkins_hash_function).
 
-#define rot(x,k) (((x)<<(k)) | ((x)>>(32-(k))))
-#define swap(a,b) do { a+=b; b=a-b; a-=b; } while(0)
+constexpr uint32_t rot(uint32_t x, uint32_t k) noexcept {
+    return (x << k) | (x >> (32U - k));
+}
 uint32_t jenkins_mix_3(uint32_t a, uint32_t b, uint32_t c)
 {
     a -= c; a ^= rot(c, 4); c += b;

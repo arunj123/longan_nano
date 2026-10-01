@@ -36,7 +36,7 @@ struct UsbTraceEntry {
     uint8_t  extra[4];
 };
 
-#define USB_TRACE_MAX 64
+inline constexpr size_t USB_TRACE_MAX = 64;
 extern UsbTraceEntry g_usb_trace[USB_TRACE_MAX];
 extern volatile uint8_t g_usb_trace_head;
 extern volatile uint8_t g_usb_trace_tail;

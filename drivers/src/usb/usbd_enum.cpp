@@ -9,14 +9,12 @@
  * @brief Native modern C++23 USB Chapter 9 standard enumeration engine.
  */
 
-#ifndef USB_STRING_COUNT
-#define USB_STRING_COUNT 4U
-#endif
+inline constexpr uint32_t  USB_STRING_COUNT = 4U;
 
-#define DEVICE_ID1 (0x1FFFF7E8U)
-#define DEVICE_ID2 (0x1FFFF7ECU)
-#define DEVICE_ID3 (0x1FFFF7F0U)
-#define DEVICE_ID  (0x40022100U)
+inline constexpr uintptr_t DEVICE_ID1 = 0x1FFFF7E8U;
+inline constexpr uintptr_t DEVICE_ID2 = 0x1FFFF7ECU;
+inline constexpr uintptr_t DEVICE_ID3 = 0x1FFFF7F0U;
+inline constexpr uintptr_t DEVICE_ID  = 0x40022100U;
 
 static uint16_t g_status_val = 0U;
 

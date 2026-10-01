@@ -5,8 +5,7 @@
     \version 2025-02-10, firmware for GD32VF103
 */
 
-#ifndef USB_HPP
-#define USB_HPP
+#pragma once
 
 #include <cstdint>
 
@@ -59,5 +58,3 @@ namespace usb {
     bool send_custom_hid_report(const uint8_t* buffer, size_t length);
 
 } // namespace usb
-
-#endif // USB_HPP

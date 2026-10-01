@@ -34,8 +34,16 @@ enum _usb_feature {
     USB_FEATURE_TEST_MODE     = 0x2U
 };
 
-#define USBD_ENG_LANGID 0x0409U
-#define CTL_EP(ep)      ((0x00U == (ep)) || (0x80U == (ep)))
+inline constexpr uint16_t USBD_ENG_LANGID = 0x0409U;
+
+constexpr bool is_ctl_ep(uint8_t ep) noexcept {
+    return (0x00U == ep) || (0x80U == ep);
+}
+
+// Zero-overhead constexpr compatibility wrapper
+constexpr bool CTL_EP(uint8_t ep) noexcept {
+    return is_ctl_ep(ep);
+}
 
 usb_reqsta usbd_standard_request(usb_core_driver* udev, usb_req* req);
 usb_reqsta usbd_class_request(usb_core_driver* udev, usb_req* req);
