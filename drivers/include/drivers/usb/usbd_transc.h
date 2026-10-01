@@ -1,57 +1,30 @@
-/*!
-    \file    usbd_transc.h
-    \brief   USB transaction core functions prototype
+#pragma once
 
-    \version 2025-02-10, V1.5.0, firmware for GD32VF103
-*/
-
-/*
-    Copyright (c) 2025, GigaDevice Semiconductor Inc.
-
-    Redistribution and use in source and binary forms, with or without modification,
-are permitted provided that the following conditions are met:
-
-    1. Redistributions of source code must retain the above copyright notice, this
-       list of conditions and the following disclaimer.
-    2. Redistributions in binary form must reproduce the above copyright notice,
-       this list of conditions and the following disclaimer in the documentation
-       and/or other materials provided with the distribution.
-    3. Neither the name of the copyright holder nor the names of its contributors
-       may be used to endorse or promote products derived from this software without
-       specific prior written permission.
-
-    THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
-IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT,
-INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
-NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
-PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
-WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY
-OF SUCH DAMAGE.
-*/
-
-#ifndef USBD_TRANSC_H
-#define USBD_TRANSC_H
-
+#include <cstdint>
 #include "usbd_core.h"
 
-/* function declarations */
-/* USB send data in the control transaction */
-usbd_status usbd_ctl_send(usb_core_driver *udev);
-/* USB receive data in the control transaction */
-usbd_status usbd_ctl_recev(usb_core_driver *udev);
-/* USB send control transaction status */
-usbd_status usbd_ctl_status_send(usb_core_driver *udev);
-/* USB control receive status */
-usbd_status usbd_ctl_status_recev(usb_core_driver *udev);
-/* USB SETUP stage processing */
-uint8_t usbd_setup_transc(usb_core_driver *udev);
-/* data OUT stage processing */
-uint8_t usbd_out_transc(usb_core_driver *udev, uint8_t ep_num);
-/* data IN stage processing */
-uint8_t usbd_in_transc(usb_core_driver *udev, uint8_t ep_num);
+/**
+ * @file usbd_transc.h
+ * @brief USB control and bulk transaction stage sequencer.
+ */
+
+enum _usb_ctl_status {
+    USB_CTL_IDLE          = 0U,
+    USB_CTL_DATA_IN       = 1U,
+    USB_CTL_LAST_DATA_IN  = 2U,
+    USB_CTL_DATA_OUT      = 3U,
+    USB_CTL_LAST_DATA_OUT = 4U,
+    USB_CTL_STATUS_IN     = 5U,
+    USB_CTL_STATUS_OUT    = 6U
+};
+
+usbd_status usbd_ctl_send(usb_core_driver* udev);
+usbd_status usbd_ctl_recev(usb_core_driver* udev);
+usbd_status usbd_ctl_status_send(usb_core_driver* udev);
+usbd_status usbd_ctl_status_recev(usb_core_driver* udev);
+uint8_t usbd_setup_transc(usb_core_driver* udev);
+uint8_t usbd_out_transc(usb_core_driver* udev, uint8_t ep_num);
+uint8_t usbd_in_transc(usb_core_driver* udev, uint8_t ep_num);
 
 struct UsbTraceEntry {
     uint8_t  type; // 0=SETUP, 1=IN_TF, 2=TXFE, 3=OUT_TF, 4=STATUS_RECV
@@ -68,6 +41,4 @@ extern UsbTraceEntry g_usb_trace[USB_TRACE_MAX];
 extern volatile uint8_t g_usb_trace_head;
 extern volatile uint8_t g_usb_trace_tail;
 
-void usb_trace_record(uint8_t type, uint8_t ep_num, uint8_t ctl_state, uint8_t status, uint16_t val1, uint16_t val2, const uint8_t *extra = nullptr);
-
-#endif /* USBD_TRANSC_H */
+void usb_trace_record(uint8_t type, uint8_t ep_num, uint8_t ctl_state, uint8_t status, uint16_t val1, uint16_t val2, const uint8_t* extra = nullptr);

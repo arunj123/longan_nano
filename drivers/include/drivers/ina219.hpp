@@ -53,14 +53,6 @@ public:
         Calibration  = 0x05,
     };
 
-    // Legacy register constant definitions for backwards compatibility
-    static constexpr uint8_t REG_CONFIG      = std::to_underlying(Register::Config);
-    static constexpr uint8_t REG_SHUNT_V     = std::to_underlying(Register::ShuntVoltage);
-    static constexpr uint8_t REG_BUS_V       = std::to_underlying(Register::BusVoltage);
-    static constexpr uint8_t REG_POWER       = std::to_underlying(Register::Power);
-    static constexpr uint8_t REG_CURRENT     = std::to_underlying(Register::Current);
-    static constexpr uint8_t REG_CALIBRATION = std::to_underlying(Register::Calibration);
-
     /**
      * @brief Initialize INA219 with shunt calibration.
      * @param write_fn Callable satisfying I2cWriteFn.

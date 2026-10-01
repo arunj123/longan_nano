@@ -69,7 +69,7 @@ alignas(4) UsbMscConfigDescSet msc_config_desc = {
 static constexpr auto usbd_language_id_desc = make_language_id_descriptor(0x0409U);
 
 /* USB manufacture string */
-static constexpr auto manufacturer_string   = make_string_descriptor("Sipeed");
+static constexpr auto manufacturer_string   = make_string_descriptor("Longan Nano");
 
 /* USB product string */
 static constexpr auto product_string        = make_string_descriptor("Longan Nano SD Reader");

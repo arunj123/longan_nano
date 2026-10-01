@@ -1,807 +1,357 @@
-/*!
-    \file    usbd_enum.c
-    \brief   USB enumeration function
-
-    \version 2025-02-10, V1.5.0, firmware for GD32VF103
-*/
-
-/*
-    Copyright (c) 2025, GigaDevice Semiconductor Inc.
-
-    Redistribution and use in source and binary forms, with or without modification,
-are permitted provided that the following conditions are met:
-
-    1. Redistributions of source code must retain the above copyright notice, this
-       list of conditions and the following disclaimer.
-    2. Redistributions in binary form must reproduce the above copyright notice,
-       this list of conditions and the following disclaimer in the documentation
-       and/or other materials provided with the distribution.
-    3. Neither the name of the copyright holder nor the names of its contributors
-       may be used to endorse or promote products derived from this software without
-       specific prior written permission.
-
-    THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
-IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT,
-INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
-NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
-PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
-WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY
-OF SUCH DAMAGE.
-*/
-
 #include "usbd_enum.h"
+#include "usbd_transc.h"
+#include "hal/time.hpp"
+#include <algorithm>
+#include <cstring>
 
-#ifdef WINUSB_EXEMPT_DRIVER
+/**
+ * @file usbd_enum.cpp
+ * @brief Native modern C++23 USB Chapter 9 standard enumeration engine.
+ */
 
-extern usbd_status usbd_OEM_req(usb_dev *udev, usb_req *req);
-
-#endif /* WINUSB_EXEMPT_DRIVER */
-
-/* local function prototypes ('static') */
-static usb_reqsta _usb_std_reserved(usb_core_driver *udev, usb_req *req);
-static uint8_t *_usb_dev_desc_get(usb_core_driver *udev, uint8_t index, uint16_t *len);
-static uint8_t *_usb_config_desc_get(usb_core_driver *udev, uint8_t index, uint16_t *len);
-static uint8_t *_usb_bos_desc_get(usb_core_driver *udev, uint8_t index, uint16_t *len);
-static uint8_t *_usb_str_desc_get(usb_core_driver *udev, uint8_t index, uint16_t *len);
-static usb_reqsta _usb_std_getstatus(usb_core_driver *udev, usb_req *req);
-static usb_reqsta _usb_std_clearfeature(usb_core_driver *udev, usb_req *req);
-static usb_reqsta _usb_std_setfeature(usb_core_driver *udev, usb_req *req);
-static usb_reqsta _usb_std_setaddress(usb_core_driver *udev, usb_req *req);
-static usb_reqsta _usb_std_getdescriptor(usb_core_driver *udev, usb_req *req);
-static usb_reqsta _usb_std_setdescriptor(usb_core_driver *udev, usb_req *req);
-static usb_reqsta _usb_std_getconfiguration(usb_core_driver *udev, usb_req *req);
-static usb_reqsta _usb_std_setconfiguration(usb_core_driver *udev, usb_req *req);
-static usb_reqsta _usb_std_getinterface(usb_core_driver *udev, usb_req *req);
-static usb_reqsta _usb_std_setinterface(usb_core_driver *udev, usb_req *req);
-static usb_reqsta _usb_std_synchframe(usb_core_driver *udev, usb_req *req);
-
-static usb_reqsta(*_std_dev_req[])(usb_core_driver *udev, usb_req *req) = {
-    _usb_std_getstatus,          /* USB_GET_STATUS (0) */
-    _usb_std_clearfeature,        /* USB_CLEAR_FEATURE (1) */
-    _usb_std_reserved,            /* USB_RESERVED2 (2) */
-    _usb_std_setfeature,          /* USB_SET_FEATURE (3) */
-    _usb_std_reserved,            /* USB_RESERVED4 (4) */
-    _usb_std_setaddress,          /* USB_SET_ADDRESS (5) */
-    _usb_std_getdescriptor,       /* USB_GET_DESCRIPTOR (6) */
-    _usb_std_setdescriptor,       /* USB_SET_DESCRIPTOR (7) */
-    _usb_std_getconfiguration,    /* USB_GET_CONFIGURATION (8) */
-    _usb_std_setconfiguration,    /* USB_SET_CONFIGURATION (9) */
-    _usb_std_getinterface,        /* USB_GET_INTERFACE (10) */
-    _usb_std_setinterface,        /* USB_SET_INTERFACE (11) */
-    _usb_std_synchframe           /* USB_SYNCH_FRAME (12) */
-};
-
-/* get standard descriptor handler */
-static uint8_t *(*std_desc_get[])(usb_core_driver *udev, uint8_t index, uint16_t *len) = {
-    _usb_dev_desc_get,           /* USB_DESCTYPE_DEV - 1U (0) */
-    _usb_config_desc_get,        /* USB_DESCTYPE_CONFIG - 1U (1) */
-    _usb_str_desc_get            /* USB_DESCTYPE_STR - 1U (2) */
-};
-
-/*!
-    \brief      handle USB standard device request
-    \param[in]  udev: pointer to USB device instance
-    \param[in]  req: pointer to USB device request
-    \param[out] none
-    \retval     USB device request status
-*/
-usb_reqsta usbd_standard_request(usb_core_driver *udev, usb_req *req)
-{
-    if (req->bRequest > 12U) {
-        return REQ_NOTSUPP;
-    }
-    return (*_std_dev_req[req->bRequest])(udev, req);
-}
-
-/*!
-    \brief      handle USB device class request
-    \param[in]  udev: pointer to USB device instance
-    \param[in]  req: pointer to USB device class request
-    \param[out] none
-    \retval     USB device request status
-*/
-usb_reqsta usbd_class_request(usb_core_driver *udev, usb_req *req)
-{
-    if((uint8_t)USBD_CONFIGURED == udev->dev.cur_status) {
-        if(BYTE_LOW(req->wIndex) <= USBD_ITF_MAX_NUM) {
-            /* call device class handle function */
-            return (usb_reqsta)udev->dev.class_core->req_proc(udev, req);
-        }
-    }
-
-    return REQ_NOTSUPP;
-}
-
-/*!
-    \brief      handle USB vendor request
-    \param[in]  udev: pointer to USB device instance
-    \param[in]  req: pointer to USB vendor request
-    \param[out] none
-    \retval     USB device request status
-*/
-usb_reqsta usbd_vendor_request(usb_core_driver *udev, usb_req *req)
-{
-    (void)udev;
-    (void)req;
-
-    /* added by user... */
-#ifdef WINUSB_EXEMPT_DRIVER
-    usbd_OEM_req(udev, req);
+#ifndef USB_STRING_COUNT
+#define USB_STRING_COUNT 4U
 #endif
 
-    return REQ_SUPP;
-}
+#define DEVICE_ID1 (0x1FFFF7E8U)
+#define DEVICE_ID2 (0x1FFFF7ECU)
+#define DEVICE_ID3 (0x1FFFF7F0U)
+#define DEVICE_ID  (0x40022100U)
 
-/*!
-    \brief      handle USB enumeration error
-    \param[in]  udev: pointer to USB device instance
-    \param[in]  req: pointer to USB device request
-    \param[out] none
-    \retval     none
-*/
-void usbd_enum_error(usb_core_driver *udev, usb_req *req)
-{
-    udev->dev.control.ctl_state = (uint8_t)USB_CTL_IDLE;
+static uint16_t g_status_val = 0U;
+
+void usbd_enum_error(usb_core_driver* udev, usb_req* req) {
+    udev->dev.control.ctl_state = 0U; // USB_CTL_IDLE
 
     if (req != nullptr && (req->bmRequestType & 0x80U)) {
-        // Control IN request failed: stall EP0 IN
-        (void)usbd_ep_stall(udev, 0x80U);
+        usbd_ep_stall(udev, 0x80U);
     } else {
-        // Control OUT / no-data request failed: stall EP0 OUT
-        (void)usbd_ep_stall(udev, 0x00U);
+        usbd_ep_stall(udev, 0x00U);
     }
 
     usb_ctlep_startout(udev);
 }
 
-/*!
-    \brief      convert hex 32bits value into unicode char
-    \param[in]  value: hex 32bits value
-    \param[in]  pbuf: buffer pointer to store unicode char
-    \param[in]  len: value length
-    \param[out] none
-    \retval     none
-*/
-void int_to_unicode(uint32_t value, uint8_t *pbuf, uint8_t len)
-{
-    uint8_t index;
-
-    for(index = 0U; index < len; index++) {
-        if((value >> 28) < 0x0AU) {
-            pbuf[2 * index] = (uint8_t)((value >> 28) + '0');
+void int_to_unicode(uint32_t value, uint8_t* pbuf, uint8_t len) {
+    for (uint8_t index = 0U; index < len; ++index) {
+        if ((value >> 28) < 0x0AU) {
+            pbuf[2 * index] = static_cast<uint8_t>((value >> 28) + '0');
         } else {
-            pbuf[2 * index] = (uint8_t)((value >> 28) + 'A' - 10U);
+            pbuf[2 * index] = static_cast<uint8_t>((value >> 28) + 'A' - 10U);
         }
-
-        value = value << 4;
-
+        value <<= 4;
         pbuf[2U * index + 1U] = 0U;
     }
 }
 
-/*!
-    \brief      convert hex 32bits value into unicode char
-    \param[in]  unicode_str: pointer to unicode string
-    \param[out] none
-    \retval     none
-*/
-void serial_string_get(uint16_t *unicode_str)
-{
+void serial_string_get(uint16_t* unicode_str) {
     if (unicode_str[1] != 0) {
-        return; // Custom serial number already set by application — preserve it
+        return; // Custom serial number already set by application
     }
 
-    if(6U != (unicode_str[0] & 0x00FFU)) {
-        uint32_t DeviceSerial0, DeviceSerial1, DeviceSerial2;
+    if (6U != (unicode_str[0] & 0x00FFU)) {
+        uint32_t d0 = *reinterpret_cast<const volatile uint32_t*>(DEVICE_ID1);
+        uint32_t d1 = *reinterpret_cast<const volatile uint32_t*>(DEVICE_ID2);
+        uint32_t d2 = *reinterpret_cast<const volatile uint32_t*>(DEVICE_ID3);
+        d0 += d2;
 
-        DeviceSerial0 = *(uint32_t *)DEVICE_ID1;
-        DeviceSerial1 = *(uint32_t *)DEVICE_ID2;
-        DeviceSerial2 = *(uint32_t *)DEVICE_ID3;
-
-        DeviceSerial0 += DeviceSerial2;
-
-        if(0U != DeviceSerial0) {
-            int_to_unicode(DeviceSerial0, (uint8_t *)&(unicode_str[1]), 8U);
-            int_to_unicode(DeviceSerial1, (uint8_t *)&(unicode_str[9]), 4U);
+        if (d0 != 0U) {
+            int_to_unicode(d0, reinterpret_cast<uint8_t*>(&unicode_str[1]), 8U);
+            int_to_unicode(d1, reinterpret_cast<uint8_t*>(&unicode_str[9]), 4U);
         }
     } else {
-        uint32_t device_serial = *(uint32_t *)DEVICE_ID;
-
-        if(0U != device_serial) {
-            unicode_str[1] = (uint16_t)(device_serial & 0x0000FFFFU);
-            unicode_str[2] = (uint16_t)((device_serial & 0xFFFF0000U) >> 16);
-
+        uint32_t d = *reinterpret_cast<const volatile uint32_t*>(DEVICE_ID);
+        if (d != 0U) {
+            unicode_str[1] = static_cast<uint16_t>(d & 0xFFFFU);
+            unicode_str[2] = static_cast<uint16_t>((d >> 16) & 0xFFFFU);
         }
     }
 }
 
-/*!
-    \brief      no operation, just for reserved
-    \param[in]  udev: pointer to USB device instance
-    \param[in]  req: pointer to USB vendor request
-    \param[out] none
-    \retval     USB device request status
-*/
-static usb_reqsta _usb_std_reserved(usb_core_driver *udev, usb_req *req)
-{
-    (void)udev;
-    (void)req;
+static usb_reqsta handle_get_status(usb_core_driver* udev, usb_req* req) {
+    g_status_val = 0U;
 
-    /* no operation... */
-
-    return REQ_NOTSUPP;
-}
-
-/*!
-    \brief      get the device descriptor
-    \param[in]  udev: pointer to USB device instance
-    \param[in]  index: no use
-    \param[out] len: data length pointer
-    \retval     descriptor buffer pointer
-*/
-static uint8_t *_usb_dev_desc_get(usb_core_driver *udev, uint8_t index, uint16_t *len)
-{
-    (void)index;
-
-    *len = udev->dev.desc->dev_desc[0];
-
-    return udev->dev.desc->dev_desc;
-}
-
-/*!
-    \brief      get the configuration descriptor
-    \brief[in]  udev: pointer to USB device instance
-    \brief[in]  index: no use
-    \param[out] len: data length pointer
-    \retval     descriptor buffer pointer
-*/
-static uint8_t *_usb_config_desc_get(usb_core_driver *udev, uint8_t index, uint16_t *len)
-{
-    (void)index;
-
-    *len = udev->dev.desc->config_desc[2] | (udev->dev.desc->config_desc[3] << 8);
-
-    return udev->dev.desc->config_desc;
-}
-
-/*!
-    \brief      get the BOS descriptor
-    \brief[in]  udev: pointer to USB device instance
-    \brief[in]  index: no use
-    \param[out] len: data length pointer
-    \retval     descriptor buffer pointer
-*/
-static uint8_t *_usb_bos_desc_get(usb_core_driver *udev, uint8_t index, uint16_t *len)
-{
-    (void)index;
-
-    if (udev->dev.desc->bos_desc == nullptr) {
-        *len = 0U;
-        return nullptr;
-    }
-
-    *len = udev->dev.desc->bos_desc[2];
-
-    return udev->dev.desc->bos_desc;
-}
-
-/*!
-    \brief      get string descriptor
-    \param[in]  udev: pointer to USB device instance
-    \param[in]  index: string descriptor index
-    \param[out] len: pointer to string length
-    \retval     descriptor buffer pointer
-*/
-static uint8_t *_usb_str_desc_get(usb_core_driver *udev, uint8_t index, uint16_t *len)
-{
-#ifndef USB_STRING_COUNT
-#define USB_STRING_COUNT 4U
-#endif
-    if (index >= USB_STRING_COUNT || udev->dev.desc->strings[index] == nullptr) {
-        *len = 0;
-        return nullptr;
-    }
-
-    uint8_t *desc = (uint8_t *)udev->dev.desc->strings[index];
-
-    *len = desc[0];
-
-    return desc;
-}
-
-/*!
-    \brief      handle Get_Status request
-    \param[in]  udev: pointer to USB device instance
-    \param[in]  req: pointer to USB device request
-    \param[out] none
-    \retval     USB device request status
-*/
-static usb_reqsta _usb_std_getstatus(usb_core_driver *udev, usb_req *req)
-{
-    uint8_t recp = BYTE_LOW(req->wIndex);
-    usb_reqsta req_status = REQ_NOTSUPP;
-    usb_transc *transc = &udev->dev.transc_in[0];
-
-    static uint8_t status[2] = {0};
-
-    switch(req->bmRequestType & (uint8_t)USB_RECPTYPE_MASK) {
-    case USB_RECPTYPE_DEV:
-        if(((uint8_t)USBD_ADDRESSED == udev->dev.cur_status) || \
-                ((uint8_t)USBD_CONFIGURED == udev->dev.cur_status)) {
-
-            if(udev->dev.pm.power_mode) {
-                status[0] = USB_STATUS_SELF_POWERED;
-            } else {
-                status[0] = 0U;
+    switch (req->bmRequestType & USB_RECPTYPE_MASK) {
+        case USB_RECPTYPE_DEV:
+            if (udev->dev.cur_status == USBD_ADDRESSED || udev->dev.cur_status == USBD_CONFIGURED) {
+                if (udev->dev.pm.dev_remote_wakeup) {
+                    g_status_val |= USB_STATUS_REMOTE_WAKEUP;
+                }
+                g_status_val |= USB_STATUS_SELF_POWERED;
             }
+            break;
 
-            if(udev->dev.pm.dev_remote_wakeup) {
-                status[0] |= USB_STATUS_REMOTE_WAKEUP;
-            } else {
-                status[0] = 0U;
+        case USB_RECPTYPE_ITF:
+            if (udev->dev.cur_status != USBD_CONFIGURED) {
+                return REQ_NOTSUPP;
             }
+            break;
 
-            req_status = REQ_SUPP;
-        }
-        break;
+        case USB_RECPTYPE_EP: {
+            uint8_t ep_addr = static_cast<uint8_t>(req->wIndex);
+            uint8_t ep_num = EP_ID(ep_addr);
+            if (ep_num >= 4U) return REQ_NOTSUPP;
 
-    case USB_RECPTYPE_ITF:
-        if(((uint8_t)USBD_CONFIGURED == udev->dev.cur_status) && (recp <= USBD_ITF_MAX_NUM)) {
-            req_status = REQ_SUPP;
-        }
-        break;
-
-    case USB_RECPTYPE_EP:
-        if((uint8_t)USBD_CONFIGURED == udev->dev.cur_status) {
-            if(0x80U == (recp & 0x80U)) {
-                status[0] = udev->dev.transc_in[EP_ID(recp)].ep_stall;
+            if (EP_DIR(ep_addr)) {
+                if (udev->regs.er_in[ep_num]->DIEPCTL & DEPCTL_STALL) {
+                    g_status_val = 1U;
+                }
             } else {
-                status[0] = udev->dev.transc_out[recp].ep_stall;
+                if (udev->regs.er_out[ep_num]->DOEPCTL & DEPCTL_STALL) {
+                    g_status_val = 1U;
+                }
             }
-
-            req_status = REQ_SUPP;
+            break;
         }
-        break;
 
-    default:
-        break;
+        default:
+            return REQ_NOTSUPP;
     }
 
-    if(REQ_SUPP == req_status) {
-        transc->xfer_buf = status;
-        transc->remain_len = 2U;
-    }
-
-    return req_status;
+    usb_transc* transc = &udev->dev.transc_in[0];
+    transc->xfer_buf = reinterpret_cast<uint8_t*>(&g_status_val);
+    transc->remain_len = 2U;
+    return REQ_SUPP;
 }
 
-/*!
-    \brief      handle USB Clear_Feature request
-    \param[in]  udev: pointer to USB device instance
-    \param[in]  req: USB device request
-    \param[out] none
-    \retval     USB device request status
-*/
-static usb_reqsta _usb_std_clearfeature(usb_core_driver *udev, usb_req *req)
-{
-    uint8_t ep = 0U;
-
-    switch(req->bmRequestType & (uint8_t)USB_RECPTYPE_MASK) {
-    case USB_RECPTYPE_DEV:
-        if(((uint8_t)USBD_ADDRESSED == udev->dev.cur_status) || \
-                ((uint8_t)USBD_CONFIGURED == udev->dev.cur_status)) {
-
-            /* clear device remote wakeup feature */
-            if((uint16_t)USB_FEATURE_REMOTE_WAKEUP == req->wValue) {
+static usb_reqsta handle_clear_feature(usb_core_driver* udev, usb_req* req) {
+    switch (req->bmRequestType & USB_RECPTYPE_MASK) {
+        case USB_RECPTYPE_DEV:
+            if (req->wValue == FEATURE_SELECTOR_REMOTEWAKEUP) {
                 udev->dev.pm.dev_remote_wakeup = 0U;
-
                 return REQ_SUPP;
             }
-        }
-        break;
-
-    case USB_RECPTYPE_ITF:
-        break;
-
-    case USB_RECPTYPE_EP:
-        /* get endpoint address */
-        ep = BYTE_LOW(req->wIndex);
-
-        if((uint8_t)USBD_CONFIGURED == udev->dev.cur_status) {
-            /* clear endpoint halt feature */
-            if(((uint16_t)USB_FEATURE_EP_HALT == req->wValue) && (!CTL_EP(ep))) {
-                (void)usbd_ep_stall_clear(udev, ep);
-
-                (void)udev->dev.class_core->req_proc(udev, req);
-            }
-
-            return REQ_SUPP;
-        }
-        break;
-
-    default:
-        break;
-    }
-
-    return REQ_NOTSUPP;
-}
-
-/*!
-    \brief      handle USB Set_Feature request
-    \param[in]  udev: pointer to USB device instance
-    \param[in]  req: pointer to USB device request
-    \param[out] none
-    \retval     USB device request status
-*/
-static usb_reqsta _usb_std_setfeature(usb_core_driver *udev, usb_req *req)
-{
-    uint8_t ep = 0U;
-
-    switch(req->bmRequestType & (uint8_t)USB_RECPTYPE_MASK) {
-    case USB_RECPTYPE_DEV:
-        if(((uint8_t)USBD_ADDRESSED == udev->dev.cur_status) || \
-                ((uint8_t)USBD_CONFIGURED == udev->dev.cur_status)) {
-            /* set device remote wakeup feature */
-            if((uint16_t)USB_FEATURE_REMOTE_WAKEUP == req->wValue) {
-                udev->dev.pm.dev_remote_wakeup = 1U;
-            }
-
-            return REQ_SUPP;
-        }
-        break;
-
-    case USB_RECPTYPE_ITF:
-        break;
-
-    case USB_RECPTYPE_EP:
-        /* get endpoint address */
-        ep = BYTE_LOW(req->wIndex);
-
-        if((uint8_t)USBD_CONFIGURED == udev->dev.cur_status) {
-            /* set endpoint halt feature */
-            if(((uint16_t)USB_FEATURE_EP_HALT == req->wValue) && (!CTL_EP(ep))) {
-                (void)usbd_ep_stall(udev, ep);
-            }
-
-            return REQ_SUPP;
-        }
-        break;
-
-    default:
-        break;
-    }
-
-    return REQ_NOTSUPP;
-}
-
-/*!
-    \brief      handle USB Set_Address request
-    \param[in]  udev: pointer to USB device instance
-    \param[in]  req: pointer to USB device request
-    \param[out] none
-    \retval     USB device request status
-*/
-static usb_reqsta _usb_std_setaddress(usb_core_driver *udev, usb_req *req)
-{
-    if((0U == req->wIndex) && (0U == req->wLength)) {
-        udev->dev.dev_addr = (uint8_t)(req->wValue) & 0x7FU;
-
-        if((uint8_t)USBD_CONFIGURED != udev->dev.cur_status) {
-            usbd_addr_set(udev, udev->dev.dev_addr);
-
-            if(udev->dev.dev_addr) {
-                udev->dev.cur_status = (uint8_t)USBD_ADDRESSED;
-            } else {
-                udev->dev.cur_status = (uint8_t)USBD_DEFAULT;
-            }
-
-            return REQ_SUPP;
-        }
-    }
-
-    return REQ_NOTSUPP;
-}
-
-/*!
-    \brief      handle USB Get_Descriptor request
-    \param[in]  udev: pointer to USB device instance
-    \param[in]  req: pointer to USB device request
-    \param[out] none
-    \retval     USB device request status
-*/
-static usb_reqsta _usb_std_getdescriptor(usb_core_driver *udev, usb_req *req)
-{
-    uint8_t desc_type = 0U;
-    uint8_t desc_index = 0U;
-
-    usb_reqsta status = REQ_NOTSUPP;
-
-    usb_transc *transc = &udev->dev.transc_in[0];
-    transc->remain_len = 0U;
-    transc->xfer_buf = nullptr;
-    udev->dev.control.ctl_zlp = 0U;
-
-    /* get device standard descriptor */
-    switch(req->bmRequestType & USB_RECPTYPE_MASK) {
-    case USB_RECPTYPE_DEV:
-        desc_type = BYTE_HIGH(req->wValue);
-        desc_index = BYTE_LOW(req->wValue);
-
-        switch(desc_type) {
-        case USB_DESCTYPE_DEV:
-            transc->xfer_buf = std_desc_get[desc_type - 1U](udev, desc_index, (uint16_t *)&(transc->remain_len));
-
-            if(64U == req->wLength) {
-                transc->remain_len = 8U;
-            }
             break;
 
-        case USB_DESCTYPE_CONFIG:
-            transc->xfer_buf = std_desc_get[desc_type - 1U](udev, desc_index, (uint16_t *)&(transc->remain_len));
-            break;
+        case USB_RECPTYPE_EP:
+            if (req->wValue == FEATURE_SELECTOR_EP) {
+                uint8_t ep_addr = static_cast<uint8_t>(req->wIndex);
+                uint8_t ep_num = EP_ID(ep_addr);
+                if (ep_num >= 4U) return REQ_NOTSUPP;
 
-        case USB_DESCTYPE_STR:
-            if(desc_index < USB_STRING_COUNT && udev->dev.desc->strings[desc_index] != nullptr) {
-                transc->xfer_buf = std_desc_get[desc_type - 1U](udev, desc_index, (uint16_t *)&(transc->remain_len));
-            } else {
-                transc->remain_len = 0U;
-                transc->xfer_buf = nullptr;
-                return REQ_NOTSUPP;
-            }
-            break;
-
-        case USB_DESCTYPE_ITF:
-        case USB_DESCTYPE_EP:
-        case USB_DESCTYPE_DEV_QUALIFIER:
-        case USB_DESCTYPE_OTHER_SPD_CONFIG:
-        case USB_DESCTYPE_ITF_POWER:
-            break;
-
-        case USB_DESCTYPE_BOS:
-            if (udev->dev.desc->bos_desc != nullptr) {
-                transc->xfer_buf = _usb_bos_desc_get(udev, desc_index, (uint16_t *)&(transc->remain_len));
-            } else {
-                transc->remain_len = 0U;
-                transc->xfer_buf = nullptr;
-                return REQ_NOTSUPP;
+                usbd_ep_stall_clear(udev, ep_addr);
+                return REQ_SUPP;
             }
             break;
 
         default:
             break;
-        }
-        break;
-
-    case USB_RECPTYPE_ITF:
-        /* get device class special descriptor */
-        status = (usb_reqsta)(udev->dev.class_core->req_proc(udev, req));
-        if(status != REQ_SUPP || 0U == transc->remain_len || transc->xfer_buf == nullptr) {
-            transc->remain_len = 0U;
-            transc->xfer_buf = nullptr;
-            return REQ_NOTSUPP;
-        }
-        break;
-
-    case USB_RECPTYPE_EP:
-        break;
-
-    default:
-        break;
     }
 
-    if((nullptr != transc->xfer_buf) && (0U != transc->remain_len) && (0U != req->wLength)) {
-        if(transc->remain_len < req->wLength) {
-            if((transc->remain_len >= transc->max_len) && (0U == (transc->remain_len % transc->max_len))) {
+    return REQ_NOTSUPP;
+}
+
+static usb_reqsta handle_set_feature(usb_core_driver* udev, usb_req* req) {
+    switch (req->bmRequestType & USB_RECPTYPE_MASK) {
+        case USB_RECPTYPE_DEV:
+            if (req->wValue == FEATURE_SELECTOR_REMOTEWAKEUP) {
+                udev->dev.pm.dev_remote_wakeup = 1U;
+                return REQ_SUPP;
+            }
+            break;
+
+        case USB_RECPTYPE_EP:
+            if (req->wValue == FEATURE_SELECTOR_EP) {
+                uint8_t ep_addr = static_cast<uint8_t>(req->wIndex);
+                uint8_t ep_num = EP_ID(ep_addr);
+                if (ep_num >= 4U) return REQ_NOTSUPP;
+
+                usbd_ep_stall(udev, ep_addr);
+                return REQ_SUPP;
+            }
+            break;
+
+        default:
+            break;
+    }
+
+    return REQ_NOTSUPP;
+}
+
+static usb_reqsta handle_set_address(usb_core_driver* udev, usb_req* req) {
+    if (0U == req->wIndex && 0U == req->wLength) {
+        udev->dev.dev_addr = static_cast<uint8_t>(req->wValue & 0x7FU);
+        if (udev->dev.cur_status != USBD_CONFIGURED) {
+            usbd_addr_set(udev, udev->dev.dev_addr);
+            udev->dev.cur_status = (udev->dev.dev_addr != 0U) ? USBD_ADDRESSED : USBD_DEFAULT;
+            return REQ_SUPP;
+        }
+    }
+    return REQ_NOTSUPP;
+}
+
+static usb_reqsta handle_get_descriptor(usb_core_driver* udev, usb_req* req) {
+    uint8_t desc_type = BYTE_HIGH(req->wValue);
+    uint8_t desc_index = BYTE_LOW(req->wValue);
+
+    usb_transc* transc = &udev->dev.transc_in[0];
+    transc->remain_len = 0U;
+    transc->xfer_buf = nullptr;
+    udev->dev.control.ctl_zlp = 0U;
+
+    switch (req->bmRequestType & USB_RECPTYPE_MASK) {
+        case USB_RECPTYPE_DEV:
+            switch (desc_type) {
+                case USB_DESCTYPE_DEV:
+                    transc->xfer_buf = udev->dev.desc->dev_desc;
+                    transc->remain_len = udev->dev.desc->dev_desc[0];
+
+                    // Windows xHCI Initial 8-Byte Probe Invariant
+                    if (64U == req->wLength) {
+                        transc->remain_len = 8U;
+                    }
+                    break;
+
+                case USB_DESCTYPE_CONFIG:
+                    transc->xfer_buf = udev->dev.desc->config_desc;
+                    transc->remain_len = static_cast<uint16_t>(udev->dev.desc->config_desc[2] | (udev->dev.desc->config_desc[3] << 8));
+                    break;
+
+                case USB_DESCTYPE_STR:
+                    if (desc_index < USB_STRING_COUNT && udev->dev.desc->strings[desc_index] != nullptr) {
+                        transc->xfer_buf = reinterpret_cast<uint8_t*>(const_cast<void*>(udev->dev.desc->strings[desc_index]));
+                        transc->remain_len = transc->xfer_buf[0];
+                    } else {
+                        return REQ_NOTSUPP;
+                    }
+                    break;
+
+                case USB_DESCTYPE_BOS:
+                    if (udev->dev.desc->bos_desc != nullptr) {
+                        transc->xfer_buf = udev->dev.desc->bos_desc;
+                        transc->remain_len = udev->dev.desc->bos_desc[2];
+                    } else {
+                        return REQ_NOTSUPP;
+                    }
+                    break;
+
+                default:
+                    return REQ_NOTSUPP;
+            }
+            break;
+
+        case USB_RECPTYPE_ITF:
+            if (udev->dev.class_core && udev->dev.class_core->req_proc) {
+                auto status = udev->dev.class_core->req_proc(udev, req);
+                if (status != 0U || 0U == transc->remain_len || transc->xfer_buf == nullptr) {
+                    transc->remain_len = 0U;
+                    transc->xfer_buf = nullptr;
+                    return REQ_NOTSUPP;
+                }
+            } else {
+                return REQ_NOTSUPP;
+            }
+            break;
+
+        default:
+            return REQ_NOTSUPP;
+    }
+
+    if (transc->xfer_buf != nullptr && transc->remain_len != 0U && req->wLength != 0U) {
+        if (transc->remain_len < req->wLength) {
+            if (transc->remain_len >= transc->max_len && (transc->remain_len % transc->max_len == 0U)) {
                 udev->dev.control.ctl_zlp = 1U;
             }
         } else {
             transc->remain_len = req->wLength;
         }
-
-        status = REQ_SUPP;
-    } else {
-        status = REQ_NOTSUPP;
+        return REQ_SUPP;
     }
 
-    return status;
+    return REQ_NOTSUPP;
 }
 
-/*!
-    \brief      handle USB Set_Descriptor request
-    \param[in]  udev: pointer to USB device instance
-    \param[in]  req: pointer to USB device request
-    \param[out] none
-    \retval     USB device request status
-*/
-static usb_reqsta _usb_std_setdescriptor(usb_core_driver *udev, usb_req *req)
-{
-    (void)udev;
-    (void)req;
+static uint8_t g_config_val = 0U;
 
-    /* no handle... */
+static usb_reqsta handle_get_configuration(usb_core_driver* udev, [[maybe_unused]] usb_req* req) {
+    g_config_val = udev->dev.config;
+    usb_transc* transc = &udev->dev.transc_in[0];
+    transc->xfer_buf = &g_config_val;
+    transc->remain_len = 1U;
     return REQ_SUPP;
 }
 
-/*!
-    \brief      handle USB Get_Configuration request
-    \param[in]  udev: pointer to USB device instance
-    \param[in]  req: pointer to USB device request
-    \param[out] none
-    \retval     USB device request status
-*/
-static usb_reqsta _usb_std_getconfiguration(usb_core_driver *udev, usb_req *req)
-{
-    (void)req;
+static usb_reqsta handle_set_configuration(usb_core_driver* udev, usb_req* req) {
+    uint8_t cfg_idx = static_cast<uint8_t>(req->wValue);
 
-    usb_reqsta req_status = REQ_NOTSUPP;
-    usb_transc *transc = &udev->dev.transc_in[0];
-
-    switch(udev->dev.cur_status) {
-    case USBD_ADDRESSED:
-        if(USB_DEFAULT_CONFIG == udev->dev.config) {
-            req_status = REQ_SUPP;
-        }
-        break;
-
-    case USBD_CONFIGURED:
-        if(USB_DEFAULT_CONFIG != udev->dev.config) {
-            req_status = REQ_SUPP;
-        }
-        break;
-
-    default:
-        break;
+    if (cfg_idx > 1U) {
+        return REQ_NOTSUPP;
     }
 
-    if(REQ_SUPP == req_status) {
-        transc->xfer_buf = &(udev->dev.config);
-        transc->remain_len = 1U;
-    }
-
-    return req_status;
-}
-
-/*!
-    \brief      handle USB Set_Configuration request
-    \param[in]  udev: pointer to USB device instance
-    \param[in]  req: pointer to USB device request
-    \param[out] none
-    \retval     USB device request status
-*/
-static usb_reqsta _usb_std_setconfiguration(usb_core_driver *udev, usb_req *req)
-{
-    static uint8_t config;
-    usb_reqsta status = REQ_NOTSUPP;
-
-    config = (uint8_t)(req->wValue);
-
-    if(config <= USBD_CFG_MAX_NUM) {
-        switch(udev->dev.cur_status) {
+    switch (udev->dev.cur_status) {
         case USBD_ADDRESSED:
-            if(config) {
-                (void)udev->dev.class_core->init(udev, config);
-
-                udev->dev.config = config;
-                udev->dev.cur_status = (uint8_t)USBD_CONFIGURED;
+            if (cfg_idx) {
+                udev->dev.config = cfg_idx;
+                udev->dev.cur_status = USBD_CONFIGURED;
+                if (udev->dev.class_core && udev->dev.class_core->init) {
+                    udev->dev.class_core->init(udev, cfg_idx);
+                }
             }
-
-            status = REQ_SUPP;
-            break;
+            return REQ_SUPP;
 
         case USBD_CONFIGURED:
-            if(USB_DEFAULT_CONFIG == config) {
-                (void)udev->dev.class_core->deinit(udev, config);
-
-                udev->dev.config = config;
-                udev->dev.cur_status = (uint8_t)USBD_ADDRESSED;
-            } else if(config != udev->dev.config) {
-                /* clear old configuration */
-                (void)udev->dev.class_core->deinit(udev, config);
-
-                /* set new configuration */
-                udev->dev.config = config;
-
-                (void)udev->dev.class_core->init(udev, config);
-            } else {
-                /* no operation */
+            if (0U == cfg_idx) {
+                udev->dev.config = cfg_idx;
+                udev->dev.cur_status = USBD_ADDRESSED;
+                if (udev->dev.class_core && udev->dev.class_core->deinit) {
+                    udev->dev.class_core->deinit(udev, cfg_idx);
+                }
             }
-
-            status = REQ_SUPP;
-            break;
-
-        case USBD_DEFAULT:
-            break;
+            return REQ_SUPP;
 
         default:
             break;
-        }
-    }
-
-    return status;
-}
-
-/*!
-    \brief      handle USB Get_Interface request
-    \param[in]  udev: pointer to USB device instance
-    \param[in]  req: pointer to USB device request
-    \param[out] none
-    \retval     USB device request status
-*/
-static usb_reqsta _usb_std_getinterface(usb_core_driver *udev, usb_req *req)
-{
-    switch(udev->dev.cur_status) {
-    case USBD_DEFAULT:
-        break;
-
-    case USBD_ADDRESSED:
-        break;
-
-    case USBD_CONFIGURED:
-        if(BYTE_LOW(req->wIndex) <= USBD_ITF_MAX_NUM) {
-            usb_transc *transc = &udev->dev.transc_in[0];
-
-            transc->xfer_buf = &(udev->dev.class_core->alter_set);
-            transc->remain_len = 1U;
-
-            return REQ_SUPP;
-        }
-        break;
-
-    default:
-        break;
     }
 
     return REQ_NOTSUPP;
 }
 
-/*!
-    \brief      handle USB Set_Interface request
-    \param[in]  udev: pointer to USB device instance
-    \param[in]  req: pointer to USB device request
-    \param[out] none
-    \retval     USB device request status
-*/
-static usb_reqsta _usb_std_setinterface(usb_core_driver *udev, usb_req *req)
-{
-    switch(udev->dev.cur_status) {
-    case USBD_DEFAULT:
-        break;
+static uint8_t g_alt_setting = 0U;
 
-    case USBD_ADDRESSED:
-        break;
-
-    case USBD_CONFIGURED:
-        if(BYTE_LOW(req->wIndex) <= USBD_ITF_MAX_NUM) {
-            if(NULL != udev->dev.class_core->set_intf) {
-                (void)udev->dev.class_core->set_intf(udev, req);
-            }
-
-            return REQ_SUPP;
-        }
-        break;
-
-    default:
-        break;
+static usb_reqsta handle_get_interface(usb_core_driver* udev, [[maybe_unused]] usb_req* req) {
+    if (udev->dev.cur_status != USBD_CONFIGURED) {
+        return REQ_NOTSUPP;
     }
-
-    return REQ_NOTSUPP;
-}
-
-/*!
-    \brief      handle USB SynchFrame request
-    \param[in]  udev: pointer to USB device instance
-    \param[in]  req: pointer to USB device request
-    \param[out] none
-    \retval     USB device request status
-*/
-static usb_reqsta _usb_std_synchframe(usb_core_driver *udev, usb_req *req)
-{
-    (void)udev;
-    (void)req;
-
-    /* no handle */
+    g_alt_setting = 0U;
+    usb_transc* transc = &udev->dev.transc_in[0];
+    transc->xfer_buf = &g_alt_setting;
+    transc->remain_len = 1U;
     return REQ_SUPP;
+}
+
+static usb_reqsta handle_set_interface(usb_core_driver* udev, usb_req* req) {
+    if (udev->dev.cur_status == USBD_CONFIGURED) {
+        if (udev->dev.class_core && udev->dev.class_core->set_intf) {
+            udev->dev.class_core->set_intf(udev, req);
+        }
+        return REQ_SUPP;
+    }
+    return REQ_NOTSUPP;
+}
+
+usb_reqsta usbd_standard_request(usb_core_driver* udev, usb_req* req) {
+    switch (req->bRequest) {
+        case USB_GET_STATUS:        return handle_get_status(udev, req);
+        case USB_CLEAR_FEATURE:     return handle_clear_feature(udev, req);
+        case USB_SET_FEATURE:       return handle_set_feature(udev, req);
+        case USB_SET_ADDRESS:       return handle_set_address(udev, req);
+        case USB_GET_DESCRIPTOR:    return handle_get_descriptor(udev, req);
+        case USB_GET_CONFIGURATION: return handle_get_configuration(udev, req);
+        case USB_SET_CONFIGURATION: return handle_set_configuration(udev, req);
+        case USB_GET_INTERFACE:     return handle_get_interface(udev, req);
+        case USB_SET_INTERFACE:     return handle_set_interface(udev, req);
+        case USB_SYNCH_FRAME:       return REQ_SUPP;
+        default:                    return REQ_NOTSUPP;
+    }
+}
+
+usb_reqsta usbd_class_request(usb_core_driver* udev, usb_req* req) {
+    if (USBD_CONFIGURED == udev->dev.cur_status && udev->dev.class_core && udev->dev.class_core->req_proc) {
+        return static_cast<usb_reqsta>(udev->dev.class_core->req_proc(udev, req));
+    }
+    return REQ_NOTSUPP;
+}
+
+usb_reqsta usbd_vendor_request([[maybe_unused]] usb_core_driver* udev, [[maybe_unused]] usb_req* req) {
+    return REQ_NOTSUPP;
 }

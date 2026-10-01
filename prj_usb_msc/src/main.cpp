@@ -159,7 +159,7 @@ int main() {
     hal::uart::Uart0::init(115200);
 
     printf("\n===================================================\n");
-    printf("Sipeed Longan Nano -- USB MSC SD Card Reader\n");
+    printf("Longan Nano -- USB MSC SD Card Reader\n");
     printf("GD32VF103 RV32IMAC @ %lu MHz (USB Clock: 48 MHz)\n",
            static_cast<unsigned long>(SystemCoreClock / 1000000));
     printf("Mass Storage Class (SCSI transparent / Bulk-Only Transport)\n");

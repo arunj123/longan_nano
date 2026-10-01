@@ -20,7 +20,7 @@ int main() {
     hal::time::delay_ms(100);
 
     printf("\r\n==================================================\r\n");
-    printf("  Sipeed Longan Nano -- Modern C++23 UART Engine  \r\n");
+    printf("  Longan Nano -- Modern C++23 UART Engine         \r\n");
     printf("  CPU: GD32VF103 RV32IMAC @ 108 MHz               \r\n");
     printf("  Standard: C++23 (-std=gnu++23, -Os, -flto)      \r\n");
     printf("  USART0: 115200 baud (PA9 TX, PA10 RX)           \r\n");

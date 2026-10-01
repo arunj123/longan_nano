@@ -49,9 +49,9 @@ UsbDevice& UsbDevice::getInstance() {
 }
 
 UsbDevice::UsbDevice() : m_in_transfer_complete(true), m_msc_enabled(false) {
-    memset(&m_core_driver, 0, sizeof(usb_core_driver));
-    memset(&m_class_core, 0, sizeof(usb_class_core));
-    memset(&m_descriptors, 0, sizeof(usb_desc));
+    m_core_driver = usb_core_driver{};
+    m_class_core = usb_class_core{};
+    m_descriptors = usb_desc{};
     memset(&m_std_hid_handler, 0, sizeof(usb::hid::StandardHidHandler));
     memset(&m_custom_hid_handler, 0, sizeof(usb::hid::CustomHidHandler));
     memset(&m_msc_handler, 0, sizeof(usb::msc::MscHandler));

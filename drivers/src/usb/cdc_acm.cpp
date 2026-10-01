@@ -144,7 +144,7 @@ static const usb_cdc_desc_config_set cdc_config_desc = {
 };
 
 static constexpr auto usbd_language_id_desc = make_language_id_descriptor(0x0409U);
-static constexpr auto manufacturer_string   = make_string_descriptor("Sipeed");
+static constexpr auto manufacturer_string   = make_string_descriptor("Longan Nano");
 static constexpr auto product_string        = make_string_descriptor("Longan Nano USB Serial");
 
 alignas(4) static usb_desc_str serial_string = {

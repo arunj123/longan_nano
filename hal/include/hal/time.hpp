@@ -39,8 +39,8 @@ inline constexpr uintptr_t MTIME_HI_ADDR = 0xD1000004;
  * @brief Returns system uptime in milliseconds since boot.
  */
 [[nodiscard]] inline uint32_t millis() noexcept {
-    const uint64_t freq = SystemCoreClock / 4;
-    return static_cast<uint32_t>((get_raw_ticks() * 1000ULL) / freq);
+    const uint32_t ticks_per_ms = (SystemCoreClock / 4) / 1000U;
+    return static_cast<uint32_t>(get_raw_ticks() / ticks_per_ms);
 }
 
 [[nodiscard]] inline uint32_t uptime_ms() noexcept {
@@ -78,21 +78,23 @@ struct Duration {
     }
 
     [[nodiscard]] static inline Duration from_ms(uint32_t ms) noexcept {
-        return Duration{(static_cast<uint64_t>(ms) * (SystemCoreClock / 4)) / 1000ULL};
+        const uint32_t ticks_per_ms = (SystemCoreClock / 4) / 1000U;
+        return Duration{static_cast<uint64_t>(ms) * ticks_per_ms};
     }
 
     [[nodiscard]] static inline Duration from_us(uint32_t us) noexcept {
-        return Duration{(static_cast<uint64_t>(us) * (SystemCoreClock / 4)) / 1000000ULL};
+        const uint32_t ticks_per_us = (SystemCoreClock / 4) / 1000000U;
+        return Duration{static_cast<uint64_t>(us) * ticks_per_us};
     }
 
     [[nodiscard]] inline uint32_t to_ms() const noexcept {
-        const uint64_t freq = SystemCoreClock / 4;
-        return static_cast<uint32_t>((ticks * 1000ULL) / freq);
+        const uint32_t ticks_per_ms = (SystemCoreClock / 4) / 1000U;
+        return static_cast<uint32_t>(ticks / ticks_per_ms);
     }
 
     [[nodiscard]] inline uint32_t to_us() const noexcept {
-        const uint64_t freq = SystemCoreClock / 4;
-        return static_cast<uint32_t>((ticks * 1000000ULL) / freq);
+        const uint32_t ticks_per_us = (SystemCoreClock / 4) / 1000000U;
+        return static_cast<uint32_t>(ticks / ticks_per_us);
     }
 
     constexpr Duration operator+(const Duration& rhs) const noexcept {

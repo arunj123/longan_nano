@@ -312,7 +312,7 @@ int main() {
 
     printf("\n\n");
     printf("=======================================================\n");
-    printf("   Sipeed Longan Nano - Modern C++23 SD FatFs Test    \n");
+    printf("   Longan Nano - Modern C++23 SD FatFs Test           \n");
     printf("   GD32VF103 RV32IMAC @ %lu MHz                       \n",
            static_cast<unsigned long>(SystemCoreClock / 1000000));
     printf("=======================================================\n");

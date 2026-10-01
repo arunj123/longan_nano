@@ -162,7 +162,7 @@ int main() {
     printf(
         "\r\n"
         "==================================================\r\n"
-        "Sipeed Longan Nano -- Modern C++23 ST7735 LCD Test\r\n"
+        "Longan Nano -- Modern C++23 ST7735 LCD Test\r\n"
         "CPU: GD32VF103 RV32IMAC @ 108 MHz\r\n"
         "Standard: C++23 (-std=gnu++23, -Os, -flto)\r\n"
         "LCD Controller: ST7735 (160x80) via SPI0 (DMA0_CH2)\r\n"

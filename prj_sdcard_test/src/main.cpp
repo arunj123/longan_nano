@@ -272,7 +272,7 @@ int main(void) {
     draw_string(4, 3, "LONGAN NANO: SD TEST", color::Cyan, color::DarkNavy);
 
     printf("\n==================================================\n");
-    printf("Sipeed Longan Nano -- Modern C++23 SD Card Test\n");
+    printf("Longan Nano -- Modern C++23 SD Card Test\n");
     printf("CPU: GD32VF103 RV32IMAC @ %lu MHz\n", (unsigned long)(SystemCoreClock / 1000000));
     printf("Interface: SPI1 (PB12 CS, PB13 SCK, PB14 MISO, PB15 MOSI)\n");
     printf("User Button: PA8 (Press to re-run test at any time)\n");

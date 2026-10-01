@@ -162,7 +162,7 @@ alignas(4) static const uint8_t kInquiryData[36] = {
     0x02,                   // Response data format
     31,                     // Additional length (36 - 5)
     0x00, 0x00, 0x00,       // Reserved
-    'S', 'i', 'p', 'e', 'e', 'd', ' ', ' ',         // Vendor: 8 bytes
+    'L', 'o', 'n', 'g', 'a', 'n', ' ', ' ',         // Vendor: 8 bytes
     'L', 'o', 'n', 'g', 'a', 'n', ' ', 'N', 'a', 'n', 'o', ' ', 'S', 'D', ' ', ' ', // Product: 16 bytes
     '1', '.', '0', '0'                              // Revision: 4 bytes
 };
@@ -428,7 +428,7 @@ static int8_t process_scsi(usb_core_driver *udev) {
                     ctx.media_buffer[5] = 0x01; // Identifier type: T10 Vendor ID, Association: Logical unit
                     ctx.media_buffer[6] = 0x00; // Reserved
                     ctx.media_buffer[7] = 8;    // Identifier length
-                    std::memcpy(&ctx.media_buffer[8], "Sipeed01", 8);
+                    std::memcpy(&ctx.media_buffer[8], "Longan01", 8);
                     ctx.data_len = USB_MIN(cbw.dCBWDataTransferLength, 16U);
                     return 0;
                 } else {

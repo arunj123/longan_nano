@@ -1,325 +1,120 @@
-/*!
-    \file    drv_usb_core.c
-    \brief   USB core driver which can operate in host and device mode
-
-    \version 2025-02-10, V1.5.0, firmware for GD32VF103
-*/
-
-/*
-    Copyright (c) 2025, GigaDevice Semiconductor Inc.
-
-    Redistribution and use in source and binary forms, with or without modification,
-are permitted provided that the following conditions are met:
-
-    1. Redistributions of source code must retain the above copyright notice, this
-       list of conditions and the following disclaimer.
-    2. Redistributions in binary form must reproduce the above copyright notice,
-       this list of conditions and the following disclaimer in the documentation
-       and/or other materials provided with the distribution.
-    3. Neither the name of the copyright holder nor the names of its contributors
-       may be used to endorse or promote products derived from this software without
-       specific prior written permission.
-
-    THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
-IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT,
-INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
-NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
-PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
-WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY
-OF SUCH DAMAGE.
-*/
-
 #include "drv_usb_core.h"
-#include "drv_usb_hw.h"
+#include "hal/time.hpp"
+#include <cstring>
 
-/* local function prototypes ('static') */
-static void usb_core_reset(usb_core_regs *usb_regs);
+/**
+ * @file drv_usb_core.cpp
+ * @brief Native modern C++23 Synopsys DWC2 USB core driver for GD32VF103 (Longan Nano).
+ */
 
-/*!
-    \brief      configure USB core basic
-    \param[in]  usb_basic: pointer to USB capabilities
-    \param[in]  usb_regs: USB core registers
-    \param[out] none
-    \retval     operation status
-*/
-usb_status usb_basic_init(usb_core_basic *usb_basic, usb_core_regs  *usb_regs)
-{
-    /* configure USB default transfer mode as FIFO mode */
-    usb_basic->transfer_mode = (uint8_t)USB_USE_FIFO;
+static void usb_core_reset(usb_core_regs* usb_regs) {
+    usb_regs->gr->GRSTCTL |= drivers::usb::dwc2::GRSTCTL_CSRST;
+    uint32_t timeout = 100000U;
+    while ((usb_regs->gr->GRSTCTL & drivers::usb::dwc2::GRSTCTL_CSRST) && --timeout) {}
+    hal::time::delay_us(3);
+}
 
-    /* USB default speed is full-speed */
-    usb_basic->core_speed = (uint8_t)USB_SPEED_FULL;
-
-    usb_basic->base_reg = (uint32_t)USBFS_REG_BASE;
-
-    /* set the host channel numbers */
-    usb_basic->num_pipe = USBFS_MAX_CHANNEL_COUNT;
-
-    /* set the device endpoint numbers */
-    usb_basic->num_ep = USBFS_MAX_EP_COUNT;
-
-    /* USBFS core use embedded physical layer */
+usb_status usb_basic_init(usb_core_basic* usb_basic, [[maybe_unused]] usb_core_regs* usb_regs) {
+    usb_basic->transfer_mode = USB_USE_FIFO;
+    usb_basic->core_speed = USB_SPEED_FULL;
+    usb_basic->base_reg = drivers::usb::dwc2::USBFS_BASE;
+    usb_basic->num_pipe = 8U;
+    usb_basic->num_ep = 4U; // GD32VF103 has 4 endpoints
     usb_basic->phy_itf = USB_EMBEDDED_PHY;
+    usb_basic->sof_enable = 0U;
+    usb_basic->low_power = 0U;
+    return USB_OK;
+}
 
-    /* configure the SOF output and the low power support */
-    usb_basic->sof_enable = USB_SOF_OUTPUT;
-    usb_basic->low_power = USB_LOW_POWER;
+usb_status usb_core_init([[maybe_unused]] usb_core_basic usb_basic, usb_core_regs* usb_regs) {
+    // Select embedded Full-Speed PHY
+    usb_regs->gr->GUSBCS |= drivers::usb::dwc2::GUSBCS_EMBPHY;
 
-    /* assign main registers address */
-    usb_regs->gr = (usb_gr *)(usb_basic->base_reg + USB_REG_OFFSET_CORE);
-    usb_regs->hr = (usb_hr *)(usb_basic->base_reg + USB_REG_OFFSET_HOST);
-    usb_regs->dr = (usb_dr *)(usb_basic->base_reg + USB_REG_OFFSET_DEV);
-    usb_regs->HPCS = (uint32_t *)(usb_basic->base_reg + USB_REG_OFFSET_PORT);
-    usb_regs->PWRCLKCTL = (uint32_t *)(usb_basic->base_reg + USB_REG_OFFSET_PWRCLKCTL);
+    // Reset core
+    usb_core_reset(usb_regs);
 
-    /* assign device endpoint registers address */
-    for(uint8_t i = 0U; i < usb_basic->num_ep; i++) {
-        usb_regs->er_in[i] = (usb_erin *) \
-                             (usb_basic->base_reg + USB_REG_OFFSET_EP_IN + (i * USB_REG_OFFSET_EP));
+    // Activate transceiver and power on VBUS comparators (PA9 VBUS is not routed, so ignore VBUS)
+    usb_regs->gr->GCCFG |= drivers::usb::dwc2::GCCFG_PWRON |
+                           drivers::usb::dwc2::GCCFG_VBUSACEN |
+                           drivers::usb::dwc2::GCCFG_VBUSBCEN |
+                           drivers::usb::dwc2::GCCFG_SOFOEN |
+                           drivers::usb::dwc2::GCCFG_VBUSIG;
 
-        usb_regs->er_out[i] = (usb_erout *)\
-                              (usb_basic->base_reg + USB_REG_OFFSET_EP_OUT + (i * USB_REG_OFFSET_EP));
-    }
-
-    /* assign host pipe registers address */
-    for(uint8_t i = 0U; i < usb_basic->num_pipe; i++) {
-        usb_regs->pr[i] = (usb_pr *) \
-                          (usb_basic->base_reg + USB_REG_OFFSET_CH_INOUT + (i * USB_REG_OFFSET_CH));
-
-        usb_regs->DFIFO[i] = (uint32_t *) \
-                             (usb_basic->base_reg + USB_DATA_FIFO_OFFSET + (i * USB_DATA_FIFO_SIZE));
-    }
+    // PHY stabilization delay
+    hal::time::delay_ms(20);
 
     return USB_OK;
 }
 
-/*!
-    \brief      initializes the USB controller registers and
-                prepares the core device mode or host mode operation
-    \param[in]  usb_basic: pointer to USB capabilities
-    \param[in]  usb_regs: pointer to USB core registers
-    \param[out] none
-    \retval     operation status
-*/
-usb_status usb_core_init(usb_core_basic usb_basic, usb_core_regs *usb_regs)
-{
-    if(USB_ULPI_PHY == usb_basic.phy_itf) {
-        usb_regs->gr->GCCFG &= ~GCCFG_PWRON;
+usb_status usb_txfifo_write([[maybe_unused]] usb_core_regs* usb_regs, const uint8_t* src_buf, uint8_t fifo_num, uint16_t byte_count) {
+    uint32_t word_count = (static_cast<uint32_t>(byte_count) + 3U) / 4U;
+    volatile uint32_t* fifo = drivers::usb::dwc2::fifo_address(fifo_num);
 
-        if(usb_basic.sof_enable) {
-            usb_regs->gr->GCCFG |= GCCFG_SOFOEN;
-        }
-
-        /* initialize the ULPI interface */
-        usb_regs->gr->GUSBCS &= ~(GUSBCS_EMBPHY | GUSBCS_ULPIEOI);
-
-        /* soft reset the core */
-        usb_core_reset(usb_regs);
-    } else {
-        usb_regs->gr->GUSBCS |= GUSBCS_EMBPHY;
-
-        /* soft reset the core */
-        usb_core_reset(usb_regs);
-
-        /* active the transceiver and enable VBUS sensing */
-        usb_regs->gr->GCCFG |= GCCFG_PWRON | GCCFG_VBUSACEN | GCCFG_VBUSBCEN;
-
-#ifndef VBUS_SENSING_ENABLED
-        usb_regs->gr->GCCFG |= GCCFG_VBUSIG;
-#endif /* VBUS_SENSING_ENABLED */
-
-        /* enable SOF output */
-        if(usb_basic.sof_enable) {
-            usb_regs->gr->GCCFG |= GCCFG_SOFOEN;
-        }
-
-        usb_mdelay(20U);
-    }
-
-#ifdef USE_OTG_MODE
-
-    /* enable USB OTG features */
-    usb_regs->gr->GUSBCS |= GUSBCS_HNPCEN | GUSBCS_SRPCEN;
-
-    /* enable the USB wakeup and suspend interrupts */
-    usb_regs->gr->GINTF = 0xBFFFFFFFU;
-
-    usb_regs->gr->GINTEN = GINTEN_WKUPIE | GINTEN_SPIE | \
-                           GINTEN_OTGIE | GINTEN_SESIE | GINTEN_CIDPSCIE;
-
-#endif /* USE_OTG_MODE */
-
-    return USB_OK;
-}
-
-/*!
-    \brief      write a packet into the TX FIFO associated with the endpoint
-    \param[in]  usb_regs: pointer to USB core registers
-    \param[in]  src_buf: pointer to source buffer
-    \param[in]  fifo_num: FIFO number which is in (0..3)
-    \param[in]  byte_count: packet byte count
-    \param[out] none
-    \retval     operation status
-*/
-usb_status usb_txfifo_write(usb_core_regs *usb_regs, \
-                            uint8_t *src_buf, \
-                            uint8_t  fifo_num, \
-                            uint16_t byte_count)
-{
-    uint32_t word_count = (byte_count + 3U) / 4U;
-
-    __IO uint32_t *fifo = usb_regs->DFIFO[fifo_num];
-
-    while(word_count-- > 0U) {
+    while (word_count-- > 0U) {
         uint32_t val;
-        __builtin_memcpy(&val, src_buf, 4);
+        std::memcpy(&val, src_buf, 4);
         *fifo = val;
-
-        src_buf += 4U;
+        src_buf += 4;
     }
 
     return USB_OK;
 }
 
-/*!
-    \brief      read a packet from the RX FIFO associated with the endpoint
-    \param[in]  usb_regs: pointer to USB core registers
-    \param[in]  dest_buf: pointer to destination buffer
-    \param[in]  byte_count: packet byte count
-    \param[out] none
-    \retval     void type pointer
-*/
-void *usb_rxfifo_read(usb_core_regs *usb_regs, uint8_t *dest_buf, uint16_t byte_count)
-{
-    uint32_t word_count = (byte_count + 3U) / 4U;
+void* usb_rxfifo_read([[maybe_unused]] usb_core_regs* usb_regs, uint8_t* dest_buf, uint16_t byte_count) {
+    uint32_t word_count = (static_cast<uint32_t>(byte_count) + 3U) / 4U;
+    volatile uint32_t* fifo = drivers::usb::dwc2::fifo_address(0);
 
-    __IO uint32_t *fifo = usb_regs->DFIFO[0];
-
-    while(word_count-- > 0U) {
+    while (word_count-- > 0U) {
         uint32_t val = *fifo;
-        __builtin_memcpy(dest_buf, &val, 4);
-
-        dest_buf += 4U;
+        std::memcpy(dest_buf, &val, 4);
+        dest_buf += 4;
     }
 
-    return ((void *)dest_buf);
+    return dest_buf;
 }
 
-/*!
-    \brief      flush a TX FIFO or all TX FIFOs
-    \param[in]  usb_regs: pointer to USB core registers
-    \param[in]  fifo_num: FIFO number which is in (0..3)
-    \param[out] none
-    \retval     operation status
-*/
-usb_status usb_txfifo_flush(usb_core_regs *usb_regs, uint8_t fifo_num)
-{
-    usb_regs->gr->GRSTCTL = ((uint32_t)fifo_num << 6) | GRSTCTL_TXFF;
-
-    /* wait for TX FIFO flush bit is set */
-    while(usb_regs->gr->GRSTCTL & GRSTCTL_TXFF) {
-        /* no operation */
-    }
-
-    /* wait for 3 PHY clocks*/
-    usb_udelay(3U);
-
+usb_status usb_txfifo_flush(usb_core_regs* usb_regs, uint8_t fifo_num) {
+    usb_regs->gr->GRSTCTL = (static_cast<uint32_t>(fifo_num) << 6) | drivers::usb::dwc2::GRSTCTL_TXFF;
+    uint32_t timeout = 100000U;
+    while ((usb_regs->gr->GRSTCTL & drivers::usb::dwc2::GRSTCTL_TXFF) && --timeout) {}
+    hal::time::delay_us(3);
     return USB_OK;
 }
 
-/*!
-    \brief      flush the entire RX FIFO
-    \param[in]  usb_regs: pointer to USB core registers
-    \param[out] none
-    \retval     operation status
-*/
-usb_status usb_rxfifo_flush(usb_core_regs *usb_regs)
-{
-    usb_regs->gr->GRSTCTL = GRSTCTL_RXFF;
-
-    /* wait for RX FIFO flush bit is set */
-    while(usb_regs->gr->GRSTCTL & GRSTCTL_RXFF) {
-        /* no operation */
-    }
-
-    /* wait for 3 PHY clocks */
-    usb_udelay(3U);
-
+usb_status usb_rxfifo_flush(usb_core_regs* usb_regs) {
+    usb_regs->gr->GRSTCTL = drivers::usb::dwc2::GRSTCTL_RXFF;
+    uint32_t timeout = 100000U;
+    while ((usb_regs->gr->GRSTCTL & drivers::usb::dwc2::GRSTCTL_RXFF) && --timeout) {}
+    hal::time::delay_us(3);
     return USB_OK;
 }
 
-/*!
-    \brief      set endpoint or channel TX FIFO size
-    \param[in]  usb_regs: pointer to USB core registers
-    \param[in]  fifo: TX FIFO number
-    \param[in]  size: assigned TX FIFO size
-    \param[out] none
-    \retval     none
-*/
-void usb_set_txfifo(usb_core_regs *usb_regs, uint8_t fifo, uint16_t size)
-{
-    if(0U == size) {
-        if(fifo > 0U) {
+void usb_set_txfifo(usb_core_regs* usb_regs, uint8_t fifo, uint16_t size) {
+    if (0U == size) {
+        if (fifo > 0U) {
             usb_regs->gr->DIEPTFLEN[fifo - 1U] = 0U;
         }
         return;
     }
+
     uint32_t tx_offset = usb_regs->gr->GRFLEN;
 
-    if(0U == fifo) {
-        usb_regs->gr->DIEP0TFLEN_HNPTFLEN = ((uint32_t)size << 16) | tx_offset;
+    if (0U == fifo) {
+        usb_regs->gr->DIEP0TFLEN_HNPTFLEN = (static_cast<uint32_t>(size) << 16) | tx_offset;
     } else {
         tx_offset += (usb_regs->gr->DIEP0TFLEN_HNPTFLEN) >> 16;
-
-        for(uint8_t i = 0U; i < (fifo - 1U); i++) {
+        for (uint8_t i = 0U; i < (fifo - 1U); ++i) {
             tx_offset += (usb_regs->gr->DIEPTFLEN[i] >> 16);
         }
-
-        /* multiply Tx_Size by 2 to get higher performance */
-        usb_regs->gr->DIEPTFLEN[fifo - 1U] = ((uint32_t)size << 16) | tx_offset;
+        usb_regs->gr->DIEPTFLEN[fifo - 1U] = (static_cast<uint32_t>(size) << 16) | tx_offset;
     }
 }
 
-/*!
-    \brief      set USB current mode
-    \param[in]  usb_regs: pointer to USB core registers
-    \param[in]  mode: USB current mode 
-    \param[out] none
-    \retval     none
-*/
-void usb_curmode_set(usb_core_regs *usb_regs, uint8_t mode)
-{
-    usb_regs->gr->GUSBCS &= ~(GUSBCS_FDM | GUSBCS_FHM);
-
-    if(DEVICE_MODE == mode) {
-        usb_regs->gr->GUSBCS |= GUSBCS_FDM;
-    } else if(HOST_MODE == mode) {
-        usb_regs->gr->GUSBCS |= GUSBCS_FHM;
-    } else {
-        /* OTG mode and other mode can not be here! */
+void usb_curmode_set(usb_core_regs* usb_regs, uint8_t mode) {
+    usb_regs->gr->GUSBCS &= ~(drivers::usb::dwc2::GUSBCS_FDM | drivers::usb::dwc2::GUSBCS_FHM);
+    if (DEVICE_MODE == mode) {
+        usb_regs->gr->GUSBCS |= drivers::usb::dwc2::GUSBCS_FDM;
+    } else if (HOST_MODE == mode) {
+        usb_regs->gr->GUSBCS |= drivers::usb::dwc2::GUSBCS_FHM;
     }
 }
-
-/*!
-    \brief      configure USB core to soft reset
-    \param[in]  usb_regs: pointer to USB core registers
-    \param[out] none
-    \retval     none
-*/
-static void usb_core_reset(usb_core_regs *usb_regs)
-{
-    /* enable core soft reset */
-    usb_regs->gr->GRSTCTL |= GRSTCTL_CSRST;
-
-    /* wait for the core to be soft reset */
-    while(usb_regs->gr->GRSTCTL & GRSTCTL_CSRST) {
-        /* no operation */
-    }
-
-    /* wait for additional 3 PHY clocks */
-    usb_udelay(3U);
-}
-

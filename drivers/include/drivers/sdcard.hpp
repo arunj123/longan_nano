@@ -97,7 +97,7 @@ inline constexpr uint8_t TokenStopTranMultiWrite  = 0xFD;
 
 /**
  * @brief Modern C++23 Zero-overhead SD Card SPI Driver for GD32VF103.
- * Configured specifically for Sipeed Longan Nano onboard MicroSD slot (SPI1 on PB12-15).
+ * Configured specifically for Longan Nano onboard MicroSD slot (SPI1 on PB12-15).
  */
 template <
     typename SpiPeriph = hal::spi::Spi1,
@@ -168,7 +168,7 @@ public:
     /// Send an application-specific command (ACMD) preceded by CMD55
     static inline uint8_t send_acmd(uint8_t cmd, uint32_t arg) noexcept {
         cs_low();
-        uint8_t r1 = send_cmd(55, 0, 0x01); // CMD55 (APP_CMD)
+        uint8_t r1 = send_cmd(std::to_underlying(Command::AppCmd), 0, 0x01); // CMD55 (APP_CMD)
         cs_high();
         xchg(0xFF); // 8 clocks
 
@@ -256,7 +256,7 @@ public:
         // Some cards take a few retries after power-up
         for (int retry = 0; retry < 10; ++retry) {
             cs_low();
-            r1 = send_cmd(0, 0, 0x95);
+            r1 = send_cmd(Command::GoIdleState, 0, 0x95);
             cs_high();
             xchg(0xFF); // 8 dummy clocks
 

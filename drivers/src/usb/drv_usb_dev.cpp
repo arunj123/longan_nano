@@ -1,714 +1,326 @@
-/*!
-    \file    drv_usb_dev.c
-    \brief   USB device mode low level driver
-
-    \version 2025-02-10, V1.5.0, firmware for GD32VF103
-*/
-
-/*
-    Copyright (c) 2025, GigaDevice Semiconductor Inc.
-
-    Redistribution and use in source and binary forms, with or without modification,
-are permitted provided that the following conditions are met:
-
-    1. Redistributions of source code must retain the above copyright notice, this
-       list of conditions and the following disclaimer.
-    2. Redistributions in binary form must reproduce the above copyright notice,
-       this list of conditions and the following disclaimer in the documentation
-       and/or other materials provided with the distribution.
-    3. Neither the name of the copyright holder nor the names of its contributors
-       may be used to endorse or promote products derived from this software without
-       specific prior written permission.
-
-    THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
-IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT,
-INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
-NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
-PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
-WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY
-OF SUCH DAMAGE.
-*/
-
-#include "drv_usb_hw.h"
 #include "drv_usb_dev.h"
 #include "drv_usbd_int.h"
-#include "usbd_transc.h"
-#include "hal/core.hpp"
+#include "hal/csr.hpp"
 #include "hal/time.hpp"
+#include <algorithm>
 
-/* endpoint 0 max packet length */
-static const uint8_t EP0_MAXLEN[4] = {
-    EP0MPL_64,
-    EP0MPL_64,
-    EP0MPL_64,
-    EP0MPL_8
-};
+/**
+ * @file drv_usb_dev.cpp
+ * @brief Native modern C++23 DWC2 endpoint transaction and flow control engine.
+ */
 
-/* USB endpoint TX FIFO size */
-static uint16_t USBFS_TX_FIFO_SIZE[USBFS_MAX_EP_COUNT] = {
-    (uint16_t)TX0_FIFO_FS_SIZE,
-    (uint16_t)TX1_FIFO_FS_SIZE,
-    (uint16_t)TX2_FIFO_FS_SIZE,
-    (uint16_t)TX3_FIFO_FS_SIZE
-};
+usb_status usb_devint_enable(usb_core_driver* udev) {
+    udev->regs.gr->GOTGINTF = 0xFFFFFFFFU;
+    udev->regs.gr->GINTF = 0xBFFFFFFFU;
+    udev->regs.gr->GINTEN = GINTEN_WKUPIE | GINTEN_SPIE | GINTEN_RXFNEIE |
+                            GINTEN_RSTIE | GINTEN_ENUMFIE | GINTEN_IEPIE |
+                            GINTEN_OEPIE | GINTEN_SOFIE | GINTEN_ISOONCIE | GINTEN_ISOINCIE;
+    return USB_OK;
+}
 
-/*!
-    \brief      initialize USB core registers for device mode
-    \param[in]  udev: pointer to USB device
-    \param[out] none
-    \retval     operation status
-*/
-usb_status usb_devcore_init(usb_core_driver *udev)
-{
-    uint8_t i = 0U;
+usb_status usb_devcore_init(usb_core_driver* udev) {
+    // Restart PHY clock
+    volatile uint32_t* pwrclkctl = reinterpret_cast<volatile uint32_t*>(drivers::usb::dwc2::USBFS_BASE + 0x0E00UL);
+    *pwrclkctl = 0U;
 
-    extern uint32_t g_ep1_debug_idx;
-    g_ep1_debug_idx = 0;
+    // Full speed device
+    udev->regs.dr->DCFG &= ~(DCFG_DS | DCFG_EOPFT);
+    udev->regs.dr->DCFG |= USB_SPEED_INP_FULL | FRAME_INTERVAL_80;
 
-    /* restart the PHY clock (maybe don't need to...) */
-    *udev->regs.PWRCLKCTL = 0U;
-
-    /* configure periodic frame interval to default value */
-    udev->regs.dr->DCFG &= ~DCFG_EOPFT;
-    udev->regs.dr->DCFG |= FRAME_INTERVAL_80;
-
-    udev->regs.dr->DCFG &= ~DCFG_DS;
-
-    /* set full-speed PHY */
-    udev->regs.dr->DCFG |= USB_SPEED_INP_FULL;
-
-    /* set RX FIFO size */
+    // Allocate FIFOs using project configuration
     usb_set_rxfifo(&udev->regs, RX_FIFO_FS_SIZE);
+    usb_set_txfifo(&udev->regs, 0U, TX0_FIFO_FS_SIZE);
+    usb_set_txfifo(&udev->regs, 1U, TX1_FIFO_FS_SIZE);
+    usb_set_txfifo(&udev->regs, 2U, TX2_FIFO_FS_SIZE);
+    usb_set_txfifo(&udev->regs, 3U, TX3_FIFO_FS_SIZE);
 
-    /* set endpoint 0 to 3's TX FIFO length and RAM address */
-    for(i = 0U; i < USBFS_MAX_EP_COUNT; i++) {
-        usb_set_txfifo(&udev->regs, i, USBFS_TX_FIFO_SIZE[i]);
+    // Inactive endpoints zeroed (Mandatory Invariant 3)
+    for (uint8_t i = 0U; i < 4U; ++i) {
+        udev->regs.er_in[i]->DIEPCTL = 0U;
+        udev->regs.er_out[i]->DOEPCTL = 0U;
     }
 
-    /* make sure all FIFOs are flushed */
+    // Flush FIFOs
+    usb_txfifo_flush(&udev->regs, 0x10U);
+    usb_rxfifo_flush(&udev->regs);
 
-    /* flush all TX FIFOs */
-    (void)usb_txfifo_flush(&udev->regs, 0x10U);
-
-    /* flush entire RX FIFO */
-    (void)usb_rxfifo_flush(&udev->regs);
-
-    /* clear all pending device interrupts */
+    // Clear and mask interrupts
     udev->regs.dr->DIEPINTEN = 0U;
     udev->regs.dr->DOEPINTEN = 0U;
     udev->regs.dr->DAEPINT = 0xFFFFFFFFU;
     udev->regs.dr->DAEPINTEN = 0U;
 
-    /* configure all IN/OUT endpoints */
-    for(i = 0U; i < udev->bp.num_ep; i++) {
-        if(udev->regs.er_in[i]->DIEPCTL & DEPCTL_EPEN) {
-            udev->regs.er_in[i]->DIEPCTL |= DEPCTL_EPD | DEPCTL_SNAK;
-        } else {
-            udev->regs.er_in[i]->DIEPCTL = 0U;
-        }
-
-        /* set IN endpoint transfer length to 0 */
-        udev->regs.er_in[i]->DIEPLEN = 0U;
-
-        /* clear all pending IN endpoint interrupts */
-        udev->regs.er_in[i]->DIEPINTF = 0xFFU;
-
-        if(udev->regs.er_out[i]->DOEPCTL & DEPCTL_EPEN) {
-            udev->regs.er_out[i]->DOEPCTL |= DEPCTL_EPD | DEPCTL_SNAK;
-        } else {
-            udev->regs.er_out[i]->DOEPCTL = 0U;
-        }
-
-        /* set OUT endpoint transfer length to 0 */
-        udev->regs.er_out[i]->DOEPLEN = 0U;
-
-        /* clear all pending OUT endpoint interrupts */
-        udev->regs.er_out[i]->DOEPINTF = 0xFFU;
-    }
-
-    (void)usb_devint_enable(udev);
-
-    return USB_OK;
+    // Enable device interrupts
+    return usb_devint_enable(udev);
 }
 
-/*!
-    \brief      enable the USB device mode interrupts
-    \param[in]  udev: pointer to USB device
-    \param[out] none
-    \retval     operation status
-*/
-usb_status usb_devint_enable(usb_core_driver *udev)
-{
-    /* clear any pending USB OTG interrupts */
-    udev->regs.gr->GOTGINTF = 0xFFFFFFFFU;
-
-    /* clear any pending interrupts */
-    udev->regs.gr->GINTF = 0xBFFFFFFFU;
-
-    /* enable the USB wakeup and suspend interrupts */
-    udev->regs.gr->GINTEN = GINTEN_WKUPIE | GINTEN_SPIE;
-
-    /* enable device_mode-related interrupts */
-    if((uint8_t)USB_USE_FIFO == udev->bp.transfer_mode) {
-        udev->regs.gr->GINTEN |= GINTEN_RXFNEIE;
-    }
-
-    udev->regs.gr->GINTEN |= GINTEN_RSTIE | GINTEN_ENUMFIE | GINTEN_IEPIE | \
-                             GINTEN_OEPIE | GINTEN_SOFIE | GINTEN_ISOONCIE | GINTEN_ISOINCIE;
-
-#ifdef VBUS_SENSING_ENABLED
-    udev->regs.gr->GINTEN |= GINTEN_SESIE | GINTEN_OTGIE;
-#endif /* VBUS_SENSING_ENABLED */
-
-    return USB_OK;
+void usb_dev_connect(usb_core_driver* udev) {
+    udev->regs.dr->DCTL &= ~DCTL_SDIS;
+    hal::time::delay_ms(3);
 }
 
-/*!
-    \brief      active the USB endpoint0 transaction
-    \param[in]  udev: pointer to USB device
-    \param[in]  transc: the USB endpoint0 transaction
-    \param[out] none
-    \retval     operation status
-*/
-usb_status usb_transc0_active(usb_core_driver *udev, usb_transc *transc)
-{
-    __IO uint32_t *reg_addr = NULL;
+void usb_dev_disconnect(usb_core_driver* udev) {
+    udev->regs.dr->DCTL |= DCTL_SDIS;
+    hal::time::delay_ms(1000);
+}
 
-    uint32_t enum_speed = udev->regs.dr->DSTAT & DSTAT_ES;
+void usb_devaddr_set(usb_core_driver* udev, uint8_t dev_addr) {
+    udev->regs.dr->DCFG = (udev->regs.dr->DCFG & ~DCFG_DAR) | (static_cast<uint32_t>(dev_addr) << 4);
+}
 
-    /* get the endpoint number */
+usb_status usb_transc0_active(usb_core_driver* udev, usb_transc* transc) {
     uint8_t ep_num = transc->ep_addr.num;
-
-    if(ep_num) {
-        /* not endpoint 0 */
+    if (ep_num != 0U) {
         return USB_FAIL;
     }
 
-    if(transc->ep_addr.dir) {
-        reg_addr = &udev->regs.er_in[0]->DIEPCTL;
-    } else {
-        reg_addr = &udev->regs.er_out[0]->DOEPCTL;
-    }
+    volatile uint32_t* reg_addr = transc->ep_addr.dir ?
+        &udev->regs.er_in[0]->DIEPCTL : &udev->regs.er_out[0]->DOEPCTL;
 
-    /* endpoint 0 is activated after USB clock is enabled */
-    *reg_addr &= ~(DEPCTL_MPL | DEPCTL_EPTYPE | DIEPCTL_TXFNUM);
-
-    /* set endpoint 0 maximum packet length */
-    *reg_addr |= EP0_MAXLEN[enum_speed];
-
-    /* activate endpoint */
-    *reg_addr |= ((uint32_t)transc->ep_type << 18) | ((uint32_t)ep_num << 22) | DEPCTL_SD0PID | DEPCTL_EPACT;
+    *reg_addr &= ~(DEPCTL_MPL | DEPCTL_EPTYPE | DEPCTL_TXFNUM);
+    *reg_addr |= EP0MPL_64 | (static_cast<uint32_t>(transc->ep_type) << 18) |
+                 (static_cast<uint32_t>(ep_num) << 22) | DEPCTL_SD0PID | DEPCTL_EPACT;
 
     return USB_OK;
 }
 
-/*!
-    \brief      active the USB transaction
-    \param[in]  udev: pointer to USB device
-    \param[in]  transc: the USB transaction
-    \param[out] none
-    \retval     status
-*/
-usb_status usb_transc_active(usb_core_driver *udev, usb_transc *transc)
-{
-    __IO uint32_t *reg_addr = NULL;
-    uint32_t epinten = 0U;
-    uint32_t enum_speed = udev->regs.dr->DSTAT & DSTAT_ES;
-
-    /* get the endpoint number */
+usb_status usb_transc_active(usb_core_driver* udev, usb_transc* transc) {
     uint8_t ep_num = transc->ep_addr.num;
+    if (ep_num >= 4U) {
+        return USB_FAIL;
+    }
 
-    /* enable endpoint interrupt number */
-    if(transc->ep_addr.dir) {
-        reg_addr = &udev->regs.er_in[ep_num]->DIEPCTL;
-
-        epinten = 1U << ep_num;
+    if (transc->ep_addr.dir) {
+        volatile uint32_t* reg = &udev->regs.er_in[ep_num]->DIEPCTL;
+        *reg &= ~(DEPCTL_MPL | DEPCTL_EPTYPE | DEPCTL_TXFNUM);
+        *reg |= transc->max_len | (static_cast<uint32_t>(transc->ep_type) << 18) |
+                (static_cast<uint32_t>(ep_num) << 22) | DEPCTL_SD0PID | DEPCTL_EPACT;
+        udev->regs.dr->DAEPINTEN |= (1U << ep_num);
     } else {
-        reg_addr = &udev->regs.er_out[ep_num]->DOEPCTL;
-
-        epinten = 1U << (16U + ep_num);
+        volatile uint32_t* reg = &udev->regs.er_out[ep_num]->DOEPCTL;
+        *reg &= ~(DEPCTL_MPL | DEPCTL_EPTYPE);
+        *reg |= transc->max_len | (static_cast<uint32_t>(transc->ep_type) << 18) |
+                DEPCTL_SD0PID | DEPCTL_EPACT;
+        udev->regs.dr->DAEPINTEN |= (1U << (ep_num + 16U));
     }
-
-    /* if the endpoint is not active, need change the endpoint control register */
-    if(!(*reg_addr & DEPCTL_EPACT)) {
-        *reg_addr &= ~(DEPCTL_MPL | DEPCTL_EPTYPE | DIEPCTL_TXFNUM);
-
-        /* set endpoint maximum packet length */
-        if(0U == ep_num) {
-            *reg_addr |= EP0_MAXLEN[enum_speed];
-        } else {
-            *reg_addr |= transc->max_len;
-        }
-
-        /* activate endpoint (non-control endpoints start in NAK state until explicitly armed) */
-        uint32_t act_val = ((uint32_t)transc->ep_type << 18) | ((uint32_t)ep_num << 22) | DEPCTL_SD0PID | DEPCTL_EPACT;
-        if (ep_num > 0U) {
-            act_val |= DEPCTL_SNAK;
-        }
-        *reg_addr |= act_val;
-    }
-
-    /* enable the interrupts for this endpoint */
-    udev->regs.dr->DAEPINTEN |= epinten;
 
     return USB_OK;
 }
 
-/*!
-    \brief      deactivate the USB transaction
-    \param[in]  udev: pointer to USB device
-    \param[in]  transc: the USB transaction
-    \param[out] none
-    \retval     status
-*/
-usb_status usb_transc_deactivate(usb_core_driver *udev, usb_transc *transc)
-{
-    uint32_t epinten = 0U;
-
+usb_status usb_transc_deactive(usb_core_driver* udev, usb_transc* transc) {
     uint8_t ep_num = transc->ep_addr.num;
+    if (ep_num >= 4U) {
+        return USB_FAIL;
+    }
 
-    /* disable endpoint interrupt number */
-    if(transc->ep_addr.dir) {
-        epinten = 1U << ep_num;
-
+    if (transc->ep_addr.dir) {
+        udev->regs.dr->DAEPINTEN &= ~(1U << ep_num);
         udev->regs.er_in[ep_num]->DIEPCTL &= ~DEPCTL_EPACT;
     } else {
-        epinten = 1U << (ep_num + 16U);
-
+        udev->regs.dr->DAEPINTEN &= ~(1U << (ep_num + 16U));
         udev->regs.er_out[ep_num]->DOEPCTL &= ~DEPCTL_EPACT;
     }
 
-    /* disable the interrupts for this endpoint */
-    udev->regs.dr->DAEPINTEN &= ~epinten;
-
     return USB_OK;
 }
 
-/*!
-    \brief      configure USB transaction to start IN transfer
-    \param[in]  udev: pointer to USB device
-    \param[in]  transc: the USB IN transaction
-    \param[out] none
-    \retval     operation status
-*/
-usb_status usb_transc_inxfer(usb_core_driver *udev, usb_transc *transc)
-{
-    usb_status status = USB_OK;
-
+usb_status usb_transc_inxfer(usb_core_driver* udev, usb_transc* transc) {
     uint8_t ep_num = transc->ep_addr.num;
+    if (ep_num >= 4U) {
+        return USB_FAIL;
+    }
 
-    __IO uint32_t eplen = 0U;
-
-    /* zero length packet or endpoint 0 */
-    if(0U == transc->xfer_len) {
-        /* set transfer packet count to 1 */
-        eplen |= 1U << 19;
+    uint32_t eplen = 0U;
+    if (0U == transc->xfer_len) {
+        eplen |= 1U << 19; // 1 packet of 0 bytes
     } else {
-        /* set transfer packet count */
-        if(0U == ep_num) {
-            transc->xfer_len = USB_MIN(transc->xfer_len, transc->max_len);
-
+        if (0U == ep_num) {
+            transc->xfer_len = std::min<uint32_t>(transc->xfer_len, transc->max_len);
             eplen |= 1U << 19;
         } else {
             eplen |= (((transc->xfer_len - 1U) + transc->max_len) / transc->max_len) << 19;
         }
-
-        /* set endpoint transfer length */
         eplen |= transc->xfer_len;
-
-        if((uint8_t)USB_EPTYPE_ISOC == transc->ep_type) {
-            eplen |= DIEPLEN_MCNT & (1U << 29);
-        }
     }
 
-    /* Wait until TX FIFO has enough space to receive the transfer (or up to FIFO capacity) */
-    if(ep_num > 0U && (uint8_t)USB_USE_FIFO == udev->bp.transfer_mode) {
+    // Wait until TX FIFO has enough space if needed
+    if (ep_num > 0U && udev->bp.transfer_mode == USB_USE_FIFO) {
         uint32_t needed_words = (transc->xfer_len + 3U) / 4U;
         uint32_t max_fifo = USBFS_TX_FIFO_SIZE[ep_num];
-        if(needed_words > max_fifo) needed_words = max_fifo;
+        if (needed_words > max_fifo) needed_words = max_fifo;
         auto deadline = hal::time::Instant::now() + hal::time::Duration::from_ms(10);
-        while(((udev->regs.er_in[ep_num]->DIEPTFSTAT & 0xFFFFU) < needed_words) && (hal::time::Instant::now() < deadline)) {}
-        if((udev->regs.er_in[ep_num]->DIEPTFSTAT & 0xFFFFU) < needed_words) {
+        while (((udev->regs.er_in[ep_num]->DIEPTFSTAT & 0xFFFFU) < needed_words) && (hal::time::Instant::now() < deadline)) {}
+        if ((udev->regs.er_in[ep_num]->DIEPTFSTAT & 0xFFFFU) < needed_words) {
             return USB_FAIL;
         }
     }
 
     uint32_t prev_mstatus = hal::core::disable_interrupts();
 
-    /* Check if this transfer was specifically pre-armed via usbd_ep_nak_arm */
     bool was_prearmed = (transc->is_prearmed != 0U);
     transc->is_prearmed = 0U;
 
-    /* Read live epctl inside critical section immediately before modifying */
-    __IO uint32_t epctl = udev->regs.er_in[ep_num]->DIEPCTL;
+    uint32_t epctl = udev->regs.er_in[ep_num]->DIEPCTL;
 
-    if(0U == ep_num) {
-        /* Control endpoint 0: DWC2 EP0 slave mode requires EPEN before writing FIFO */
-        udev->regs.er_in[ep_num]->DIEPINTF = DIEPINTF_TF | DIEPINTF_EPDIS | DIEPINTF_TXFUD;
-        udev->regs.er_in[ep_num]->DIEPLEN = eplen;
+    if (0U == ep_num) {
+        // Control EP0: DWC2 EP0 slave mode requires EPEN before writing FIFO
+        udev->regs.er_in[0]->DIEPINTF = DIEPINTF_TF | DIEPINTF_EPDIS | DIEPINTF_TXFUD;
+        udev->regs.er_in[0]->DIEPLEN = eplen;
 
         epctl &= ~(DEPCTL_SD0PID | DEPCTL_SD1PID | DEPCTL_EPD | DEPCTL_SNAK);
-        udev->regs.er_in[ep_num]->DIEPCTL = epctl | DEPCTL_EPEN | DEPCTL_CNAK;
+        udev->regs.er_in[0]->DIEPCTL = epctl | DEPCTL_EPEN | DEPCTL_CNAK;
 
-        if((uint8_t)USB_USE_FIFO == udev->bp.transfer_mode) {
-            usbd_emptytxfifo_write(udev, ep_num);
+        if (udev->bp.transfer_mode == USB_USE_FIFO) {
+            usbd_emptytxfifo_write(udev, 0U);
         }
     } else {
-        /* Bulk / Interrupt IN endpoint:
-         * In DWC2, Tx FIFO writes must strictly occur AFTER the endpoint is enabled (EPEN=1).
-         * To prevent empty-FIFO races (ZLP transmission before FIFO is loaded), EPEN must be
-         * asserted while NAKS=1 is confirmed, then FIFO is populated, and finally CNAK is written. */
-        if(!was_prearmed) {
-            /* Step 1: Ensure NAK is active and confirmed before modifying DIEPLEN */
+        // Bulk / Interrupt IN endpoint: two-phase arming
+        if (!was_prearmed) {
             epctl = udev->regs.er_in[ep_num]->DIEPCTL;
-            if(!(epctl & DEPCTL_NAKS)) {
+            if (!(epctl & DEPCTL_NAKS)) {
                 epctl &= ~(DEPCTL_SD0PID | DEPCTL_SD1PID | DEPCTL_EPD | DEPCTL_CNAK);
                 udev->regs.er_in[ep_num]->DIEPCTL = epctl | DEPCTL_SNAK;
                 uint32_t timeout = 1000;
-                while(!(udev->regs.er_in[ep_num]->DIEPCTL & DEPCTL_NAKS) && --timeout) {}
+                while (!(udev->regs.er_in[ep_num]->DIEPCTL & DEPCTL_NAKS) && --timeout) {}
             }
 
-            /* Step 2: Clear stale flags and set DIEPLEN */
             udev->regs.er_in[ep_num]->DIEPINTF = DIEPINTF_TF | DIEPINTF_EPDIS | DIEPINTF_TXFUD;
             udev->regs.er_in[ep_num]->DIEPLEN = eplen;
 
-            if((uint8_t)USB_EPTYPE_ISOC == transc->ep_type) {
-                if(((udev->regs.dr->DSTAT & DSTAT_FNRSOF) >> 8) & 0x01U) {
-                    epctl |= DEPCTL_SEVNFRM;
-                } else {
-                    epctl |= DEPCTL_SODDFRM;
-                }
-            }
-
-            /* Step 3: Enable endpoint with NAK active so FIFO write port is connected */
             epctl = udev->regs.er_in[ep_num]->DIEPCTL;
             epctl &= ~(DEPCTL_SD0PID | DEPCTL_SD1PID | DEPCTL_EPD | DEPCTL_CNAK | DEPCTL_SNAK);
             udev->regs.er_in[ep_num]->DIEPCTL = epctl | DEPCTL_EPEN;
         }
 
-        /* Step 4: Now that EPEN=1 and NAKS=1, push data into TX FIFO */
-        if((uint8_t)USB_USE_FIFO == udev->bp.transfer_mode) {
-            if((uint8_t)USB_EPTYPE_ISOC != transc->ep_type) {
-                if(transc->xfer_len > 0U) {
-                    usbd_emptytxfifo_write(udev, ep_num);
-
-                    if(transc->xfer_count < transc->xfer_len) {
-                        udev->regs.dr->DIEPFEINTEN |= 1U << ep_num;
-                    }
+        // Push data to FIFO
+        if (udev->bp.transfer_mode == USB_USE_FIFO) {
+            if (transc->xfer_len > 0U) {
+                usbd_emptytxfifo_write(udev, ep_num);
+                if (transc->xfer_count < transc->xfer_len) {
+                    udev->regs.dr->DIEPFEINTEN |= (1U << ep_num);
                 }
-            } else {
-                (void)usb_txfifo_write(&udev->regs, transc->xfer_buf, ep_num, (uint16_t)transc->xfer_len);
             }
         }
 
-        /* Step 5: Now that FIFO is populated with valid data, clear NAK to allow transmission */
-        __IO uint32_t cnak_ctl = udev->regs.er_in[ep_num]->DIEPCTL;
+        // Clear NAK to allow packet transmission
+        uint32_t cnak_ctl = udev->regs.er_in[ep_num]->DIEPCTL;
         cnak_ctl &= ~(DEPCTL_SD0PID | DEPCTL_SD1PID | DEPCTL_EPD | DEPCTL_SNAK);
         cnak_ctl |= DEPCTL_EPEN | DEPCTL_CNAK;
         udev->regs.er_in[ep_num]->DIEPCTL = cnak_ctl;
     }
 
-    if(ep_num == 1) {
-        ep1_debug_record(was_prearmed ? 8 : 1, udev->regs.er_in[1]->DIEPCTL, udev->regs.er_in[1]->DIEPLEN, udev->regs.er_in[1]->DIEPTFSTAT, transc->xfer_count, transc->xfer_len, udev->regs.er_in[1]->DIEPCTL);
-    }
-
     hal::core::restore_interrupts(prev_mstatus);
-
-    return status;
+    return USB_OK;
 }
 
-/*!
-    \brief      pre-arm an IN endpoint with EPEN and SNAK to maintain hardware NAK flow control while fetching data
-    \param[in]  udev: pointer to USB device
-    \param[in]  ep_addr: endpoint address (e.g. 0x81)
-    \param[in]  len: expected transfer length in bytes
-    \param[out] none
-    \retval     none
-*/
-void usbd_ep_nak_arm(usb_core_driver *udev, uint8_t ep_addr, uint32_t len)
-{
+usb_status usb_transc_outxfer(usb_core_driver* udev, usb_transc* transc) {
+    uint8_t ep_num = transc->ep_addr.num;
+    if (ep_num >= 4U) {
+        return USB_FAIL;
+    }
+
+    uint32_t eplen = 0U;
+    if (0U == transc->xfer_len) {
+        eplen |= (1U << 19);
+    } else {
+        uint32_t packet_count = (transc->xfer_len + transc->max_len - 1U) / transc->max_len;
+        eplen |= (packet_count << 19) | transc->xfer_len;
+    }
+
+    udev->regs.er_out[ep_num]->DOEPLEN = eplen;
+
+    uint32_t epctl = udev->regs.er_out[ep_num]->DOEPCTL;
+    epctl &= ~(DEPCTL_SD0PID | DEPCTL_SD1PID | DEPCTL_EPD | DEPCTL_SNAK);
+    udev->regs.er_out[ep_num]->DOEPCTL = epctl | DEPCTL_EPEN | DEPCTL_CNAK;
+
+    return USB_OK;
+}
+
+usb_status usb_transc_stall(usb_core_driver* udev, usb_transc* transc) {
+    uint8_t ep_num = transc->ep_addr.num;
+    if (ep_num >= 4U) {
+        return USB_FAIL;
+    }
+
+    if (transc->ep_addr.dir) {
+        udev->regs.er_in[ep_num]->DIEPCTL |= DEPCTL_STALL;
+    } else {
+        udev->regs.er_out[ep_num]->DOEPCTL |= DEPCTL_STALL;
+    }
+
+    return USB_OK;
+}
+
+usb_status usb_transc_clrstall(usb_core_driver* udev, usb_transc* transc) {
+    uint8_t ep_num = transc->ep_addr.num;
+    if (ep_num >= 4U) {
+        return USB_FAIL;
+    }
+
+    if (transc->ep_addr.dir) {
+        uint32_t epctl = udev->regs.er_in[ep_num]->DIEPCTL;
+        epctl &= ~DEPCTL_STALL;
+        if (transc->ep_type == USB_EPTYPE_INTR || transc->ep_type == USB_EPTYPE_BULK) {
+            epctl |= DEPCTL_SD0PID;
+        }
+        udev->regs.er_in[ep_num]->DIEPCTL = epctl;
+    } else {
+        uint32_t epctl = udev->regs.er_out[ep_num]->DOEPCTL;
+        epctl &= ~DEPCTL_STALL;
+        if (transc->ep_type == USB_EPTYPE_INTR || transc->ep_type == USB_EPTYPE_BULK) {
+            epctl |= DEPCTL_SD0PID;
+        }
+        udev->regs.er_out[ep_num]->DOEPCTL = epctl;
+    }
+
+    return USB_OK;
+}
+
+void usbd_ep_nak_arm(usb_core_driver* udev, uint8_t ep_addr, uint32_t len) {
     uint8_t ep_num = EP_ID(ep_addr);
+    if (ep_num >= 4U) return;
+
     uint32_t prev_mstatus = hal::core::disable_interrupts();
 
     uint32_t max_len = udev->dev.transc_in[ep_num].max_len;
-    if(max_len == 0U) max_len = 64U;
+    if (max_len == 0U) max_len = 64U;
     uint32_t packet_count = (len + max_len - 1U) / max_len;
-    if(packet_count == 0U) packet_count = 1U;
+    if (packet_count == 0U) packet_count = 1U;
     uint32_t target_dieplen = (packet_count << 19) | len;
 
-    __IO uint32_t live_ctl = udev->regs.er_in[ep_num]->DIEPCTL;
-    __IO uint32_t live_len = udev->regs.er_in[ep_num]->DIEPLEN;
+    uint32_t live_ctl = udev->regs.er_in[ep_num]->DIEPCTL;
+    uint32_t live_len = udev->regs.er_in[ep_num]->DIEPLEN;
 
-    /* Idempotent check: ONLY return if EPEN=1, NAKS=1 AND DIEPLEN strictly matches target length! */
+    // Idempotent check
     if ((live_ctl & DEPCTL_EPEN) && (live_ctl & DEPCTL_NAKS) && (live_len == target_dieplen)) {
         udev->dev.transc_in[ep_num].is_prearmed = 1U;
         hal::core::restore_interrupts(prev_mstatus);
         return;
     }
 
-
-    /* Step 1: Assert SNAK first and confirm hardware confirms NAK status (NAKS=1).
-     * This guarantees the endpoint is actively NAKing before EPEN is asserted. */
-    __IO uint32_t epctl = live_ctl;
+    // Step 1: Assert SNAK and poll NAKS=1
+    uint32_t epctl = live_ctl;
     epctl &= ~(DEPCTL_SD0PID | DEPCTL_SD1PID | DEPCTL_EPD | DEPCTL_CNAK | DEPCTL_SNAK);
     udev->regs.er_in[ep_num]->DIEPCTL = epctl | DEPCTL_SNAK;
 
     uint32_t timeout = 1000;
-    while(!(udev->regs.er_in[ep_num]->DIEPCTL & DEPCTL_NAKS) && --timeout) {}
+    while (!(udev->regs.er_in[ep_num]->DIEPCTL & DEPCTL_NAKS) && --timeout) {}
 
-    /* Step 2: Clear stale IN endpoint flags before arming */
+    // Step 2: Clear stale flags
     udev->regs.er_in[ep_num]->DIEPINTF = DIEPINTF_TF | DIEPINTF_EPDIS | DIEPINTF_TXFUD;
 
-    /* Step 3: Program transfer length and packet count */
+    // Step 3: Program DIEPLEN
     udev->regs.er_in[ep_num]->DIEPLEN = target_dieplen;
 
-    /* Step 4: Now assert EPEN. Since NAKS=1 is already confirmed, all incoming IN tokens
-     * receive pure hardware NAKs without touching any packet counter or FIFO. */
+    // Step 4: Assert EPEN with NAK confirmed
     epctl = udev->regs.er_in[ep_num]->DIEPCTL;
     epctl &= ~(DEPCTL_SD0PID | DEPCTL_SD1PID | DEPCTL_EPD | DEPCTL_CNAK | DEPCTL_SNAK);
     udev->regs.er_in[ep_num]->DIEPCTL = epctl | DEPCTL_EPEN;
 
     udev->dev.transc_in[ep_num].is_prearmed = 1U;
-
-    if(ep_num == 1) {
-        ep1_debug_record(6, epctl | DEPCTL_EPEN, udev->regs.er_in[1]->DIEPLEN, udev->regs.er_in[1]->DIEPTFSTAT, 0, len, udev->regs.er_in[1]->DIEPCTL);
-    }
-
     hal::core::restore_interrupts(prev_mstatus);
 }
 
-/*!
-    \brief      configure USB transaction to start OUT transfer
-    \param[in]  udev: pointer to USB device
-    \param[in]  transc: the USB OUT transaction
-    \param[out] none
-    \retval     status
-*/
-usb_status usb_transc_outxfer(usb_core_driver *udev, usb_transc *transc)
-{
-    usb_status status = USB_OK;
-
-    uint8_t ep_num = transc->ep_addr.num;
-
-    uint32_t epctl = udev->regs.er_out[ep_num]->DOEPCTL;
-    uint32_t eplen = udev->regs.er_out[ep_num]->DOEPLEN;
-
-    eplen &= ~(DEPLEN_TLEN | DEPLEN_PCNT);
-
-    /* zero length packet or endpoint 0 */
-    if((0U == transc->xfer_len) || (0U == ep_num)) {
-        /* set the transfer length to max packet size */
-        eplen |= transc->max_len;
-
-        /* set the transfer packet count to 1 */
-        eplen |= 1U << 19;
-    } else {
-        /* configure the transfer size and packet count as follows:
-         * pktcnt = N
-         * xfersize = N * maxpacket
-         */
-        uint32_t packet_count = (transc->xfer_len + transc->max_len - 1U) / transc->max_len;
-
-        eplen |= packet_count << 19;
-        eplen |= packet_count * transc->max_len;
-    }
-
-    udev->regs.er_out[ep_num]->DOEPLEN = eplen;
-
-    if((uint8_t)USB_EPTYPE_ISOC == transc->ep_type) {
-        if(transc->frame_num) {
-            epctl |= DEPCTL_SD1PID;
-        } else {
-            epctl |= DEPCTL_SD0PID;
-        }
-    }
-
-    /* Mask out write-sensitive strobe and toggle bits, enable the endpoint and clear NAK */
-    epctl &= ~(DEPCTL_SD0PID | DEPCTL_SD1PID | DEPCTL_EPD | DEPCTL_SNAK | DEPCTL_CNAK);
-    epctl |= DEPCTL_EPEN | DEPCTL_CNAK;
-
-    udev->regs.er_out[ep_num]->DOEPCTL = epctl;
-
-    return status;
-}
-
-/*!
-    \brief      set the USB transaction STALL status
-    \param[in]  udev: pointer to USB device
-    \param[in]  transc: the USB transaction
-    \param[out] none
-    \retval     status
-*/
-usb_status usb_transc_stall(usb_core_driver *udev, usb_transc *transc)
-{
-    __IO uint32_t *reg_addr = NULL;
-
-    uint8_t ep_num = transc->ep_addr.num;
-
-    if(transc->ep_addr.dir) {
-        reg_addr = &(udev->regs.er_in[ep_num]->DIEPCTL);
-    } else {
-        /* set the endpoint STALL bit */
-        reg_addr = &(udev->regs.er_out[ep_num]->DOEPCTL);
-    }
-
-    /* set the endpoint STALL bit */
-    *reg_addr |= DEPCTL_STALL;
-
-    return USB_OK;
-}
-
-/*!
-    \brief      clear the USB transaction STALL status
-    \param[in]  udev: pointer to USB device
-    \param[in]  transc: the USB transaction
-    \param[out] none
-    \retval     operation status
-*/
-usb_status usb_transc_clrstall(usb_core_driver *udev, usb_transc *transc)
-{
-    __IO uint32_t *reg_addr = NULL;
-
-    uint8_t ep_num = transc->ep_addr.num;
-
-    if(transc->ep_addr.dir) {
-        reg_addr = &(udev->regs.er_in[ep_num]->DIEPCTL);
-    } else {
-        reg_addr = &(udev->regs.er_out[ep_num]->DOEPCTL);
-    }
-
-    /* clear the endpoint STALL bit */
-    *reg_addr &= ~DEPCTL_STALL;
-
-    /* reset data PID of the periodic endpoints */
-    if(((uint8_t)USB_EPTYPE_INTR == transc->ep_type) || ((uint8_t)USB_EPTYPE_BULK == transc->ep_type)) {
-        *reg_addr |= DEPCTL_SD0PID;
-    }
-
-    return USB_OK;
-}
-
-/*!
-    \brief      read device IN endpoint interrupt flag register
-    \param[in]  udev: pointer to USB device
-    \param[in]  ep_num: endpoint number
-    \param[out] none
-    \retval     interrupt value
-*/
-uint32_t usb_iepintr_read(usb_core_driver *udev, uint8_t ep_num)
-{
-    uint32_t value = 0U, fifoemptymask, commonintmask;
-
-    commonintmask = udev->regs.dr->DIEPINTEN;
-    fifoemptymask = udev->regs.dr->DIEPFEINTEN;
-
-    /* check FIFO empty interrupt enable bit */
-    commonintmask |= ((fifoemptymask >> ep_num) & 0x1U) << 7;
-
-    value = udev->regs.er_in[ep_num]->DIEPINTF & commonintmask;
-
-    return value;
-}
-
-/*!
-    \brief      configures OUT endpoint 0 to receive SETUP packets
-    \param[in]  udev: pointer to USB device
-    \param[out] none
-    \retval     none
-*/
-void usb_ctlep_startout(usb_core_driver *udev)
-{
-    /* set OUT endpoint 0 receive length to 24 bytes, 1 packet and 3 SETUP packets */
-    udev->regs.er_out[0]->DOEPLEN = DOEP0_TLEN(8U * 3U) | DOEP0_PCNT(1U) | DOEP0_STPCNT(3U);
-}
-
-/*!
-    \brief      active remote wakeup signaling
-    \param[in]  udev: pointer to USB device
-    \param[out] none
-    \retval     none
-*/
-void usb_rwkup_active(usb_core_driver *udev)
-{
-    if(udev->dev.pm.dev_remote_wakeup)  {
-        if(udev->regs.dr->DSTAT & DSTAT_SPST) {
-            if(udev->bp.low_power) {
-                /* ungate USB core clock */
-                *udev->regs.PWRCLKCTL &= ~(PWRCLKCTL_SHCLK | PWRCLKCTL_SUCLK);
-            }
-
-            /* active remote wakeup signaling */
-            udev->regs.dr->DCTL |= DCTL_RWKUP;
-
-            usb_mdelay(5U);
-
-            udev->regs.dr->DCTL &= ~DCTL_RWKUP;
-        }
-    }
-}
-
-/*!
-    \brief      active USB core clock
-    \param[in]  udev: pointer to USB device
-    \param[out] none
-    \retval     none
-*/
-void usb_clock_active(usb_core_driver *udev)
-{
-    if(udev->bp.low_power) {
-        if(udev->regs.dr->DSTAT & DSTAT_SPST) {
-            /* ungate USB Core clock */
-            *udev->regs.PWRCLKCTL &= ~(PWRCLKCTL_SHCLK | PWRCLKCTL_SUCLK);
-        }
-    }
-}
-
-/*!
-    \brief      USB device suspend
-    \param[in]  udev: pointer to USB device
-    \param[out] none
-    \retval     none
-*/
-void usb_dev_suspend(usb_core_driver *udev)
-{
-    __IO uint32_t devstat = udev->regs.dr->DSTAT;
-
-    if((udev->bp.low_power) && (devstat & DSTAT_SPST)) {
-        /* switch-off the USB clocks */
-        *udev->regs.PWRCLKCTL |= PWRCLKCTL_SHCLK;
-
-        /* enter DEEP_SLEEP mode with LDO in low power mode */
-        // deepsleep mode
-    }
-}
-
-/*!
-    \brief      stop the device and clean up FIFOs
-    \param[in]  udev: pointer to USB device
-    \param[out] none
-    \retval     none
-*/
-void usb_dev_stop(usb_core_driver *udev)
-{
-    uint32_t i;
-
-    udev->dev.cur_status = 1U;
-
-    /* clear all interrupt flag and enable bits */
-    for(i = 0U; i < udev->bp.num_ep; i++) {
-        udev->regs.er_in[i]->DIEPINTF = 0xFFU;
-        udev->regs.er_out[i]->DOEPINTF = 0xFFU;
-    }
-
-    udev->regs.dr->DIEPINTEN = 0U;
-    udev->regs.dr->DOEPINTEN = 0U;
-    udev->regs.dr->DAEPINTEN = 0U;
-    udev->regs.dr->DAEPINT = 0xFFFFFFFFU;
-
-    /* flush the FIFO */
-    (void)usb_rxfifo_flush(&udev->regs);
-    (void)usb_txfifo_flush(&udev->regs, 0x10U);
+void usb_ctlep_startout(usb_core_driver* udev) {
+    udev->regs.er_out[0]->DOEPLEN = (24U << 0) | (1U << 19) | (3U << 29);
 }
