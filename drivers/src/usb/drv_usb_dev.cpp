@@ -362,14 +362,6 @@ usb_status usb_transc_inxfer(usb_core_driver *udev, usb_transc *transc)
          * To prevent empty-FIFO races (ZLP transmission before FIFO is loaded), EPEN must be
          * asserted while NAKS=1 is confirmed, then FIFO is populated, and finally CNAK is written. */
         if(!was_prearmed) {
-            /* If endpoint was left enabled from a previous transfer/error, disable it cleanly first */
-            if(epctl & DEPCTL_EPEN) {
-                epctl &= ~(DEPCTL_SD0PID | DEPCTL_SD1PID | DEPCTL_CNAK);
-                udev->regs.er_in[ep_num]->DIEPCTL = epctl | DEPCTL_EPD | DEPCTL_SNAK;
-                uint32_t timeout = 1000;
-                while((udev->regs.er_in[ep_num]->DIEPCTL & DEPCTL_EPEN) && --timeout) {}
-            }
-
             /* Step 1: Ensure NAK is active and confirmed before modifying DIEPLEN */
             epctl = udev->regs.er_in[ep_num]->DIEPCTL;
             if(!(epctl & DEPCTL_NAKS)) {
@@ -457,14 +449,6 @@ void usbd_ep_nak_arm(usb_core_driver *udev, uint8_t ep_addr, uint32_t len)
         return;
     }
 
-    /* If endpoint is currently enabled with a stale or mismatched length, cleanly disable it first */
-    if (live_ctl & DEPCTL_EPEN) {
-        live_ctl &= ~(DEPCTL_SD0PID | DEPCTL_SD1PID | DEPCTL_CNAK);
-        udev->regs.er_in[ep_num]->DIEPCTL = live_ctl | DEPCTL_EPD | DEPCTL_SNAK;
-        uint32_t timeout = 1000;
-        while ((udev->regs.er_in[ep_num]->DIEPCTL & DEPCTL_EPEN) && --timeout) {}
-        live_ctl = udev->regs.er_in[ep_num]->DIEPCTL;
-    }
 
     /* Step 1: Assert SNAK first and confirm hardware confirms NAK status (NAKS=1).
      * This guarantees the endpoint is actively NAKing before EPEN is asserted. */

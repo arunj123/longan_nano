@@ -411,7 +411,7 @@ static int8_t process_scsi(usb_core_driver *udev) {
                     ctx.media_buffer[1] = 0x80; // Page code
                     ctx.media_buffer[2] = 0x00; // Reserved
                     ctx.media_buffer[3] = 12;   // Page length
-                    std::memcpy(&ctx.media_buffer[4], "LNMSC00000A0", 12);
+                    std::memcpy(&ctx.media_buffer[4], "LNMSC00000A1", 12);
                     ctx.data_len = USB_MIN(cbw.dCBWDataTransferLength, 16U);
                     return 0;
                 } else if (page_code == 0x83) { // Device Identification Page
@@ -844,14 +844,11 @@ uint8_t data_in(usb_dev *udev, uint8_t ep_num) {
                 }
             } else {
                 __IO uint32_t ctl_before = pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL;
-                if (ctl_before & DEPCTL_EPEN) {
-                    pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL = (ctl_before & ~(DEPCTL_SD0PID | DEPCTL_SD1PID | DEPCTL_CNAK)) | DEPCTL_EPD | DEPCTL_SNAK;
-                    uint32_t timeout = 1000;
-                    while((pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL & DEPCTL_EPEN) && --timeout) {}
-                }
-                __IO uint32_t ctl = pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL;
-                ctl &= ~(DEPCTL_SD0PID | DEPCTL_SD1PID | DEPCTL_EPD | DEPCTL_CNAK | DEPCTL_EPEN);
+                __IO uint32_t ctl = ctl_before;
+                ctl &= ~(DEPCTL_SD0PID | DEPCTL_SD1PID | DEPCTL_EPD | DEPCTL_CNAK | DEPCTL_SNAK);
                 pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL = ctl | DEPCTL_SNAK;
+                uint32_t timeout = 1000;
+                while(!(pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL & DEPCTL_NAKS) && --timeout) {}
                 __IO uint32_t ctl_after = pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL;
                 ep1_debug_record(9, ctl_before, pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPLEN, pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPTFSTAT, 0, 0, ctl_after);
 
@@ -876,14 +873,11 @@ uint8_t data_in(usb_dev *udev, uint8_t ep_num) {
 #endif
             {
                 __IO uint32_t ctl_before = pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL;
-                if (ctl_before & DEPCTL_EPEN) {
-                    pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL = (ctl_before & ~(DEPCTL_SD0PID | DEPCTL_SD1PID | DEPCTL_CNAK)) | DEPCTL_EPD | DEPCTL_SNAK;
-                    uint32_t timeout = 1000;
-                    while((pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL & DEPCTL_EPEN) && --timeout) {}
-                }
-                __IO uint32_t ctl = pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL;
-                ctl &= ~(DEPCTL_SD0PID | DEPCTL_SD1PID | DEPCTL_EPD | DEPCTL_CNAK | DEPCTL_EPEN);
+                __IO uint32_t ctl = ctl_before;
+                ctl &= ~(DEPCTL_SD0PID | DEPCTL_SD1PID | DEPCTL_EPD | DEPCTL_CNAK | DEPCTL_SNAK);
                 pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL = ctl | DEPCTL_SNAK;
+                uint32_t timeout = 1000;
+                while(!(pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL & DEPCTL_NAKS) && --timeout) {}
                 __IO uint32_t ctl_after = pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL;
                 ep1_debug_record(9, ctl_before, pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPLEN, pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPTFSTAT, 0, 0, ctl_after);
             }
@@ -902,14 +896,11 @@ uint8_t data_in(usb_dev *udev, uint8_t ep_num) {
             // CSW transmission has completed on the wire.
             {
                 __IO uint32_t ctl_before = pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL;
-                if (ctl_before & DEPCTL_EPEN) {
-                    pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL = (ctl_before & ~(DEPCTL_SD0PID | DEPCTL_SD1PID | DEPCTL_CNAK)) | DEPCTL_EPD | DEPCTL_SNAK;
-                    uint32_t timeout = 1000;
-                    while((pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL & DEPCTL_EPEN) && --timeout) {}
-                }
-                __IO uint32_t ctl = pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL;
-                ctl &= ~(DEPCTL_SD0PID | DEPCTL_SD1PID | DEPCTL_EPD | DEPCTL_CNAK | DEPCTL_EPEN);
+                __IO uint32_t ctl = ctl_before;
+                ctl &= ~(DEPCTL_SD0PID | DEPCTL_SD1PID | DEPCTL_EPD | DEPCTL_CNAK | DEPCTL_SNAK);
                 pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL = ctl | DEPCTL_SNAK;
+                uint32_t timeout = 1000;
+                while(!(pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL & DEPCTL_NAKS) && --timeout) {}
                 __IO uint32_t ctl_after = pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL;
                 ep1_debug_record(10, ctl_before, pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPLEN, pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPTFSTAT, 0, 0, ctl_after);
             }
@@ -990,7 +981,7 @@ void poll(usb_core_driver *udev) {
 
         bool hw_done     = ((er_in1->DIEPLEN & (DEPLEN_TLEN | DEPLEN_PCNT)) == 0);
         bool fifo_empty  = ((er_in1->DIEPTFSTAT & DIEPTFSTAT_IEPTFS) >= TX1_FIFO_FS_SIZE);
-        bool ep_disabled = !(er_in1->DIEPCTL & DEPCTL_EPEN);
+        bool ep_naking   = (er_in1->DIEPCTL & DEPCTL_NAKS);
         bool sw_done     = (transc->xfer_count == transc->xfer_len);
         bool no_pending  = ((er_in1->DIEPINTF & DIEPINTF_TF) == 0);
 
@@ -1002,7 +993,7 @@ void poll(usb_core_driver *udev) {
         bool guard_elapsed = (ctx.data_done_time.ticks != 0) &&
                              (hal::time::Instant::now() - ctx.data_done_time >= kCswFramingGuard);
 
-        if (hw_done && fifo_empty && ep_disabled && sw_done && no_pending && guard_elapsed) {
+        if (hw_done && fifo_empty && ep_naking && sw_done && no_pending && guard_elapsed) {
             csw_send(udev, ctx.csw_status);
         } else if (ctx.data_done_time.ticks != 0 && hal::time::Instant::now() - ctx.data_done_time >= kIoWatchdog) {
             ep1_in_hard_reset(udev);
