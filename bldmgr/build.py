@@ -16,7 +16,7 @@ def find_projects(root_dir='.'):
 
 def print_usage(projects):
     """Prints the available commands and their descriptions."""
-    print("\nUsage: python bldmgr/build.py <project_name> [command]")
+    print("\nUsage: python bldmgr/build.py <project_name> [command] [--variant=cpp|rust|all]")
     print("\nAvailable projects:")
     if projects:
         for proj in sorted(projects):
@@ -33,6 +33,10 @@ def print_usage(projects):
     print("  nucleus  Builds and programs using Nuclei-specific OpenOCD.")
     print("  dfu      Builds and programs using DFU-util.")
     print("  debug    Builds the project and starts an interactive GDB debug session.")
+    print("\nVariants:")
+    print("  --variant=all   (default) Build/clean both C++ and Rust variants.")
+    print("  --variant=rust  Target only the Rust variant (can also pass 'rust').")
+    print("  --variant=cpp   Target only the C++ variant (can also pass 'cpp').")
     sys.exit(1)
 
 def main():
@@ -57,11 +61,30 @@ def main():
         print(f"   Ensure '{project_name}/config.py' exists and is valid.", file=sys.stderr)
         sys.exit(1)
 
-    # Pass both the loaded config module and the project name to the builder
-    builder = Builder(config, project_name)
+    # Parse command and variant arguments
+    known_commands = {"build", "rebuild", "clean", "flash", "program", "nucleus", "dfu", "debug"}
     command = "build"
-    if len(sys.argv) > 2:
-        command = sys.argv[2]
+    variant = "all"
+
+    for arg in sys.argv[2:]:
+        arg_lower = arg.lower()
+        if arg_lower.startswith("--variant="):
+            variant = arg_lower.split("=", 1)[1]
+        elif arg_lower in ("--rust", "-rust", "rust"):
+            variant = "rust"
+        elif arg_lower in ("--cpp", "-cpp", "cpp"):
+            variant = "cpp"
+        elif arg_lower in ("--all", "-all", "all"):
+            variant = "all"
+        elif arg_lower in known_commands:
+            command = arg_lower
+        else:
+            print(f"\n❌ Error: Unknown argument '{arg}'")
+            print_usage(available_projects)
+            sys.exit(1)
+
+    # Pass loaded config module, project name, and variant to the builder
+    builder = Builder(config, project_name, variant=variant)
 
     if command == "build":
         builder.build_all()

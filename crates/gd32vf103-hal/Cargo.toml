@@ -1,0 +1,11 @@
+[package]
+name = "gd32vf103-hal"
+version = "0.1.0"
+edition = "2021"
+description = "Hardware Abstraction Layer for GD32VF103 in pure Rust"
+
+[dependencies]
+gd32vf103-pac = { path = "../gd32vf103-pac" }
+embedded-hal = "1.0"
+
+[build-dependencies]

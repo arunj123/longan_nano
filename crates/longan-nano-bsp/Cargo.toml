@@ -1,0 +1,9 @@
+[package]
+name = "longan-nano-bsp"
+version = "0.1.0"
+edition = "2021"
+description = "Board Support Package for Sipeed Longan Nano"
+
+[dependencies]
+gd32vf103-hal = { path = "../gd32vf103-hal" }
+embedded-hal = "1.0"

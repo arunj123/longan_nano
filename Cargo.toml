@@ -1,0 +1,20 @@
+[workspace]
+members = [
+    "crates/gd32vf103-pac",
+    "crates/gd32vf103-hal",
+    "crates/longan-nano-bsp",
+    "prj_blink",
+]
+resolver = "2"
+
+[profile.dev]
+opt-level = "s"
+panic = "abort"
+lto = true
+codegen-units = 1
+
+[profile.release]
+opt-level = "s"
+panic = "abort"
+lto = true
+codegen-units = 1

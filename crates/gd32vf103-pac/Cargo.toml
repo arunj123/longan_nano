@@ -1,0 +1,7 @@
+[package]
+name = "gd32vf103-pac"
+version = "0.1.0"
+edition = "2021"
+description = "Pure Rust zero-cost Peripheral Access Crate for GD32VF103"
+
+[dependencies]

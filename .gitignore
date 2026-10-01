@@ -1,5 +1,6 @@
 # Build output artifacts
 build/
+target/
 *.elf
 *.bin
 *.hex

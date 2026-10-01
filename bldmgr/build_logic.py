@@ -94,12 +94,15 @@ class Builder:
     Receives configuration dynamically and supports incremental C/C++ builds.
     """
 
-    def __init__(self, config_module, project_name):
+    def __init__(self, config_module, project_name, variant="all"):
         """Initializes the builder, sets up toolchain paths, and constructs build flags."""
         self.config = config_module
         self.project_name = project_name
+        self.variant = (variant or "all").lower()
         # Create a project-specific build directory, e.g., 'build/prj_usb_serial'
         self.build_dir = os.path.join(self.config.BUILD_DIR, self.project_name)
+
+        self.has_rust = os.path.isfile(os.path.join(self.project_name, "Cargo.toml"))
 
         self._ensure_tools_are_present()
         if self.config.TOOLCHAIN_PATH and self.config.TOOLCHAIN_PATH not in os.environ['PATH']:
@@ -112,6 +115,7 @@ class Builder:
         self.sz = self.config.TOOLCHAIN_PREFIX + "size"
 
         self._collect_sources_and_includes()
+        self.has_cpp = bool(self.c_sources or self.cpp_sources or self.asm_sources)
         self._construct_flags()
 
     def _ensure_tools_are_present(self):
@@ -217,11 +221,23 @@ class Builder:
             sys.exit(1)
 
     def clean(self):
-        """Removes the build directory to ensure a fresh build."""
-        print(f"🧹 Cleaning build directory: {self.build_dir}")
-        if os.path.isdir(self.build_dir):
-            shutil.rmtree(self.build_dir)
-        print("Clean complete.")
+        """Removes the build directory and cleans Cargo artifacts."""
+        if self.variant in ("cpp", "all"):
+            print(f"🧹 Cleaning C++ build directory: {self.build_dir}")
+            if os.path.isdir(self.build_dir):
+                shutil.rmtree(self.build_dir)
+            print("C++ clean complete.")
+
+        if self.variant in ("rust", "all") and self.has_rust:
+            print(f"🧹 Cleaning Rust build artifacts for {self.project_name}...")
+            try:
+                subprocess.run(["cargo", "clean", "-p", self.project_name], check=False)
+            except Exception:
+                pass
+            rust_dir = os.path.join(self.build_dir, "rust")
+            if os.path.isdir(rust_dir):
+                shutil.rmtree(rust_dir)
+            print("Rust clean complete.")
 
     def _get_obj_path(self, src_file):
         """
@@ -385,21 +401,151 @@ class Builder:
         self.run_command([self.cp, "-O", "binary", "-S", elf_path, bin_path])
         print(f"Successfully created binaries in {self.build_dir}/")
 
-    def build_all(self):
-        """Runs the entire build process: compile (incrementally), link, and create binaries."""
+    def build_cpp(self):
+        """Runs the C/C++ compilation and linking pipeline."""
+        print(f"\n⚙️  Building C++ variant for {self.project_name}...")
         objects = self.compile_sources()
         elf_file = self.link_objects(objects)
         self.create_binaries(elf_file)
+
+    def build_rust(self):
+        """Compiles the Rust variant using Cargo and generates .hex and .bin binaries."""
+        print(f"\n🦀 Building Rust variant for {self.project_name}...")
+        cargo_toml = os.path.join(self.project_name, "Cargo.toml")
+        if not os.path.isfile(cargo_toml):
+            print(f"❌ Error: Cargo manifest not found at '{cargo_toml}'", file=sys.stderr)
+            sys.exit(1)
+
+        cargo_cmd = ["cargo", "build", "--release", "-p", self.project_name]
+        print(f"Executing: {' '.join(cargo_cmd)}")
+        try:
+            subprocess.run(cargo_cmd, check=True)
+        except (subprocess.CalledProcessError, FileNotFoundError) as e:
+            print(f"❌ Error: Cargo build failed: {e}", file=sys.stderr)
+            sys.exit(1)
+
+        rust_build_dir = os.path.join(self.build_dir, "rust")
+        os.makedirs(rust_build_dir, exist_ok=True)
+
+        possible_bins = [
+            os.path.join("target", "riscv32imac-unknown-none-elf", "release", "firmware_rust"),
+            os.path.join("target", "riscv32imac-unknown-none-elf", "release", self.project_name),
+        ]
+        target_bin = None
+        for b in possible_bins:
+            if os.path.isfile(b):
+                target_bin = b
+                break
+            if os.path.isfile(b + ".exe"):
+                target_bin = b + ".exe"
+                break
+
+        if not target_bin:
+            print(f"❌ Error: Could not locate built Rust binary in target/riscv32imac-unknown-none-elf/release/", file=sys.stderr)
+            sys.exit(1)
+
+        dest_elf = os.path.join(rust_build_dir, "firmware_rust.elf")
+        dest_hex = os.path.join(rust_build_dir, "firmware_rust.hex")
+        dest_bin = os.path.join(rust_build_dir, "firmware_rust.bin")
+
+        shutil.copyfile(target_bin, dest_elf)
+
+        self.run_command([self.cp, "-O", "ihex", dest_elf, dest_hex])
+        self.run_command([self.cp, "-O", "binary", "-S", dest_elf, dest_bin])
+
+        print("Calculating Rust binary size...")
+        self.run_command([self.sz, dest_elf])
+        print(f"Successfully created Rust binaries in {rust_build_dir}/")
+
+    def build_all(self):
+        """Runs the build process for C++, Rust, or both variants depending on self.variant."""
+        built_any = False
+        if self.variant in ("cpp", "all"):
+            if self.has_cpp:
+                self.build_cpp()
+                built_any = True
+            elif self.variant == "cpp":
+                print(f"❌ Error: Project '{self.project_name}' has no C/C++ sources configured.", file=sys.stderr)
+                sys.exit(1)
+
+        if self.variant in ("rust", "all"):
+            if self.has_rust:
+                self.build_rust()
+                built_any = True
+            elif self.variant == "rust":
+                print(f"❌ Error: Project '{self.project_name}' has no Cargo.toml or Rust sources.", file=sys.stderr)
+                sys.exit(1)
+
+        if not built_any:
+            print(f"❌ Error: No sources found to build for variant '{self.variant}'.", file=sys.stderr)
+            sys.exit(1)
+
         print("\n✅ Build complete.")
+
+    def get_hex_path(self):
+        """Resolves the .hex file path based on the selected variant or timestamps."""
+        cpp_hex = os.path.join(self.build_dir, f"{self.config.TARGET_NAME}.hex")
+        rust_hex = os.path.join(self.build_dir, "rust", "firmware_rust.hex")
+
+        if self.variant == "rust":
+            target = rust_hex
+        elif self.variant == "cpp":
+            target = cpp_hex
+        else:
+            rust_exists = os.path.isfile(rust_hex)
+            cpp_exists = os.path.isfile(cpp_hex)
+            if rust_exists and cpp_exists:
+                if os.path.getmtime(rust_hex) > os.path.getmtime(cpp_hex):
+                    print("ℹ️ Auto-selected newer Rust firmware binary for programming.")
+                    target = rust_hex
+                else:
+                    print("ℹ️ Auto-selected newer C++ firmware binary for programming.")
+                    target = cpp_hex
+            elif rust_exists:
+                target = rust_hex
+            else:
+                target = cpp_hex
+
+        full_path = os.path.join(os.getcwd(), target).replace('\\', '/')
+        if not os.path.exists(full_path):
+            print(f"❌ Error: '{full_path}' not found. Please run 'build' first.", file=sys.stderr)
+            sys.exit(1)
+        return full_path
+
+    def get_bin_path(self):
+        """Resolves the .bin file path based on the selected variant or timestamps."""
+        cpp_bin = os.path.join(self.build_dir, f"{self.config.TARGET_NAME}.bin")
+        rust_bin = os.path.join(self.build_dir, "rust", "firmware_rust.bin")
+
+        if self.variant == "rust":
+            target = rust_bin
+        elif self.variant == "cpp":
+            target = cpp_bin
+        else:
+            rust_exists = os.path.isfile(rust_bin)
+            cpp_exists = os.path.isfile(cpp_bin)
+            if rust_exists and cpp_exists:
+                if os.path.getmtime(rust_bin) > os.path.getmtime(cpp_bin):
+                    print("ℹ️ Auto-selected newer Rust firmware binary for programming.")
+                    target = rust_bin
+                else:
+                    print("ℹ️ Auto-selected newer C++ firmware binary for programming.")
+                    target = cpp_bin
+            elif rust_exists:
+                target = rust_bin
+            else:
+                target = cpp_bin
+
+        full_path = os.path.join(os.getcwd(), target).replace('\\', '/')
+        if not os.path.exists(full_path):
+            print(f"❌ Error: '{full_path}' not found. Please run 'build' first.", file=sys.stderr)
+            sys.exit(1)
+        return full_path
 
     def program_dfu(self):
         """Programs the target using dfu-util."""
-        print("🔌 Programming with dfu-util...")
-        bin_path = os.path.join(self.build_dir, f"{self.config.TARGET_NAME}.bin")
-        if not os.path.exists(bin_path):
-            print(f"❌ Error: {bin_path} not found. Please run 'build' first.", file=sys.stderr)
-            sys.exit(1)
-
+        bin_path = self.get_bin_path()
+        print(f"🔌 Programming with dfu-util ({bin_path})...")
         cmd = [self.config.DFU_UTIL_PATH, "-a", "0", "-s", "0x08000000:leave", "-D", bin_path]
         self.run_command(cmd)
         print("✅ DFU Programming complete.")
@@ -411,14 +557,8 @@ class Builder:
 
     def program_openocd(self):
         """Programs the target using a generic OpenOCD configuration."""
-        print("🔌 Programming with OpenOCD...")
-        hex_path = os.path.join(os.getcwd(), self.build_dir, f"{self.config.TARGET_NAME}.hex").replace('\\', '/')
-        if not os.path.exists(hex_path):
-            print(f"❌ Error: {hex_path} not found. Please run 'build' first.", file=sys.stderr)
-            sys.exit(1)
-
-        # This config file is an updated OpenOCD script for the Sipeed RV-Debugger.
-        # It's suitable for most JTAG operations with the Longan Nano and reset.
+        hex_path = self.get_hex_path()
+        print(f"🔌 Programming with OpenOCD ({hex_path})...")
         config_file = os.path.join("tools", "config", "openocd-sipeed-libusb.cfg")
         program_cmd = f'program "{hex_path}" verify; halt; reg pc 0x08000000; resume; shutdown'
         cmd = [self.config.OPENOCD_PATH, '-f', config_file, '-c', program_cmd]
@@ -427,16 +567,8 @@ class Builder:
 
     def program_openocd_nucleus(self):
         """Programs the target using the Nuclei-specific OpenOCD configuration."""
-        print("🔌 Programming with Nuclei OpenOCD...")
-        hex_path = os.path.join(os.getcwd(), self.build_dir, f"{self.config.TARGET_NAME}.hex").replace('\\', '/')
-        if not os.path.exists(hex_path):
-            print(f"❌ Error: {hex_path} not found. Please run 'build' first.", file=sys.stderr)
-            sys.exit(1)
-
-        # NOTE: The original path was hardcoded to a local PlatformIO installation.
-        # This has been changed to a project-relative path.
-        # You must copy the 'openocd_gd32vf103.cfg' file from the Nuclei SDK
-        # into the 'tools/config/' directory for this command to work.
+        hex_path = self.get_hex_path()
+        print(f"🔌 Programming with Nuclei OpenOCD ({hex_path})...")
         board_cfg = os.path.join("tools", "config", "openocd_gd32vf103.cfg")
         program_cmd = f'program "{hex_path}" verify; reset; shutdown'
         cmd = [
