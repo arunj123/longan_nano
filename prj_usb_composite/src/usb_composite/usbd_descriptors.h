@@ -9,7 +9,8 @@
 
 #include "drivers/usb/usb_core.hpp"
 
-#include "usb_types.h"
+#include "drivers/usb/hid/hid_types.hpp"
+#include "usbd_conf.h"
 
 /**
  * @brief Standard HID Report Descriptor for a Composite Device

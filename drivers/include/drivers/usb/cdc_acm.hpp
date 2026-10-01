@@ -52,41 +52,15 @@ struct usb_cdc_desc_config_set {
 
 #pragma pack(pop)
 
-#ifndef USB_CLASS_CDC
-#define USB_CLASS_CDC 0x02U
-#endif
-
-#ifndef USB_CDC_SUBCLASS_ACM
-#define USB_CDC_SUBCLASS_ACM 0x02U
-#endif
-
-#ifndef USB_CDC_PROTOCOL_AT
-#define USB_CDC_PROTOCOL_AT 0x01U
-#endif
-
-#ifndef USB_DESCTYPE_CS_INTERFACE
-#define USB_DESCTYPE_CS_INTERFACE 0x24U
-#endif
-
-#ifndef CDC_ACM_DATA_PACKET_SIZE
-#define CDC_ACM_DATA_PACKET_SIZE 64U
-#endif
-
-#ifndef CDC_ACM_CMD_PACKET_SIZE
-#define CDC_ACM_CMD_PACKET_SIZE  8U
-#endif
-
-#ifndef USB_CDC_DATA_PACKET_SIZE
-#define USB_CDC_DATA_PACKET_SIZE 64U
-#endif
-
-#ifndef USB_CDC_CMD_PACKET_SIZE
-#define USB_CDC_CMD_PACKET_SIZE  8U
-#endif
-
-#ifndef USB_CDC_RX_LEN
-#define USB_CDC_RX_LEN           64U
-#endif
+inline constexpr uint8_t  USB_CLASS_CDC              = 0x02U;
+inline constexpr uint8_t  USB_CDC_SUBCLASS_ACM       = 0x02U;
+inline constexpr uint8_t  USB_CDC_PROTOCOL_AT        = 0x01U;
+inline constexpr uint8_t  USB_DESCTYPE_CS_INTERFACE  = 0x24U;
+inline constexpr uint16_t CDC_ACM_DATA_PACKET_SIZE   = 64U;
+inline constexpr uint16_t CDC_ACM_CMD_PACKET_SIZE    = 8U;
+inline constexpr uint16_t USB_CDC_DATA_PACKET_SIZE   = 64U;
+inline constexpr uint16_t USB_CDC_CMD_PACKET_SIZE    = 8U;
+inline constexpr uint16_t USB_CDC_RX_LEN             = 64U;
 
 inline constexpr uint8_t CDC_REQ_SET_LINE_CODING        = 0x20U;
 inline constexpr uint8_t CDC_REQ_GET_LINE_CODING        = 0x21U;
