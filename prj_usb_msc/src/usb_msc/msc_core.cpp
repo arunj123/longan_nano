@@ -416,7 +416,7 @@ static int8_t process_scsi(usb_core_driver *udev) {
                     ctx.media_buffer[1] = 0x80; // Page code
                     ctx.media_buffer[2] = 0x00; // Reserved
                     ctx.media_buffer[3] = 12;   // Page length
-                    std::memcpy(&ctx.media_buffer[4], "LNMSC00000A2", 12);
+                    std::memcpy(&ctx.media_buffer[4], "LNMSC00000A3", 12);
                     ctx.data_len = USB_MIN(cbw.dCBWDataTransferLength, 16U);
                     return 0;
                 } else if (page_code == 0x83) { // Device Identification Page
@@ -846,6 +846,7 @@ uint8_t data_in(usb_dev *udev, uint8_t ep_num) {
                 ctx.data_done_time = hal::time::Instant::now();
                 ctx.state = BbbState::STATUS_PENDING;
             }
+#else
             if (ctx.remaining_bytes > 0) {
                 uint32_t next_len = USB_MIN(ctx.remaining_bytes, MSC_MEDIA_PACKET_SIZE);
                 usbd_ep_nak_arm(pcore, MSC_IN_EP, next_len);
