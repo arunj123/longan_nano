@@ -13,8 +13,8 @@ client = paramiko.SSHClient()
 client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 client.connect(HOST, username=USER, password=PASS, allow_agent=False, look_for_keys=False, timeout=15, banner_timeout=30)
 
-# Dump 0x20000200 - 0x20000ea0 (3232 bytes)
-cmd = 'openocd -f /home/arun/longan_nano_tools/openocd-sipeed-libusb.cfg -c "init; halt; dump_image /tmp/msc_trace.bin 0x20000200 3232; resume; shutdown"'
+# Dump 0x20000200 - 0x20001200 (4096 bytes)
+cmd = 'openocd -f /home/arun/longan_nano_tools/openocd-sipeed-libusb.cfg -c "init; halt; dump_image /tmp/msc_trace.bin 0x20000200 4096; resume; shutdown"'
 stdin, stdout, stderr = client.exec_command(cmd)
 out = stdout.read().decode('utf-8', errors='replace')
 err = stderr.read().decode('utf-8', errors='replace')
@@ -40,7 +40,7 @@ type_names = {
     5: "CLASS_RQ"
 }
 
-trace_base = 0x200008a8 - 0x20000200
+trace_base = 0x20000920 - 0x20000200
 
 entry_size = 24
 

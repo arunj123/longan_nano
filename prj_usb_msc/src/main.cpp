@@ -220,13 +220,16 @@ int main() {
                static_cast<unsigned long>(dt_560.to_us()),
                test_sec[510], test_sec[511]);
 
-        auto t3 = hal::time::Instant::now();
-        auto res_1024 = Sd::read_sector(1024, test_sec);
-        auto dt_1024 = hal::time::Instant::now() - t3;
-        printf("[MAIN] Real SD Sector 1024: %s (%lu us, Sig: 0x%02X%02X)\n",
-               drivers::sdcard::result_to_string(res_1024),
-               static_cast<unsigned long>(dt_1024.to_us()),
-               test_sec[510], test_sec[511]);
+        for (uint32_t s = 1024; s <= 1031; ++s) {
+            auto ts = hal::time::Instant::now();
+            auto res_s = Sd::read_sector(s, test_sec);
+            auto dt_s = hal::time::Instant::now() - ts;
+            printf("[MAIN] Real SD Sector %lu: %s (%lu us, Sig: 0x%02X%02X)\n",
+                   static_cast<unsigned long>(s),
+                   drivers::sdcard::result_to_string(res_s),
+                   static_cast<unsigned long>(dt_s.to_us()),
+                   test_sec[510], test_sec[511]);
+        }
 
         g_msc_stats.sectors_read = 0;
         g_msc_stats.is_active = false;

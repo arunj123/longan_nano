@@ -434,6 +434,11 @@ public:
         uint32_t arg = (card_type == CardType::SD2HC) ? sector : (sector * 512);
 
         cs_low();
+        (void)xchg(0xFF); // 8 clocks sync after CS assertion per SD spec
+        if (!wait_ready(100)) {
+            release_bus();
+            return SdResult::Timeout;
+        }
 
         // Send CMD17 (READ_SINGLE_BLOCK)
         uint8_t r1 = send_cmd(17, arg, 0x01);

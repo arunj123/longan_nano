@@ -254,6 +254,8 @@ static int8_t msc_process_read(usb_core_driver *udev) {
     uint32_t len = USB_MIN(ctx.remaining_bytes, MSC_MEDIA_PACKET_SIZE);
     uint32_t blocks = (len + 511U) / 512U;
 
+    msc_trace_record(1, 0x28, static_cast<uint8_t>(blocks), 0, ctx.lba, ctx.remaining_bytes);
+
     /* Pre-arm EP1 IN with EPEN=1, confirmed NAKS=1, and DIEPLEN=len to guarantee
      * incoming host IN tokens receive hardware NAKs while reading SD card over SPI (~1.1 ms) */
     usbd_ep_nak_arm(udev, MSC_IN_EP, len);
@@ -409,7 +411,7 @@ static int8_t process_scsi(usb_core_driver *udev) {
                     ctx.media_buffer[1] = 0x80; // Page code
                     ctx.media_buffer[2] = 0x00; // Reserved
                     ctx.media_buffer[3] = 12;   // Page length
-                    std::memcpy(&ctx.media_buffer[4], "LNMSC000009F", 12);
+                    std::memcpy(&ctx.media_buffer[4], "LNMSC00000A0", 12);
                     ctx.data_len = USB_MIN(cbw.dCBWDataTransferLength, 16U);
                     return 0;
                 } else if (page_code == 0x83) { // Device Identification Page
