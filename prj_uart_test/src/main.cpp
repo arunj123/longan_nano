@@ -13,6 +13,9 @@ int main() {
     // Zero-overhead board initialization: sets up LEDs and user key pin
     bsp::board::init();
 
+    // Initialize UART0 at 115200 baud (PA9 TX, PA10 RX)
+    hal::uart::Uart0::init(115200);
+
     // Give UART hardware and host monitor a moment to settle
     hal::time::delay_ms(100);
 
