@@ -12,9 +12,6 @@ uint32_t SystemCoreClock = 108000000U;
 uint32_t SystemCoreClock = 96000000U;
 #endif
 
-uint32_t gd32vf103_firmware_version_get(void) {
-    return 0x01050000U; // V1.5.0 baseline
-}
 
 static void system_clock_config(void) {
     using namespace hal::reg::rcu;

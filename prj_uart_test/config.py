@@ -35,12 +35,7 @@ DEBUG_MODE = 1
 # ==============================================================================
 # --- Global Preprocessor Definitions ---
 # These are specific to the GD32VF103 target and project setup.
-GLOBAL_C_DEFINES = [
-    "-DGD32VF103",
-    "-D__NUCLEI_N200",
-    "-DGD32VF103C_START",
-    "-DUSE_SD_CARD_MSC=1",
-]
+GLOBAL_C_DEFINES = []
 
 # --- CPU & ABI Flags ---
 # These flags define the specific RISC-V architecture of the target MCU.

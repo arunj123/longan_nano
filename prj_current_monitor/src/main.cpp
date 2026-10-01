@@ -1,4 +1,3 @@
-#include "systick.h"
 #include "lcd.h"
 #include "hal/time.hpp"
 #include "usb_hid/usb.hpp"

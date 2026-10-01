@@ -24,11 +24,7 @@ DEBUG_MODE = 1
 # ==============================================================================
 # Hardware & Project-Specific Flags
 # ==============================================================================
-GLOBAL_C_DEFINES = [
-    "-DGD32VF103",
-    "-D__NUCLEI_N200",
-    "-DGD32VF103C_START",
-]
+GLOBAL_C_DEFINES = []
 
 CPU_FLAGS = [
     "-march=rv32imac_zicsr", "-mabi=ilp32",

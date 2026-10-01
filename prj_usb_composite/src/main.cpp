@@ -3,7 +3,7 @@
     \brief running led
 */
 
-#include "systick.h"
+#include "hal/time.hpp"
 #include "lcd.h"
 #include "usb_device.h"
 #include "drivers/usb/usbd_transc.h"
@@ -178,7 +178,7 @@ int main(void)
     // Pre-initialize DisplayManager singleton to ensure static memory is ready
     display::DisplayManager::getInstance();
 
-    delay_1ms(100);
+    hal::time::delay_ms(100);
     printf("\n\n--- System Initialized with Polling Architecture ---\n");
 
     printf("Proceeding with USB initialization...\n");
