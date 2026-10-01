@@ -24,7 +24,7 @@ components = {
         "c_sources": [r"fatfs/src/ff.c"],
         "cpp_sources": [r"fatfs/src/diskio.cpp"],
         "asm_sources": [],
-        "include_paths": [r"-Ifatfs/include"],
+        "include_paths": [r"-Ifatfs/include", r"-Ifatfs/include/fatfs"],
         "enabled": True,
     },
 }

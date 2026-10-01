@@ -1,7 +1,7 @@
 #include "lcd.h"
 #include "hal/time.hpp"
 #include "usb_hid/usb.hpp"
-#include "board.h"
+#include "bsp/board.hpp"
 #include "ina219.h"
 #include "display_manager.h"
 #include <stdio.h>
@@ -12,13 +12,12 @@ static inline uint32_t get_ms_from_start(void) {
 
 int main(void)
 {
-    board_led_init();
-    board_key_init();
+    bsp::board::init();
     
     // Hardware I2C is initialized inside ina219_init()
     if (!ina219_init()) {
         printf("INA219 Init Failed!\n");
-        board_led_on(); // Indicator for error
+        bsp::board::LedRed::on(); // Indicator for error
     }
 
     display::DisplayManager::getInstance().init();
@@ -54,7 +53,7 @@ int main(void)
                 usb::send_report(report, 9);
             }
             
-            board_led_toggle();
+            bsp::board::LedGreen::toggle();
         }
     }
 }

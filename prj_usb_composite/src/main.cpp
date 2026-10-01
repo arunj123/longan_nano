@@ -9,8 +9,8 @@
 #include "drivers/usb/usbd_transc.h"
 #include <stdio.h>
 // gpio.h is no longer needed
-#include "usb.hpp"
-#include "board.h"
+#include "bsp/board.hpp"
+void board_key_init(void);
 #include "rotary_encoder.h"
 #include <math.h>
 #include "shared_defs.h" 
@@ -160,7 +160,7 @@ static void draw_string(int x, int y, const char* str, uint16_t fg, uint16_t bg 
 /* main function */
 int main(void)
 {
-    board_led_init();
+    bsp::board::init();
     board_key_init();
     encoder::init();
     lcd_init();
@@ -224,13 +224,13 @@ int main(void)
         }
 
         if (last_blink.elapsed() >= hal::time::Duration::from_ms(200)) {
-            board_led_toggle();
+            bsp::board::LedGreen::toggle();
             last_blink = hal::time::Instant::now();
         }
     }
     printf("USB device configured successfully!\n");
     draw_string(8, 38, "USB Configured: OK! ", 0x07E0, 0x000B); // Green text
-    board_led_on(); // Turn on Green LED to indicate ready state
+    bsp::board::LedGreen::on(); // Turn on Green LED to indicate ready state
 
     // 6. Main application loop with non-blocking state machine
     while(1){
@@ -284,7 +284,7 @@ int main(void)
             uint8_t report_payload[2] = {0x01, 0x01};
             if (usb::send_custom_hid_report(report_payload, sizeof(report_payload))) {
                 printf("User button pressed! Theme change report sent.\n");
-                board_led_toggle();
+                bsp::board::LedGreen::toggle();
                 user_key_pressed = false;
             }
         }

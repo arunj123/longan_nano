@@ -79,7 +79,7 @@ COMPONENTS = {
     },
     "application": {
         "c_sources": [],
-        "cpp_sources": [r"src/main.cpp", r"src/board.cpp", r"src/rotary_encoder.cpp", r"src/display_manager.cpp"],
+        "cpp_sources": [r"src/main.cpp", r"src/rotary_encoder.cpp", r"src/display_manager.cpp"],
         "asm_sources": [],
         "include_paths": [r"-Isrc"],
         "enabled": True
