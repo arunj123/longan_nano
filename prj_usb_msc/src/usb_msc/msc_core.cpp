@@ -362,7 +362,12 @@ static int8_t process_scsi(usb_core_driver *udev) {
             ctx.remaining_bytes = to_transfer_r6;
             ctx.csw_residue = cbw.dCBWDataTransferLength - to_transfer_r6;
 
-            return msc_process_read(udev);
+            ctx.state = BbbState::DATA_IN;
+            uint32_t first_len_r6 = USB_MIN(ctx.remaining_bytes, MSC_MEDIA_PACKET_SIZE);
+            usbd_ep_nak_arm(udev, MSC_IN_EP, first_len_r6);
+            ctx.need_read = true;
+            ctx.need_read_time = hal::time::Instant::now();
+            return 0;
         }
 
         case ScsiCmd::WRITE_6: {
@@ -411,7 +416,7 @@ static int8_t process_scsi(usb_core_driver *udev) {
                     ctx.media_buffer[1] = 0x80; // Page code
                     ctx.media_buffer[2] = 0x00; // Reserved
                     ctx.media_buffer[3] = 12;   // Page length
-                    std::memcpy(&ctx.media_buffer[4], "LNMSC00000A1", 12);
+                    std::memcpy(&ctx.media_buffer[4], "LNMSC00000A2", 12);
                     ctx.data_len = USB_MIN(cbw.dCBWDataTransferLength, 16U);
                     return 0;
                 } else if (page_code == 0x83) { // Device Identification Page
@@ -536,7 +541,11 @@ static int8_t process_scsi(usb_core_driver *udev) {
             ctx.remaining_bytes = to_transfer_r10;
             ctx.csw_residue = cbw.dCBWDataTransferLength - to_transfer_r10;
 
-            return msc_process_read(udev);
+            uint32_t first_len_r10 = USB_MIN(ctx.remaining_bytes, MSC_MEDIA_PACKET_SIZE);
+            usbd_ep_nak_arm(udev, MSC_IN_EP, first_len_r10);
+            ctx.need_read = true;
+            ctx.need_read_time = hal::time::Instant::now();
+            return 0;
         }
 
         case ScsiCmd::WRITE_10: {
@@ -837,11 +846,11 @@ uint8_t data_in(usb_dev *udev, uint8_t ep_num) {
                 ctx.data_done_time = hal::time::Instant::now();
                 ctx.state = BbbState::STATUS_PENDING;
             }
-#else
             if (ctx.remaining_bytes > 0) {
-                if (msc_process_read(pcore) < 0) {
-                    abort_transfer(pcore);
-                }
+                uint32_t next_len = USB_MIN(ctx.remaining_bytes, MSC_MEDIA_PACKET_SIZE);
+                usbd_ep_nak_arm(pcore, MSC_IN_EP, next_len);
+                ctx.need_read = true;
+                ctx.need_read_time = hal::time::Instant::now();
             } else {
                 __IO uint32_t ctl_before = pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL;
                 __IO uint32_t ctl = ctl_before;
