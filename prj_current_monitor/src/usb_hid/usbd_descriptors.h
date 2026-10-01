@@ -1,7 +1,7 @@
 #pragma once
 
 #include "drivers/usb/usb_core.hpp"
-#include "usb_types.h"
+#include "drivers/usb/hid/hid_types.hpp"
 #include "usbd_conf.h"
 
 /* Custom HID Report Descriptor for Data Streaming */

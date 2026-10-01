@@ -990,7 +990,7 @@ void poll(usb_core_driver *udev) {
         usb_transc *transc = &udev->dev.transc_in[EP_ID(MSC_IN_EP)];
 
         bool hw_done     = ((er_in1->DIEPLEN & (DEPLEN_TLEN | DEPLEN_PCNT)) == 0);
-        bool fifo_empty  = ((er_in1->DIEPTFSTAT & DIEPTFSTAT_IEPTFS) >= TX1_FIFO_FS_SIZE);
+        bool fifo_empty  = ((er_in1->DIEPTFSTAT & DIEPTFSTAT_IEPTFS) >= drivers::usb::TX1_FIFO_FS_SIZE);
         bool ep_naking   = (er_in1->DIEPCTL & DEPCTL_NAKS);
         bool sw_done     = (transc->xfer_count == transc->xfer_len);
         bool no_pending  = ((er_in1->DIEPINTF & DIEPINTF_TF) == 0);

@@ -130,16 +130,10 @@ const uint8_t custom_hid_report_descriptor[] = {
 inline constexpr size_t STD_HID_REPORT_DESC_LEN       = sizeof(std_hid_report_descriptor);
 inline constexpr size_t CUSTOM_HID_REPORT_DESC_LEN    = sizeof(custom_hid_report_descriptor);
 
-/* Define a size for the configuration when MSC is disabled */
-inline constexpr size_t HID_ONLY_CONFIG_DESC_SIZE     = sizeof(usb_desc_config) +
-                                                        sizeof(usb_desc_itf) + sizeof(usb::hid::DescHid) + sizeof(usb_desc_ep) +
-                                                        sizeof(usb_desc_itf) + sizeof(usb::hid::DescHid) + sizeof(usb_desc_ep) * 2;
-
-/* Total size of the full composite descriptor (remains the same) */
+/* Total size of the composite descriptor */
 inline constexpr size_t COMPOSITE_CONFIG_DESC_SIZE    = sizeof(usb_desc_config) +
                                                         sizeof(usb_desc_itf) + sizeof(usb::hid::DescHid) + sizeof(usb_desc_ep) +
-                                                        sizeof(usb_desc_itf) + sizeof(usb::hid::DescHid) + sizeof(usb_desc_ep) * 2 +
-                                                        sizeof(usb_desc_itf) + sizeof(usb_desc_ep) * 2;
+                                                        sizeof(usb_desc_itf) + sizeof(usb::hid::DescHid) + sizeof(usb_desc_ep) * 2;
 
 /* Report IDs */
 inline constexpr uint8_t REPORT_ID_MOUSE             = 1U;
@@ -162,11 +156,6 @@ typedef struct
     usb::hid::DescHid       custom_hid_desc;
     usb_desc_ep             custom_hid_epin;
     usb_desc_ep             custom_hid_epout;
-
-    /* MSC Interface */
-    usb_desc_itf            msc_itf;
-    usb_desc_ep             msc_epout;
-    usb_desc_ep             msc_epin;
 } usb_composite_desc_config_set;
 #pragma pack(pop)
 

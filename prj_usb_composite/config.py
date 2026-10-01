@@ -39,7 +39,6 @@ GLOBAL_C_DEFINES = [
     "-DGD32VF103",
     "-D__NUCLEI_N200",
     "-DGD32VF103C_START",
-    "-DUSE_SD_CARD_MSC=0",
 ]
 
 # --- CPU & ABI Flags ---
@@ -75,7 +74,7 @@ COMPONENTS = {
     **modern_components,
     "usb_composite": {
         "c_sources": [],
-        "cpp_sources": [r"src/usb_composite/gd32vf103_it.cpp",
+        "cpp_sources": [r"src/usb_composite/interrupts.cpp",
                         r"src/usb_composite/usb_device.cpp",
                         r"src/usb_composite/usbd_descriptors.cpp",],
         "asm_sources": [],

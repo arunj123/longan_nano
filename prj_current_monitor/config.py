@@ -54,7 +54,7 @@ COMPONENTS = {
     **modern_components,
     "usb_hid": {
         "c_sources": [],
-        "cpp_sources": [r"src/usb_hid/gd32vf103_it.cpp",
+        "cpp_sources": [r"src/usb_hid/interrupts.cpp",
                         r"src/usb_hid/usb_device.cpp",
                         r"src/usb_hid/usbd_descriptors.cpp",],
         "asm_sources": [],

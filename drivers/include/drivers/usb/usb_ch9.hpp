@@ -246,3 +246,13 @@ constexpr usb_desc_LANGID make_language_id_descriptor(uint16_t lang_id = 0x0409U
         .wLANGID = lang_id
     };
 }
+
+namespace usb {
+    inline constexpr uint16_t ENG_LANGID      = 0x0409U;
+    inline constexpr uint8_t  STR_IDX_LANGID  = 0x00U;
+    inline constexpr uint8_t  STR_IDX_MFC     = 0x01U;
+    inline constexpr uint8_t  STR_IDX_PRODUCT = 0x02U;
+    inline constexpr uint8_t  STR_IDX_SERIAL  = 0x03U;
+    inline constexpr uint8_t  STR_IDX_CONFIG  = 0x04U;
+    inline constexpr uint8_t  STR_IDX_ITF     = 0x05U;
+}

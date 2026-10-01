@@ -28,11 +28,11 @@ usb_status usb_devcore_init(usb_core_driver* udev) {
     udev->regs.dr->DCFG |= USB_SPEED_INP_FULL | FRAME_INTERVAL_80;
 
     // Allocate FIFOs using project configuration
-    usb_set_rxfifo(&udev->regs, RX_FIFO_FS_SIZE);
-    usb_set_txfifo(&udev->regs, 0U, TX0_FIFO_FS_SIZE);
-    usb_set_txfifo(&udev->regs, 1U, TX1_FIFO_FS_SIZE);
-    usb_set_txfifo(&udev->regs, 2U, TX2_FIFO_FS_SIZE);
-    usb_set_txfifo(&udev->regs, 3U, TX3_FIFO_FS_SIZE);
+    usb_set_rxfifo(&udev->regs, drivers::usb::RX_FIFO_FS_SIZE);
+    usb_set_txfifo(&udev->regs, 0U, drivers::usb::TX0_FIFO_FS_SIZE);
+    usb_set_txfifo(&udev->regs, 1U, drivers::usb::TX1_FIFO_FS_SIZE);
+    usb_set_txfifo(&udev->regs, 2U, drivers::usb::TX2_FIFO_FS_SIZE);
+    usb_set_txfifo(&udev->regs, 3U, drivers::usb::TX3_FIFO_FS_SIZE);
 
     // Inactive endpoints zeroed (Mandatory Invariant 3)
     for (uint8_t i = 0U; i < 4U; ++i) {

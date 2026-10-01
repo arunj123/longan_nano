@@ -4,7 +4,6 @@
 #include "drivers/usb/usb_core.hpp"
 #include "drivers/usb/usbd_core.h"
 #include "drivers/usb/usbd_enum.h"
-#include "drivers/usb/drv_usb_hw.h"
 #include "bsp/usb_hw.hpp"
 #include "hal/eclic.hpp"
 #include "hal/exti.hpp"

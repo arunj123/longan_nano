@@ -1,16 +1,11 @@
-#ifndef USB_CONF_H
-#define USB_CONF_H
+#pragma once
 
 #include <cstdint>
-#include <cstdlib>
 
-#define USB_SOF_OUTPUT              1U
-#define USB_LOW_POWER               0U
-
-#define USE_USB_FS
-#define USE_DEVICE_MODE
-
-/*
+/**
+ * @file usb_conf.h
+ * @brief Modern C++23 USB FIFO configuration for Longan Nano Mass Storage Class (MSC).
+ *
  * Total available FIFO size for GD32VF103 is 1.25 KB (1280 bytes = 320 words).
  * RX FIFO: shared for all OUT endpoints (EP0 OUT, EP1 MSC OUT).
  * TX FIFOs: dedicated per IN endpoint.
@@ -22,10 +17,11 @@
  * TX3 FIFO: 0 words (Unused)
  * Total: 96 + 32 + 192 = 320 words (100% exact hardware fit)
  */
-#define RX_FIFO_FS_SIZE             96U
-#define TX0_FIFO_FS_SIZE            32U
-#define TX1_FIFO_FS_SIZE            192U
-#define TX2_FIFO_FS_SIZE            0U
-#define TX3_FIFO_FS_SIZE            0U
 
-#endif /* USB_CONF_H */
+namespace drivers::usb {
+inline constexpr uint16_t RX_FIFO_FS_SIZE  = 96U;
+inline constexpr uint16_t TX0_FIFO_FS_SIZE = 32U;
+inline constexpr uint16_t TX1_FIFO_FS_SIZE = 192U;
+inline constexpr uint16_t TX2_FIFO_FS_SIZE = 0U;
+inline constexpr uint16_t TX3_FIFO_FS_SIZE = 0U;
+}

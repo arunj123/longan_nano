@@ -16,10 +16,6 @@
 #include "shared_defs.h" 
 #include "display_manager.h"
 
-#if defined(USE_SD_CARD_MSC) && (USE_SD_CARD_MSC == 1)
-    #include "drivers/sdcard.hpp"
-    #include "usbd_msc_mem.h"
-#endif
 
 // Define some helpful consumer control usage codes
 namespace hid_consumer {
@@ -185,23 +181,8 @@ int main(void)
     delay_1ms(100);
     printf("\n\n--- System Initialized with Polling Architecture ---\n");
 
-#if defined(USE_SD_CARD_MSC) && (USE_SD_CARD_MSC == 1)
-    bool sd_card_is_ok = false;
-    printf("Attempting to initialize SD Card for MSC...\n");
-    if (drivers::sdcard::SdCard<>::init(true) == drivers::sdcard::SdResult::Success) {
-        printf("INFO: SD Card initialized successfully.\n");
-        sd_card_is_ok = true;
-        msc_mem_pre_init();
-    } else {
-        printf("WARN: SD Card initialization failed or card not present.\n");
-    }
-    printf("Proceeding with USB initialization (MSC=%s)...\n", sd_card_is_ok ? "ENABLED" : "DISABLED");
-    usb::init(sd_card_is_ok);
-#else
-    printf("INFO: SD Card MSC feature is disabled in this build.\n");
     printf("Proceeding with USB initialization...\n");
-    usb::init(false); // MSC is disabled
-#endif
+    usb::init();
     printf("USB initialization complete.\n");
 
     printf("CfgDesc [len=%u]: ", (unsigned)composite_config_desc.config.wTotalLength);

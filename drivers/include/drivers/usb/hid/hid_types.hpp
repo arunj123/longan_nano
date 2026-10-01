@@ -2,10 +2,25 @@
 
 #include <cstdint>
 #include <span>
+#include "drivers/usb/usb_ch9.hpp"
 
 namespace usb::hid {
 
+inline constexpr uint8_t HID_CLASS        = 0x03U;
+inline constexpr uint8_t DESC_TYPE_HID    = 0x21U;
+inline constexpr uint8_t DESC_TYPE_REPORT = 0x22U;
+
 #pragma pack(push, 1)
+
+/// @brief Standard HID Functional Descriptor (9 bytes)
+struct DescHid {
+    usb_desc_header header;
+    uint16_t bcdHID{0x0111};
+    uint8_t  bCountryCode{0};
+    uint8_t  bNumDescriptors{1};
+    uint8_t  bDescriptorType{DESC_TYPE_REPORT};
+    uint16_t wDescriptorLength{0};
+};
 
 /// @brief HID-specific control requests (bRequest)
 enum class Request : uint8_t {

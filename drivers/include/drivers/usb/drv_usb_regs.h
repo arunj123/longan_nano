@@ -20,19 +20,12 @@ inline constexpr uint32_t  USBFS_MAX_CHANNEL_COUNT = 8U;
 inline constexpr uint32_t  USBFS_MAX_EP_COUNT      = 4U;
 inline constexpr uint32_t  USBFS_MAX_FIFO_WORDLEN  = 320U;
 
-#ifndef RX_FIFO_FS_SIZE
+// Default FIFO sizes (if not provided by project-level usb_conf.h)
+#if !__has_include("usb_conf.h")
 inline constexpr uint16_t RX_FIFO_FS_SIZE          = 128U;
-#endif
-#ifndef TX0_FIFO_FS_SIZE
 inline constexpr uint16_t TX0_FIFO_FS_SIZE         = 64U;
-#endif
-#ifndef TX1_FIFO_FS_SIZE
 inline constexpr uint16_t TX1_FIFO_FS_SIZE         = 128U;
-#endif
-#ifndef TX2_FIFO_FS_SIZE
 inline constexpr uint16_t TX2_FIFO_FS_SIZE         = 32U;
-#endif
-#ifndef TX3_FIFO_FS_SIZE
 inline constexpr uint16_t TX3_FIFO_FS_SIZE         = 32U;
 #endif
 

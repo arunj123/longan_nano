@@ -1,5 +1,4 @@
 #include "usbd_descriptors.hpp"
-#include "drivers/usb/usb_types.hpp"
 #include "drivers/usb/usb_ch9.hpp"
 
 /* USB standard device descriptor */

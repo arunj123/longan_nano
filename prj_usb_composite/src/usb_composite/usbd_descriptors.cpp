@@ -40,7 +40,7 @@ usb_composite_desc_config_set composite_config_desc = {
             .bDescriptorType = USB_DESCTYPE_CONFIG
         },
         .wTotalLength         = COMPOSITE_CONFIG_DESC_SIZE,
-        .bNumInterfaces       = 3U, // We have 3 interfaces
+        .bNumInterfaces       = 2U, // 2 HID interfaces (Standard HID + Custom HID)
         .bConfigurationValue  = 1U,
         .iConfiguration       = 0U,
         .bmAttributes         = 0x80, // Bus-powered
@@ -106,32 +106,6 @@ usb_composite_desc_config_set composite_config_desc = {
         .bmAttributes         = USB_EP_ATTR_INT,
         .wMaxPacketSize       = CUSTOM_HID_OUT_PACKET,
         .bInterval            = 0x20
-    },
-
-    /******************** MSC Interface (Interface 2) ********************/
-    .msc_itf = {
-        .header = { .bLength = sizeof(usb_desc_itf), .bDescriptorType = USB_DESCTYPE_ITF },
-        .bInterfaceNumber    = MSC_INTERFACE,
-        .bAlternateSetting   = 0x00,
-        .bNumEndpoints       = 2U,
-        .bInterfaceClass     = usb::msc::MSC_CLASS,
-        .bInterfaceSubClass  = usb::msc::MSC_SUBCLASS_SCSI,
-        .bInterfaceProtocol  = usb::msc::MSC_PROTOCOL_BBB,
-        .iInterface          = 0x00
-    },
-    .msc_epout = {
-        .header = { .bLength = sizeof(usb_desc_ep), .bDescriptorType = USB_DESCTYPE_EP },
-        .bEndpointAddress    = MSC_OUT_EP,
-        .bmAttributes        = USB_EP_ATTR_BULK,
-        .wMaxPacketSize      = MSC_OUT_PACKET,
-        .bInterval           = 0x00
-    },
-    .msc_epin = {
-        .header = { .bLength = sizeof(usb_desc_ep), .bDescriptorType = USB_DESCTYPE_EP },
-        .bEndpointAddress    = MSC_IN_EP,
-        .bmAttributes        = USB_EP_ATTR_BULK,
-        .wMaxPacketSize      = MSC_IN_PACKET,
-        .bInterval           = 0x00
     }
 };
 

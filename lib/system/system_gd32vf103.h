@@ -12,5 +12,3 @@ extern "C" void SystemInit(void);
 /* update the SystemCoreClock with current core clock retrieved from cpu registers */
 void SystemCoreClockUpdate(void);
 
-/* get firmware version */
-uint32_t gd32vf103_firmware_version_get(void);

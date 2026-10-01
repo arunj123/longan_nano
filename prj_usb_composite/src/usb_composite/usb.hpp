@@ -12,9 +12,8 @@
 namespace usb {
     /*!
         \brief      Initializes all USB-related clocks, interrupts, and peripherals.
-        \param[in]  enable_msc: Set to true to include the Mass Storage interface, false otherwise.
     */
-    void init(bool enable_msc = true); // Default to true for backward compatibility
+    void init();
 
     /*!
         \brief      Handles periodic USB tasks. Call this in the main loop if you have
