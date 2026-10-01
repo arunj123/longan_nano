@@ -6,6 +6,7 @@
 */
 
 #include "usbd_descriptors.h"
+#include "drivers/usb/usb_ch9.hpp"
 #include <cstring>
 
 #define USBD_VID                     0x28E9
@@ -135,33 +136,24 @@ usb_composite_desc_config_set composite_config_desc = {
 };
 
 /* USB language ID Descriptor */
-static const usb_desc_LANGID usbd_language_id_desc = {
-    .header = { .bLength = sizeof(usb_desc_LANGID), .bDescriptorType = USB_DESCTYPE_STR },
-    .wLANGID = usb::ENG_LANGID
-};
+static constexpr auto usbd_language_id_desc = make_language_id_descriptor(usb::ENG_LANGID);
 
 /* USB manufacture string */
-static const usb_desc_str manufacturer_string = {
-    .header = { .bLength = USB_STRING_LEN(10), .bDescriptorType = USB_DESCTYPE_STR },
-    .unicode_string = {'G', 'i', 'g', 'a', 'D', 'e', 'v', 'i', 'c', 'e'}
-};
+static constexpr auto manufacturer_string   = make_string_descriptor("Sipeed");
 
 /* USB product string */
-static const usb_desc_str product_string = {
-    .header = { .bLength = USB_STRING_LEN(18), .bDescriptorType = USB_DESCTYPE_STR },
-    .unicode_string = {'G', 'D', '3', '2', ' ', 'C', 'o', 'm', 'p', 'o', 's', 'i', 't', 'e', ' ', 'D', 'e', 'v'}
-};
+static constexpr auto product_string        = make_string_descriptor("Longan Nano Composite Controller");
 
 /* USBD serial string */
-static usb_desc_str serial_string = {
+alignas(4) static usb_desc_str serial_string = {
     .header = { .bLength = USB_STRING_LEN(12), .bDescriptorType = USB_DESCTYPE_STR },
     .unicode_string = {0} // Fix for -Wmissing-field-initializers
 };
 
 /* USB string descriptor set (standard C++ initialization) */
 void *const usbd_composite_strings[] = {
-    (uint8_t *)&usbd_language_id_desc,
-    (uint8_t *)&manufacturer_string,
-    (uint8_t *)&product_string,
-    (uint8_t *)&serial_string
+    const_cast<void*>(static_cast<const void*>(&usbd_language_id_desc)),
+    const_cast<void*>(static_cast<const void*>(&manufacturer_string)),
+    const_cast<void*>(static_cast<const void*>(&product_string)),
+    static_cast<void*>(&serial_string)
 };

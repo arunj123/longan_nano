@@ -1,5 +1,6 @@
 #include "usbd_descriptors.hpp"
 #include "drivers/usb/usb_types.hpp"
+#include "drivers/usb/usb_ch9.hpp"
 
 /* USB standard device descriptor */
 alignas(4) usb_desc_dev msc_dev_desc = {
@@ -65,22 +66,13 @@ alignas(4) UsbMscConfigDescSet msc_config_desc = {
 };
 
 /* USB language ID Descriptor */
-alignas(4) static const usb_desc_LANGID usbd_language_id_desc = {
-    .header = { .bLength = sizeof(usb_desc_LANGID), .bDescriptorType = USB_DESCTYPE_STR },
-    .wLANGID = 0x0409U
-};
+static constexpr auto usbd_language_id_desc = make_language_id_descriptor(0x0409U);
 
 /* USB manufacture string */
-alignas(4) static const usb_desc_str manufacturer_string = {
-    .header = { .bLength = USB_STRING_LEN(6), .bDescriptorType = USB_DESCTYPE_STR },
-    .unicode_string = {'S', 'i', 'p', 'e', 'e', 'd'}
-};
+static constexpr auto manufacturer_string   = make_string_descriptor("Sipeed");
 
 /* USB product string */
-alignas(4) static const usb_desc_str product_string = {
-    .header = { .bLength = USB_STRING_LEN(21), .bDescriptorType = USB_DESCTYPE_STR },
-    .unicode_string = {'L', 'o', 'n', 'g', 'a', 'n', ' ', 'N', 'a', 'n', 'o', ' ', 'S', 'D', ' ', 'R', 'e', 'a', 'd', 'e', 'r'}
-};
+static constexpr auto product_string        = make_string_descriptor("Longan Nano SD Reader");
 
 /* USBD serial string */
 alignas(4) static usb_desc_str serial_string = {
@@ -90,10 +82,10 @@ alignas(4) static usb_desc_str serial_string = {
 
 /* USB string descriptor set */
 void *const usbd_msc_strings[] = {
-    (uint8_t *)&usbd_language_id_desc,
-    (uint8_t *)&manufacturer_string,
-    (uint8_t *)&product_string,
-    (uint8_t *)&serial_string
+    const_cast<void*>(static_cast<const void*>(&usbd_language_id_desc)),
+    const_cast<void*>(static_cast<const void*>(&manufacturer_string)),
+    const_cast<void*>(static_cast<const void*>(&product_string)),
+    static_cast<void*>(&serial_string)
 };
 
 void set_custom_serial_string(const char *ascii_str) {

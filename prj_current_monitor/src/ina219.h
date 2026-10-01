@@ -3,15 +3,12 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include "drivers/ina219.hpp"
 
 #define INA219_ADDR 0x40
 
-// Raw values for USB streaming
-typedef struct {
-    uint16_t voltage_mv;
-    int16_t current_ma;
-    uint16_t power_mw;
-} ina219_data_t;
+// Modern C++23 type alias mapping to drivers::Ina219Data
+using ina219_data_t = drivers::Ina219Data;
 
 bool ina219_init(void);
 bool ina219_read_all(ina219_data_t *data);

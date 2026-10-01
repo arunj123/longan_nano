@@ -1,12 +1,14 @@
 #pragma once
 
 #include <cstdint>
+#include <compare>
 #include "usb_types.hpp"
 
 namespace usb {
 
 /**
  * @brief Type-safe representation of an 8-bit USB Endpoint Address.
+ * Uses C++20/23 defaulted spaceship operator for three-way comparison.
  */
 class EndpointAddress {
 public:
@@ -35,13 +37,8 @@ public:
         return m_raw;
     }
 
-    constexpr bool operator==(const EndpointAddress& rhs) const noexcept {
-        return m_raw == rhs.m_raw;
-    }
-
-    constexpr bool operator!=(const EndpointAddress& rhs) const noexcept {
-        return m_raw != rhs.m_raw;
-    }
+    constexpr auto operator<=>(const EndpointAddress&) const noexcept = default;
+    constexpr bool operator==(const EndpointAddress&) const noexcept = default;
 
 private:
     uint8_t m_raw{0};

@@ -1,4 +1,5 @@
 #include "drivers/usb/cdc_acm.hpp"
+#include "drivers/usb/usb_ch9.hpp"
 #include <cstring>
 
 #define USBD_VID                          0x28E9U
@@ -142,31 +143,11 @@ static const usb_cdc_desc_config_set cdc_config_desc = {
     }
 };
 
-static const usb_desc_LANGID usbd_language_id_desc = {
-    .header = {
-        .bLength         = sizeof(usb_desc_LANGID),
-        .bDescriptorType = USB_DESCTYPE_STR
-    },
-    .wLANGID             = 0x0409U // ENG_LANGID
-};
+static constexpr auto usbd_language_id_desc = make_language_id_descriptor(0x0409U);
+static constexpr auto manufacturer_string   = make_string_descriptor("Sipeed");
+static constexpr auto product_string        = make_string_descriptor("Longan Nano USB Serial");
 
-static const usb_desc_str manufacturer_string = {
-    .header = {
-        .bLength         = USB_STRING_LEN(10),
-        .bDescriptorType = USB_DESCTYPE_STR
-    },
-    .unicode_string = {'G', 'i', 'g', 'a', 'D', 'e', 'v', 'i', 'c', 'e'}
-};
-
-static const usb_desc_str product_string = {
-    .header = {
-        .bLength         = USB_STRING_LEN(12),
-        .bDescriptorType = USB_DESCTYPE_STR
-    },
-    .unicode_string = {'G', 'D', '3', '2', '-', 'C', 'D', 'C', '_', 'A', 'C', 'M'}
-};
-
-static usb_desc_str serial_string = {
+alignas(4) static usb_desc_str serial_string = {
     .header = {
         .bLength         = USB_STRING_LEN(12),
         .bDescriptorType = USB_DESCTYPE_STR

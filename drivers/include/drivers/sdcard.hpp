@@ -2,6 +2,9 @@
 
 #include <cstdint>
 #include <span>
+#include <string_view>
+#include <utility>
+#include <concepts>
 #include <cstdio>
 #include "hal/gpio.hpp"
 #include "hal/spi.hpp"
@@ -31,7 +34,34 @@ enum class SdResult : uint8_t {
     NotInitialized
 };
 
-[[nodiscard]] inline const char* result_to_string(SdResult res) noexcept {
+/// Standard SD SPI Command opcodes
+enum class Command : uint8_t {
+    GoIdleState        = 0,   // CMD0
+    SendOpCond         = 1,   // CMD1
+    SendIfCond         = 8,   // CMD8
+    SendCsd            = 9,   // CMD9
+    SendCid            = 10,  // CMD10
+    StopTransmission   = 12,  // CMD12
+    SetBlocklen        = 16,  // CMD16
+    ReadSingleBlock    = 17,  // CMD17
+    ReadMultipleBlock  = 18,  // CMD18
+    WriteBlock         = 24,  // CMD24
+    WriteMultipleBlock = 25,  // CMD25
+    AppCmd             = 55,  // CMD55
+    ReadOcr            = 58,  // CMD58
+};
+
+/// Application-specific SD commands (prefixed by CMD55)
+enum class AppCommand : uint8_t {
+    SdSendOpCond       = 41,  // ACMD41
+};
+
+/// Standard SPI data tokens
+inline constexpr uint8_t TokenDataStart           = 0xFE;
+inline constexpr uint8_t TokenDataStartMultiWrite = 0xFC;
+inline constexpr uint8_t TokenStopTranMultiWrite  = 0xFD;
+
+[[nodiscard]] constexpr std::string_view to_string(SdResult res) noexcept {
     switch (res) {
         case SdResult::Success:          return "Success";
         case SdResult::Timeout:          return "Timeout";
@@ -47,7 +77,7 @@ enum class SdResult : uint8_t {
     }
 }
 
-[[nodiscard]] inline const char* card_type_to_string(CardType type) noexcept {
+[[nodiscard]] constexpr std::string_view to_string(CardType type) noexcept {
     switch (type) {
         case CardType::MMC:   return "MMC (MultiMediaCard)";
         case CardType::SD1:   return "SDSC v1.x (Standard Capacity)";
@@ -55,6 +85,14 @@ enum class SdResult : uint8_t {
         case CardType::SD2HC: return "SDHC/SDXC v2.0+ (High Capacity, block-addressed)";
         default:              return "Unknown / Unidentified Card";
     }
+}
+
+[[nodiscard]] inline const char* result_to_string(SdResult res) noexcept {
+    return to_string(res).data();
+}
+
+[[nodiscard]] inline const char* card_type_to_string(CardType type) noexcept {
+    return to_string(type).data();
 }
 
 /**
@@ -143,6 +181,16 @@ public:
         cs_high();
         xchg(0xFF); // 8 clocks
         return r1;
+    }
+
+    /// Send a typed SD command packet and wait for R1 response
+    static inline uint8_t send_cmd(Command cmd, uint32_t arg, uint8_t crc = 0x01) noexcept {
+        return send_cmd(std::to_underlying(cmd), arg, crc);
+    }
+
+    /// Send a typed application-specific command (ACMD) preceded by CMD55
+    static inline uint8_t send_acmd(AppCommand cmd, uint32_t arg) noexcept {
+        return send_acmd(std::to_underlying(cmd), arg);
     }
 
     /**
@@ -528,35 +576,49 @@ public:
     }
 
     /**
-     * @brief Multi-sector read helper.
+     * @brief Multi-sector read helper using std::span.
      * @param sector 32-bit starting sector index (LBA).
-     * @param buff Destination buffer pointer.
-     * @param count Number of 512-byte sectors to read.
+     * @param buffer Destination buffer span (size must be a multiple of 512).
      */
-    static SdResult read_sectors(uint32_t sector, uint8_t* buff, uint32_t count) noexcept {
+    static SdResult read_sectors(uint32_t sector, std::span<uint8_t> buffer) noexcept {
         if (!is_initialized) return SdResult::NotInitialized;
+        if (buffer.size() % 512 != 0) return SdResult::WriteError;
+        uint32_t count = static_cast<uint32_t>(buffer.size() / 512);
         for (uint32_t i = 0; i < count; ++i) {
-            std::span<uint8_t, 512> block_span{buff + (i * 512), 512};
-            auto res = read_sector(sector + i, block_span);
+            auto res = read_sector(sector + i, buffer.subspan(i * 512, 512));
             if (res != SdResult::Success) return res;
         }
         return SdResult::Success;
     }
 
     /**
-     * @brief Multi-sector write helper.
+     * @brief Multi-sector write helper using std::span.
      * @param sector 32-bit starting sector index (LBA).
-     * @param buff Source buffer pointer.
-     * @param count Number of 512-byte sectors to write.
+     * @param buffer Source buffer span (size must be a multiple of 512).
      */
-    static SdResult write_sectors(uint32_t sector, const uint8_t* buff, uint32_t count) noexcept {
+    static SdResult write_sectors(uint32_t sector, std::span<const uint8_t> buffer) noexcept {
         if (!is_initialized) return SdResult::NotInitialized;
+        if (buffer.size() % 512 != 0) return SdResult::WriteError;
+        uint32_t count = static_cast<uint32_t>(buffer.size() / 512);
         for (uint32_t i = 0; i < count; ++i) {
-            std::span<const uint8_t, 512> block_span{buff + (i * 512), 512};
-            auto res = write_sector(sector + i, block_span);
+            auto res = write_sector(sector + i, buffer.subspan(i * 512, 512));
             if (res != SdResult::Success) return res;
         }
         return SdResult::Success;
+    }
+
+    /**
+     * @brief Multi-sector read helper with raw pointer.
+     */
+    static SdResult read_sectors(uint32_t sector, uint8_t* buff, uint32_t count) noexcept {
+        return read_sectors(sector, std::span<uint8_t>{buff, count * 512});
+    }
+
+    /**
+     * @brief Multi-sector write helper with raw pointer.
+     */
+    static SdResult write_sectors(uint32_t sector, const uint8_t* buff, uint32_t count) noexcept {
+        return write_sectors(sector, std::span<const uint8_t>{buff, count * 512});
     }
 };
 

@@ -8,7 +8,7 @@
 
 namespace drivers::fatfs {
 
-[[nodiscard]] inline const char* result_to_string(FRESULT res) noexcept {
+[[nodiscard]] constexpr std::string_view to_string(FRESULT res) noexcept {
     switch (res) {
         case FR_OK:                  return "FR_OK: Succeeded";
         case FR_DISK_ERR:            return "FR_DISK_ERR: Low-level disk I/O error";
@@ -32,6 +32,10 @@ namespace drivers::fatfs {
         case FR_INVALID_PARAMETER:   return "FR_INVALID_PARAMETER: Given parameter is invalid";
         default:                     return "Unknown FatFs Error";
     }
+}
+
+[[nodiscard]] inline const char* result_to_string(FRESULT res) noexcept {
+    return to_string(res).data();
 }
 
 /**
@@ -91,6 +95,20 @@ public:
     FRESULT read(std::span<uint8_t> buffer, UINT& bytes_read) noexcept {
         if (!is_open_) return FR_INVALID_OBJECT;
         return f_read(&fil_, buffer.data(), static_cast<UINT>(buffer.size()), &bytes_read);
+    }
+
+    FRESULT seek(FSIZE_t offset) noexcept {
+        if (!is_open_) return FR_INVALID_OBJECT;
+        return f_lseek(&fil_, offset);
+    }
+
+    [[nodiscard]] FSIZE_t tell() const noexcept {
+        return is_open_ ? f_tell(&fil_) : 0;
+    }
+
+    FRESULT truncate() noexcept {
+        if (!is_open_) return FR_INVALID_OBJECT;
+        return f_truncate(&fil_);
     }
 
     FRESULT sync() noexcept {
@@ -172,6 +190,15 @@ public:
     bool exists(const char* path) noexcept {
         FILINFO fno;
         return f_stat(path, &fno) == FR_OK;
+    }
+
+    FRESULT file_size(const char* path, FSIZE_t& size_out) noexcept {
+        FILINFO fno;
+        FRESULT res = f_stat(path, &fno);
+        if (res == FR_OK) {
+            size_out = fno.fsize;
+        }
+        return res;
     }
 
 private:

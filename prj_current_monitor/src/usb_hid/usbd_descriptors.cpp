@@ -1,4 +1,5 @@
 #include "usbd_descriptors.h"
+#include "drivers/usb/usb_ch9.hpp"
 #include <cstring>
 
 #define USBD_VID                     0x28E9
@@ -74,32 +75,23 @@ usb_hid_desc_config_set config_desc = {
 };
 
 /* USB language ID Descriptor */
-static const usb_desc_LANGID language_id_desc = {
-    .header = { .bLength = sizeof(usb_desc_LANGID), .bDescriptorType = USB_DESCTYPE_STR },
-    .wLANGID = usb::ENG_LANGID
-};
+static constexpr auto language_id_desc    = make_language_id_descriptor(usb::ENG_LANGID);
 
 /* USB manufacture string */
-static const usb_desc_str manufacturer_string = {
-    .header = { .bLength = USB_STRING_LEN(10), .bDescriptorType = USB_DESCTYPE_STR },
-    .unicode_string = {'G', 'i', 'g', 'a', 'D', 'e', 'v', 'i', 'c', 'e'}
-};
+static constexpr auto manufacturer_string = make_string_descriptor("Sipeed");
 
 /* USB product string */
-static const usb_desc_str product_string = {
-    .header = { .bLength = USB_STRING_LEN(15), .bDescriptorType = USB_DESCTYPE_STR },
-    .unicode_string = {'I', 'N', 'A', '2', '1', '9', ' ', 'M', 'o', 'n', 'i', 't', 'o', 'r'}
-};
+static constexpr auto product_string      = make_string_descriptor("Longan Nano Power Monitor");
 
 /* USBD serial string */
-static usb_desc_str serial_string = {
+alignas(4) static usb_desc_str serial_string = {
     .header = { .bLength = USB_STRING_LEN(12), .bDescriptorType = USB_DESCTYPE_STR },
     .unicode_string = {0}
 };
 
 void *const usbd_strings[] = {
-    (uint8_t *)&language_id_desc,
-    (uint8_t *)&manufacturer_string,
-    (uint8_t *)&product_string,
-    (uint8_t *)&serial_string
+    const_cast<void*>(static_cast<const void*>(&language_id_desc)),
+    const_cast<void*>(static_cast<const void*>(&manufacturer_string)),
+    const_cast<void*>(static_cast<const void*>(&product_string)),
+    static_cast<void*>(&serial_string)
 };

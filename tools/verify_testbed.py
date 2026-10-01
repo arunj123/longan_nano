@@ -76,14 +76,18 @@ ser.close()
         f.write(remote_script)
     sftp.close()
 
-def check_usb_device():
+def check_usb_device(expected_vid_pid=None):
     client = get_ssh()
     stdin, stdout, stderr = client.exec_command("lsusb")
     lsusb_out = stdout.read().decode('utf-8', errors='replace')
     stdin, stdout, stderr = client.exec_command("echo arun | sudo -S dmesg | tail -n 12")
     dmesg_out = stdout.read().decode('utf-8', errors='replace')
+    desc_str = ""
+    if expected_vid_pid:
+        stdin, stdout, stderr = client.exec_command(f"lsusb -v -d {expected_vid_pid} 2>/dev/null | grep -E 'iManufacturer|iProduct'")
+        desc_str = stdout.read().decode('utf-8', errors='replace')
     client.close()
-    return lsusb_out, dmesg_out
+    return lsusb_out, dmesg_out, desc_str
 
 def verify_project(name, hex_path, check_usb=False, expected_vid_pid=None):
     print(f"\n=======================================================")
@@ -123,13 +127,17 @@ def verify_project(name, hex_path, check_usb=False, expected_vid_pid=None):
 
     if check_usb:
         time.sleep(1.0)
-        lsusb_out, dmesg_out = check_usb_device()
+        lsusb_out, dmesg_out, desc_str = check_usb_device(expected_vid_pid)
         found = (expected_vid_pid.lower() in lsusb_out.lower()) if expected_vid_pid else ("28e9:" in lsusb_out)
         print(f"  [USB] Enumeration Check ({expected_vid_pid or '28e9:*'}): {'PASS' if found else 'NOT FOUND'}")
         if found:
             for line in lsusb_out.splitlines():
                 if "28e9:" in line or (expected_vid_pid and expected_vid_pid in line):
                     print(f"    | {line}")
+            if desc_str.strip():
+                print("  [USB] String Descriptors:")
+                for line in desc_str.splitlines():
+                    print(f"    | {line.strip()}")
         print("  [USB] Kernel dmesg:")
         for line in dmesg_out.splitlines()[-6:]:
             print(f"    | {line}")
