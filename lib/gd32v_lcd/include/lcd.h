@@ -104,5 +104,10 @@ void lcd_fb_enable(void);
 void lcd_fb_disable(void);
 
 // ------------------------------------------------------------------------
+// Modern C++23 Graphics, Color, and Font Subsystem
+// ------------------------------------------------------------------------
+#include "lcd_color.hpp"
+#include "lcd_font.hpp"
+#include "lcd_draw.hpp"
 
 
