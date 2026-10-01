@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <utility>
 
 namespace hal::csr {
 
@@ -67,7 +68,7 @@ namespace mstatus {
 template <Csr Reg>
 [[nodiscard]] inline uint32_t read() noexcept {
     uint32_t val;
-    asm volatile("csrr %0, %1" : "=r"(val) : "i"(static_cast<uint16_t>(Reg)) : "memory");
+    asm volatile("csrr %0, %1" : "=r"(val) : "i"(std::to_underlying(Reg)) : "memory");
     return val;
 }
 
@@ -76,7 +77,7 @@ template <Csr Reg>
  */
 template <Csr Reg>
 inline void write(uint32_t val) noexcept {
-    asm volatile("csrw %1, %0" : : "r"(val), "i"(static_cast<uint16_t>(Reg)) : "memory");
+    asm volatile("csrw %1, %0" : : "r"(val), "i"(std::to_underlying(Reg)) : "memory");
 }
 
 /**
@@ -84,7 +85,7 @@ inline void write(uint32_t val) noexcept {
  */
 template <Csr Reg>
 inline void set_bits(uint32_t mask) noexcept {
-    asm volatile("csrs %1, %0" : : "r"(mask), "i"(static_cast<uint16_t>(Reg)) : "memory");
+    asm volatile("csrs %1, %0" : : "r"(mask), "i"(std::to_underlying(Reg)) : "memory");
 }
 
 /**
@@ -92,7 +93,7 @@ inline void set_bits(uint32_t mask) noexcept {
  */
 template <Csr Reg>
 inline void clear_bits(uint32_t mask) noexcept {
-    asm volatile("csrc %1, %0" : : "r"(mask), "i"(static_cast<uint16_t>(Reg)) : "memory");
+    asm volatile("csrc %1, %0" : : "r"(mask), "i"(std::to_underlying(Reg)) : "memory");
 }
 
 /**
@@ -101,7 +102,7 @@ inline void clear_bits(uint32_t mask) noexcept {
 template <Csr Reg>
 [[nodiscard]] inline uint32_t read_and_clear_bits(uint32_t mask) noexcept {
     uint32_t prev;
-    asm volatile("csrrc %0, %1, %2" : "=r"(prev) : "i"(static_cast<uint16_t>(Reg)), "r"(mask) : "memory");
+    asm volatile("csrrc %0, %1, %2" : "=r"(prev) : "i"(std::to_underlying(Reg)), "r"(mask) : "memory");
     return prev;
 }
 
@@ -111,7 +112,7 @@ template <Csr Reg>
 template <Csr Reg>
 [[nodiscard]] inline uint32_t read_and_set_bits(uint32_t mask) noexcept {
     uint32_t prev;
-    asm volatile("csrrs %0, %1, %2" : "=r"(prev) : "i"(static_cast<uint16_t>(Reg)), "r"(mask) : "memory");
+    asm volatile("csrrs %0, %1, %2" : "=r"(prev) : "i"(std::to_underlying(Reg)), "r"(mask) : "memory");
     return prev;
 }
 

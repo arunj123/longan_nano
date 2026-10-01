@@ -1,4 +1,5 @@
 import paramiko
+import os
 import sys
 import struct
 
@@ -27,6 +28,7 @@ with sftp.open('/tmp/ep1_debug.bin', 'rb') as f:
 sftp.close()
 client.close()
 
+os.makedirs('scratch', exist_ok=True)
 with open('scratch/ep1_debug.bin', 'wb') as f:
     f.write(data)
 

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <utility>
 #include "hal/core.hpp"
 #include "hal/register.hpp"
 
@@ -184,7 +185,7 @@ struct Eclic {
 
     /// Enable interrupt request with typed Irq enum.
     static inline void enable(Irq irq, uint8_t level = 1, uint8_t priority = 0, bool vectored = false) noexcept {
-        enable(static_cast<uint32_t>(irq), level, priority, vectored);
+        enable(std::to_underlying(irq), level, priority, vectored);
     }
 
     /// Disable interrupt request.
@@ -196,13 +197,18 @@ struct Eclic {
 
     /// Disable interrupt request with typed Irq enum.
     static inline void disable(Irq irq) noexcept {
-        disable(static_cast<uint32_t>(irq));
+        disable(std::to_underlying(irq));
     }
 
     /// Check if interrupt is pending.
     [[nodiscard]] static inline bool is_pending(uint32_t irq) noexcept {
         if (irq >= detail::kNumInterrupts) return false;
         return (detail::int_entries()[irq].ip & 0x01U) != 0;
+    }
+
+    /// Check if interrupt is pending with typed Irq enum.
+    [[nodiscard]] static inline bool is_pending(Irq irq) noexcept {
+        return is_pending(std::to_underlying(irq));
     }
 
     /// Clear pending flag.
@@ -212,6 +218,11 @@ struct Eclic {
         }
     }
 
+    /// Clear pending flag with typed Irq enum.
+    static inline void clear_pending(Irq irq) noexcept {
+        clear_pending(std::to_underlying(irq));
+    }
+
     /// Set pending flag (trigger software interrupt).
     static inline void set_pending(uint32_t irq) noexcept {
         if (irq < detail::kNumInterrupts) {
@@ -219,12 +230,22 @@ struct Eclic {
         }
     }
 
+    /// Set pending flag with typed Irq enum.
+    static inline void set_pending(Irq irq) noexcept {
+        set_pending(std::to_underlying(irq));
+    }
+
     /// Set trigger sensitivity (Level, Edge Positive, Edge Negative).
     static inline void set_trigger(uint32_t irq, Trigger trigger) noexcept {
         if (irq < detail::kNumInterrupts) {
             auto* const entry = &detail::int_entries()[irq];
-            entry->attr = static_cast<uint8_t>((entry->attr & 0xF9U) | static_cast<uint8_t>(trigger));
+            entry->attr = static_cast<uint8_t>((entry->attr & 0xF9U) | std::to_underlying(trigger));
         }
+    }
+
+    /// Set trigger sensitivity with typed Irq enum.
+    static inline void set_trigger(Irq irq, Trigger trigger) noexcept {
+        set_trigger(std::to_underlying(irq), trigger);
     }
 
     /// Globally enable interrupts via MSTATUS.MIE.

@@ -6,28 +6,39 @@ This repository contains a collection of bare-metal firmware projects for the **
 
 This repository is structured to support multiple independent firmware applications. Each project resides in its own directory in the project root, and its name must be prefixed with `prj_`.
 
-### `prj_uart_test`
+### `prj_usb_msc`
 
-This project uses the `debug_uart0` library to verify that the basic UART configuration and `printf` retargeting are working correctly.
+A standalone USB Mass Storage Bulk-Only Transport (BOT) device presenting the onboard MicroSD card over SPI1 as a USB flash drive. Supports MBR partition table detection, SCSI emulation (`INQUIRY`, `READ_CAPACITY_10/16`, `READ_10`), and direct sector reads. See [prj_usb_msc/README.md](file:///c:/Users/arunj/projects/longan_nano/prj_usb_msc/README.md) for architecture, status, and test suite details.
+
+### `prj_usb_composite`
+
+This project demonstrates a composite USB device with multiple HID interfaces (Keyboard, Mouse, Consumer Control, Custom HID) and an optional Mass Storage device. Its primary feature is a dynamic information display streamed from a host PC to the board's LCD. See [prj_usb_composite/README.md](file:///c:/Users/arunj/projects/longan_nano/prj_usb_composite/README.md) for full details.
+
+### `prj_current_monitor`
+
+This project turns the Longan Nano into a real-time DC current and power monitor. It uses an INA219 sensor via hardware I2C and streams live data (Voltage, Current, Power) over USB HID at 10Hz to a host PC. See [prj_current_monitor/README.md](file:///c:/Users/arunj/projects/longan_nano/prj_current_monitor/README.md).
 
 ### `prj_usb_serial`
 
 This project configures the Longan Nano as a USB CDC (Virtual COM Port) device.
+* **USB CDC (Virtual COM Port):** The board enumerates as a USB serial device, allowing bi-directional communication with a host computer.
+* **UART0 Debug Output:** `printf` is retargeted to `USART0` (pins `PA9`/`PA10`) at 115200 baud for debugging.
 
-*   **USB CDC (Virtual COM Port):** The board enumerates as a USB serial device, allowing you to send and receive data from a host computer using a standard terminal emulator.
-*   **UART0 Debug Output:** `printf` is retargeted to `USART0` (pins `PA9`/`PA10`) at 115200 baud, providing a convenient way to print debug messages.
+### `prj_sdcard_fs_test`
 
-### `prj_usb_composite`
+FatFs R0.15 filesystem integration test. Mounts FAT32 volumes on the MicroSD card, creates and reads files, and tests forced small-volume FAT32 detection over SPI1.
 
-This project demonstrates a composite USB device with multiple HID interfaces and an optional Mass Storage device. Its primary feature is a dynamic information display streamed from a host PC to the board's LCD. See the project's README for full details.
+### `prj_sdcard_test`
 
-### `prj_current_monitor`
+Bare-metal SPI driver and low-level block I/O test for the MicroSD card socket over dedicated SPI1 (PB12 CS, PB13 SCK, PB14 MISO, PB15 MOSI).
 
-This project turns the Longan Nano into a real-time DC current and power monitor. It uses an INA219 sensor via hardware I2C and streams live data (Voltage, Current, Power) over USB HID at 10Hz to a host PC.
+### `prj_lcd_test`
 
-!Live Display UI
+Hardware graphics test for the onboard 160x80 ST7735 SPI LCD display using SPI0 and DMA0 Channel 2 double-buffered acceleration.
 
-**Note:** The USB Mass Storage (MSC) feature in this composite device is currently a work-in-progress and is disabled by default.
+### `prj_uart_test`
+
+Basic hardware bringup test using `debug_uart0` to verify UART0 baud configuration, pinmux, and `printf` retargeting.
 
 ## Hardware Setup
 
@@ -110,4 +121,4 @@ This project was inspired by and references code from:
 *   [Appelsiini.net: Programming GD32V (Longan Nano)](https://www.appelsiini.net/2020/programming-gd32v-longan-nano/)
 *   [Longan-Nano-Rainbow](https://github.com/joba-1/Longan-Nano-Rainbow/tree/main): An example of using Timer/PWM to control an RGB LED.
 *   [GD32VF103_templates](https://github.com/WRansohoff/GD32VF103_templates/tree/master): A collection of templates for low-level peripheral usage, including Systick.
-https://www.reddit.com/r/RISCV/comments/107407u/did_something_happen_to_sipeed_longan_nano/ : This chip has been discontinued and company is not much committed. So, better to go with CH32V103. Abandoning SD Card part. Will leave with USB Composite and LCD for Volume control etc.
+*   See [docs/REFERENCE_BASELINE.md](file:///c:/Users/arunj/projects/longan_nano/docs/REFERENCE_BASELINE.md) for silicon errata, register baselines, and modern C++23 zero-cost driver architecture.

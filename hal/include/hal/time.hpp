@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <compare>
 #include "hal/core.hpp"
 
 // SystemCoreClock global symbol provided by system_gd32vf103.cpp
@@ -63,12 +64,7 @@ struct Instant {
     inline Instant& operator+=(const Duration& rhs) noexcept;
     inline Instant& operator-=(const Duration& rhs) noexcept;
 
-    constexpr bool operator==(const Instant& rhs) const noexcept { return ticks == rhs.ticks; }
-    constexpr bool operator!=(const Instant& rhs) const noexcept { return ticks != rhs.ticks; }
-    constexpr bool operator<(const Instant& rhs) const noexcept  { return ticks < rhs.ticks; }
-    constexpr bool operator<=(const Instant& rhs) const noexcept { return ticks <= rhs.ticks; }
-    constexpr bool operator>(const Instant& rhs) const noexcept  { return ticks > rhs.ticks; }
-    constexpr bool operator>=(const Instant& rhs) const noexcept { return ticks >= rhs.ticks; }
+    [[nodiscard]] constexpr auto operator<=>(const Instant& rhs) const noexcept = default;
 };
 
 /**
@@ -117,12 +113,7 @@ struct Duration {
         return *this;
     }
 
-    constexpr bool operator==(const Duration& rhs) const noexcept { return ticks == rhs.ticks; }
-    constexpr bool operator!=(const Duration& rhs) const noexcept { return ticks != rhs.ticks; }
-    constexpr bool operator<(const Duration& rhs) const noexcept  { return ticks < rhs.ticks; }
-    constexpr bool operator<=(const Duration& rhs) const noexcept { return ticks <= rhs.ticks; }
-    constexpr bool operator>(const Duration& rhs) const noexcept  { return ticks > rhs.ticks; }
-    constexpr bool operator>=(const Duration& rhs) const noexcept { return ticks >= rhs.ticks; }
+    [[nodiscard]] constexpr auto operator<=>(const Duration& rhs) const noexcept = default;
 };
 
 inline Duration Instant::elapsed() const noexcept {

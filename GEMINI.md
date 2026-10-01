@@ -143,12 +143,16 @@
   - **BOT Inter-Command NAK Guarding & Toggle Continuity**:
     - On CSW completion (`case BbbState::SEND_CSW:`), the IN endpoint must be returned to NAK state (`DIEPCTL |= DEPCTL_SNAK`) with write-sensitive strobe bits masked.
     - Data toggle bits must never be reset between normal commands; reset only on BOT reset or CLEAR_FEATURE.
+  - **SD Card AU Boundary Latency (~3.5 ms at LBA 1024) & Double-Buffering Invariant**:
+    - At flash Allocation Unit (AU) erase block boundaries (such as LBA 1024), the SD card internal controller delays the data start token `0xFE` by ~3.5 ms.
+    - In single-buffered transfers, this dead time causes the USB IN endpoint to NAK for longer than the host xHCI TT split-transaction retry threshold, causing host-side transaction timeouts (`DID_ERROR`, `EPROTO -71`).
+    - Sustained multi-sector streaming requires a 2-slot ping-pong double buffer (2 $\times$ 512B) so SD SPI reading for sector $N+1$ overlaps with USB packet transmission of sector $N$.
 - **Display Buffer RAM Policy (Ping-Pong Double Buffering)**:
   - Never allocate full-screen framebuffers (25.6 KB) or large static quad-buffers (16 KB) on GD32VF103 (32 KB total SRAM).
   - Always use a 2-slot ping-pong buffer (e.g. 2 $\times$ 6.4 KB or 2 $\times$ 3.2 KB) synchronized with DMA0 Channel 2 completion interrupts (`dma_interrupt_enable(DMA0, DMA_CH2, DMA_INT_FTF)`).
 
 ## Project Structure
-- Active applications are prefixed with `prj_*` in the project root (`prj_usb_composite`, `prj_current_monitor`, `prj_usb_serial`, `prj_uart_test`, `prj_lcd_test`, `prj_sdcard_test`, `prj_sdcard_fs_test`).
+- Active applications are prefixed with `prj_*` in the project root (`prj_usb_msc`, `prj_usb_composite`, `prj_current_monitor`, `prj_usb_serial`, `prj_uart_test`, `prj_lcd_test`, `prj_sdcard_test`, `prj_sdcard_fs_test`).
 - Modern C++23 zero-cost drivers and register abstractions reside in `hal/`, `bsp/`, and `drivers/` (100% vendor-free bare-metal implementation).
 - Modern, low-footprint components reside in `lib/` (`lib/system`, `lib/fatfs`, `lib/gd32v_lcd`, `lib/debug_uart0`).
 - Hardware reference datasheets and baseline version documentation reside in `docs/` (`docs/REFERENCE_BASELINE.md`, `docs/GD32VF103_Datasheet_Rev2.1.pdf`).

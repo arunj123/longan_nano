@@ -1,6 +1,8 @@
 #pragma once
 
 #include <cstdint>
+#include <span>
+#include <utility>
 #include "hal/register.hpp"
 
 namespace hal::spi {
@@ -86,7 +88,7 @@ struct SpiPeripheral {
                                   FrameFormat fmt = FrameFormat::Bits8) noexcept {
         disable();
         uint32_t ctl0 = CTL0_MSTMOD | CTL0_SWNSS | CTL0_SWNSSEN;
-        ctl0 |= static_cast<uint32_t>(psc) << 3;
+        ctl0 |= static_cast<uint32_t>(std::to_underlying(psc)) << 3;
         if (cpol == ClockPolarity::High) ctl0 |= CTL0_CKPL;
         if (cpha == ClockPhase::Edge2)  ctl0 |= CTL0_CKPH;
         if (fmt == FrameFormat::Bits16)  ctl0 |= CTL0_FF16;
@@ -196,6 +198,11 @@ struct SpiPeripheral {
         dest[count - 1] = static_cast<uint8_t>(RegDATA::read() & 0xFF);
     }
 
+    /// Pipelined fast block read using std::span
+    static inline void read_block_fast(std::span<uint8_t> dest) noexcept {
+        read_block_fast(dest.data(), dest.size());
+    }
+
     /// Pipelined fast block write
     static inline void write_block_fast(const uint8_t *src, size_t count) noexcept {
         for (size_t i = 0; i < count; ++i) {
@@ -204,6 +211,11 @@ struct SpiPeripheral {
             while (!(RegSTAT::read() & STAT_RBNE)) {}
             (void)RegDATA::read(); // Clear RBNE
         }
+    }
+
+    /// Pipelined fast block write using std::span
+    static inline void write_block_fast(std::span<const uint8_t> src) noexcept {
+        write_block_fast(src.data(), src.size());
     }
 
     /// Pipelined fast token wait (polls for token != 0xFF with zero inter-byte dead time)

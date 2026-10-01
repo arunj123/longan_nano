@@ -3,6 +3,8 @@
 #include <cstdint>
 #include <cstddef>
 #include <concepts>
+#include <utility>
+#include <type_traits>
 
 namespace hal {
 
@@ -58,6 +60,18 @@ struct BitField {
 
     static inline void write_raw(T val) noexcept {
         Reg::modify(mask, (val << Offset) & mask);
+    }
+
+    [[nodiscard]] static inline EnumType read() noexcept {
+        return static_cast<EnumType>(read_raw());
+    }
+
+    static inline void write(EnumType val) noexcept {
+        if constexpr (std::is_enum_v<EnumType>) {
+            write_raw(static_cast<T>(std::to_underlying(val)));
+        } else {
+            write_raw(static_cast<T>(val));
+        }
     }
 };
 

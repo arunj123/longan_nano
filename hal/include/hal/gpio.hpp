@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <utility>
 #include "hal/register.hpp"
 
 namespace hal::gpio {
@@ -46,7 +47,7 @@ namespace detail {
     inline constexpr uintptr_t kPortStride = 0x400;
 
     inline constexpr uintptr_t port_base(Port p) noexcept {
-        return kGpioBase + static_cast<uintptr_t>(p) * kPortStride;
+        return kGpioBase + static_cast<uintptr_t>(std::to_underlying(p)) * kPortStride;
     }
 
     // RCU APB2EN register address
@@ -54,7 +55,7 @@ namespace detail {
 
     inline constexpr uint32_t port_rcu_bit(Port p) noexcept {
         // Bit 2 is PAEN, bit 3 is PBEN, etc.
-        return 1U << (2 + static_cast<uint32_t>(p));
+        return 1U << (2 + std::to_underlying(p));
     }
 } // namespace detail
 
@@ -100,16 +101,16 @@ struct GpioPin {
                 config_bits = 0x8; // CTL=10, MD=00
                 break;
             case Mode::OutputPushPull:
-                config_bits = (0x0 << 2) | static_cast<uint32_t>(speed); // CTL=00
+                config_bits = (0x0 << 2) | std::to_underlying(speed); // CTL=00
                 break;
             case Mode::OutputOpenDrain:
-                config_bits = (0x1 << 2) | static_cast<uint32_t>(speed); // CTL=01
+                config_bits = (0x1 << 2) | std::to_underlying(speed); // CTL=01
                 break;
             case Mode::AlternatePushPull:
-                config_bits = (0x2 << 2) | static_cast<uint32_t>(speed); // CTL=10
+                config_bits = (0x2 << 2) | std::to_underlying(speed); // CTL=10
                 break;
             case Mode::AlternateOpenDrain:
-                config_bits = (0x3 << 2) | static_cast<uint32_t>(speed); // CTL=11
+                config_bits = (0x3 << 2) | std::to_underlying(speed); // CTL=11
                 break;
         }
 
