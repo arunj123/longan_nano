@@ -141,7 +141,7 @@ static constexpr auto product_string        = make_string_descriptor("Longan Nan
 
 alignas(4) static usb_desc_str serial_string = {
     .header = {
-        .bLength         = USB_STRING_LEN(12),
+        .bLength         = usb_string_len(12),
         .bDescriptorType = USB_DESCTYPE_STR
     },
     .unicode_string = {0}

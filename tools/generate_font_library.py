@@ -42,9 +42,6 @@ namespace color {
     }
 } // namespace color
 } // namespace lcd
-
-// Global namespace alias for backwards compatibility across existing applications
-namespace color = lcd::color;
 """
 
 with open(os.path.join(LCD_INC, "lcd_color.hpp"), "w", encoding="utf-8") as f:
@@ -515,10 +512,6 @@ inline int measure_string(const char* str, uint8_t scale = 1, const Font& = Font
 }
 
 } // namespace lcd
-
-// Global namespace exports for backwards compatibility across existing applications
-using lcd::draw_char;
-using lcd::draw_string;
 """
 
 with open(os.path.join(LCD_INC, "lcd_draw.hpp"), "w", encoding="utf-8") as f:

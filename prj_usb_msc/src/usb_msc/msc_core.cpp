@@ -177,8 +177,8 @@ static void msc_ep_send(usb_core_driver *udev, uint8_t *pbuf, uint32_t len) {
 }
 
 static void csw_send(usb_core_driver *udev, CswStatus status) {
-    auto *er_in1 = udev->regs.er_in[EP_ID(MSC_IN_EP)];
-    usb_transc *transc = &udev->dev.transc_in[EP_ID(MSC_IN_EP)];
+    auto *er_in1 = udev->regs.er_in[ep_id(MSC_IN_EP)];
+    usb_transc *transc = &udev->dev.transc_in[ep_id(MSC_IN_EP)];
     ep1_debug_record(5, static_cast<uint32_t>(status), er_in1->DIEPLEN, er_in1->DIEPTFSTAT, transc->xfer_count, transc->xfer_len, er_in1->DIEPCTL);
 
     /* Defensive cleanup of any stale data-phase flags before arming the 13-byte CSW transfer */
@@ -200,14 +200,14 @@ static void csw_send(usb_core_driver *udev, CswStatus status) {
 
 static void data_send(usb_core_driver *udev, uint8_t *pbuf, uint32_t len) {
     auto &cbw = ctx.cbw();
-    len = USB_MIN(cbw.dCBWDataTransferLength, len);
+    len = usb_min(cbw.dCBWDataTransferLength, len);
     ctx.csw_residue = cbw.dCBWDataTransferLength - len; // residue = requested - actually sent
     ctx.remaining_bytes = 0; // All data for this command is dispatched; no subsequent sectors
     ctx.p_data = pbuf;
 #if MSC_PACED_64B_XFER
     ctx.sub_offset = 0;
     ctx.sub_remaining = static_cast<uint16_t>(len);
-    uint32_t chunk = USB_MIN(ctx.sub_remaining, 64U);
+    uint32_t chunk = usb_min(ctx.sub_remaining, 64U);
     ctx.sub_offset = static_cast<uint16_t>(ctx.sub_offset + chunk);
     ctx.sub_remaining = static_cast<uint16_t>(ctx.sub_remaining - chunk);
     if (ctx.csw_residue > 0 && (len > 0) && ((len % MSC_IN_PACKET) == 0)) {
@@ -251,7 +251,7 @@ static void abort_transfer(usb_core_driver *udev) {
 static void ep1_in_hard_reset(usb_core_driver *udev);
 
 static int8_t msc_process_read(usb_core_driver *udev) {
-    uint32_t len = USB_MIN(ctx.remaining_bytes, MSC_MEDIA_PACKET_SIZE);
+    uint32_t len = usb_min(ctx.remaining_bytes, MSC_MEDIA_PACKET_SIZE);
     uint32_t blocks = (len + 511U) / 512U;
 
     msc_trace_record(1, 0x28, static_cast<uint8_t>(blocks), 0, ctx.lba, ctx.remaining_bytes);
@@ -273,7 +273,7 @@ static int8_t msc_process_read(usb_core_driver *udev) {
 #if MSC_PACED_64B_XFER
     ctx.sub_offset = 0;
     ctx.sub_remaining = static_cast<uint16_t>(len);
-    uint32_t chunk = USB_MIN(ctx.sub_remaining, 64U);
+    uint32_t chunk = usb_min(ctx.sub_remaining, 64U);
     ctx.sub_offset = static_cast<uint16_t>(ctx.sub_offset + chunk);
     ctx.sub_remaining = static_cast<uint16_t>(ctx.sub_remaining - chunk);
     msc_ep_send(udev, ctx.media_buffer, chunk);
@@ -284,7 +284,7 @@ static int8_t msc_process_read(usb_core_driver *udev) {
 }
 
 static int8_t msc_process_write(usb_core_driver *udev) {
-    uint32_t len = USB_MIN(ctx.remaining_bytes, MSC_MEDIA_PACKET_SIZE);
+    uint32_t len = usb_min(ctx.remaining_bytes, MSC_MEDIA_PACKET_SIZE);
     uint32_t blocks = (len + 511U) / 512U;
 
     msc_trace_record(2, 0x2A, static_cast<uint8_t>(blocks), 0, ctx.lba, ctx.remaining_bytes);
@@ -300,7 +300,7 @@ static int8_t msc_process_write(usb_core_driver *udev) {
     if (ctx.remaining_bytes == 0) {
         csw_send(udev, CswStatus::CMD_PASSED);
     } else {
-        uint32_t next_len = USB_MIN(ctx.remaining_bytes, MSC_MEDIA_PACKET_SIZE);
+        uint32_t next_len = usb_min(ctx.remaining_bytes, MSC_MEDIA_PACKET_SIZE);
         usbd_ep_recev(udev, MSC_OUT_EP, ctx.media_buffer, next_len);
     }
     return 0;
@@ -336,7 +336,7 @@ static int8_t process_scsi(usb_core_driver *udev) {
             ctx.sense_key = SenseKey::NO_SENSE;
             ctx.sense_asc = Asc::NO_ASC;
 
-            ctx.data_len = USB_MIN(cbw.dCBWDataTransferLength, 18U);
+            ctx.data_len = usb_min(cbw.dCBWDataTransferLength, 18U);
             return 0;
         }
 
@@ -358,12 +358,12 @@ static int8_t process_scsi(usb_core_driver *udev) {
                 set_sense(SenseKey::ILLEGAL_REQUEST, Asc::ADDRESS_OUT_OF_RANGE);
                 return -1;
             }
-            uint32_t to_transfer_r6 = USB_MIN(cbw.dCBWDataTransferLength, blocks * 512U);
+            uint32_t to_transfer_r6 = usb_min(cbw.dCBWDataTransferLength, blocks * 512U);
             ctx.remaining_bytes = to_transfer_r6;
             ctx.csw_residue = cbw.dCBWDataTransferLength - to_transfer_r6;
 
             ctx.state = BbbState::DATA_IN;
-            uint32_t first_len_r6 = USB_MIN(ctx.remaining_bytes, MSC_MEDIA_PACKET_SIZE);
+            uint32_t first_len_r6 = usb_min(ctx.remaining_bytes, MSC_MEDIA_PACKET_SIZE);
             usbd_ep_nak_arm(udev, MSC_IN_EP, first_len_r6);
             ctx.need_read = true;
             ctx.need_read_time = hal::time::Instant::now();
@@ -389,10 +389,10 @@ static int8_t process_scsi(usb_core_driver *udev) {
                 return -1;
             }
             ctx.state = BbbState::DATA_OUT;
-            uint32_t to_transfer_w6 = USB_MIN(cbw.dCBWDataTransferLength, blocks * 512U);
+            uint32_t to_transfer_w6 = usb_min(cbw.dCBWDataTransferLength, blocks * 512U);
             ctx.remaining_bytes = to_transfer_w6;
             ctx.csw_residue = cbw.dCBWDataTransferLength - to_transfer_w6;
-            uint32_t rx_len_w6 = USB_MIN(ctx.remaining_bytes, MSC_MEDIA_PACKET_SIZE);
+            uint32_t rx_len_w6 = usb_min(ctx.remaining_bytes, MSC_MEDIA_PACKET_SIZE);
             usbd_ep_recev(udev, MSC_OUT_EP, ctx.media_buffer, rx_len_w6);
             return 0;
         }
@@ -409,7 +409,7 @@ static int8_t process_scsi(usb_core_driver *udev) {
                     ctx.media_buffer[4] = 0x00; // Page 0x00 supported
                     ctx.media_buffer[5] = 0x80; // Page 0x80 (Unit Serial Number) supported
                     ctx.media_buffer[6] = 0x83; // Page 0x83 (Device Identification) supported
-                    ctx.data_len = USB_MIN(cbw.dCBWDataTransferLength, 7U);
+                    ctx.data_len = usb_min(cbw.dCBWDataTransferLength, 7U);
                     return 0;
                 } else if (page_code == 0x80) { // Unit Serial Number Page
                     ctx.media_buffer[0] = 0x00; // Direct access block device
@@ -417,7 +417,7 @@ static int8_t process_scsi(usb_core_driver *udev) {
                     ctx.media_buffer[2] = 0x00; // Reserved
                     ctx.media_buffer[3] = 12;   // Page length
                     std::memcpy(&ctx.media_buffer[4], "LNMSC00000A3", 12);
-                    ctx.data_len = USB_MIN(cbw.dCBWDataTransferLength, 16U);
+                    ctx.data_len = usb_min(cbw.dCBWDataTransferLength, 16U);
                     return 0;
                 } else if (page_code == 0x83) { // Device Identification Page
                     ctx.media_buffer[0] = 0x00; // Direct access block device
@@ -429,7 +429,7 @@ static int8_t process_scsi(usb_core_driver *udev) {
                     ctx.media_buffer[6] = 0x00; // Reserved
                     ctx.media_buffer[7] = 8;    // Identifier length
                     std::memcpy(&ctx.media_buffer[8], "Longan01", 8);
-                    ctx.data_len = USB_MIN(cbw.dCBWDataTransferLength, 16U);
+                    ctx.data_len = usb_min(cbw.dCBWDataTransferLength, 16U);
                     return 0;
                 } else {
                     // Any unsupported VPD page (e.g. 0xB0 Block Limits) must return ILLEGAL_REQUEST
@@ -437,7 +437,7 @@ static int8_t process_scsi(usb_core_driver *udev) {
                     return -1;
                 }
             }
-            uint16_t len = static_cast<uint16_t>(USB_MIN(cbw.dCBWDataTransferLength, sizeof(kInquiryData)));
+            uint16_t len = static_cast<uint16_t>(usb_min(cbw.dCBWDataTransferLength, sizeof(kInquiryData)));
             ctx.p_data = const_cast<uint8_t*>(kInquiryData);
             ctx.data_len = len;
             return 0;
@@ -458,7 +458,7 @@ static int8_t process_scsi(usb_core_driver *udev) {
             ctx.media_buffer[5] = static_cast<uint8_t>(blk_sz >> 16);
             ctx.media_buffer[6] = static_cast<uint8_t>(blk_sz >> 8);
             ctx.media_buffer[7] = static_cast<uint8_t>(blk_sz);
-            ctx.data_len = USB_MIN(cbw.dCBWDataTransferLength, 8U);
+            ctx.data_len = usb_min(cbw.dCBWDataTransferLength, 8U);
             return 0;
         }
 
@@ -479,7 +479,7 @@ static int8_t process_scsi(usb_core_driver *udev) {
             ctx.media_buffer[9] = static_cast<uint8_t>(blk_sz >> 16);
             ctx.media_buffer[10] = static_cast<uint8_t>(blk_sz >> 8);
             ctx.media_buffer[11] = static_cast<uint8_t>(blk_sz);
-            ctx.data_len = USB_MIN(cbw.dCBWDataTransferLength, 12U);
+            ctx.data_len = usb_min(cbw.dCBWDataTransferLength, 12U);
             return 0;
         }
 
@@ -491,7 +491,7 @@ static int8_t process_scsi(usb_core_driver *udev) {
             ctx.media_buffer[1] = 0x00; // Medium type: SBC direct access
             ctx.media_buffer[2] = 0x00; // Device-specific: not write-protected
             ctx.media_buffer[3] = 0x00; // Block descriptor length: 0
-            ctx.data_len = USB_MIN(cbw.dCBWDataTransferLength, 4U);
+            ctx.data_len = usb_min(cbw.dCBWDataTransferLength, 4U);
             return 0;
         }
 
@@ -499,7 +499,7 @@ static int8_t process_scsi(usb_core_driver *udev) {
             // Standard universal 8-byte header for USB Mass Storage flash drives
             std::memset(ctx.media_buffer, 0, 8);
             ctx.media_buffer[1] = 0x06; // Mode data length (16-bit: 6 bytes follow)
-            ctx.data_len = USB_MIN(cbw.dCBWDataTransferLength, 8U);
+            ctx.data_len = usb_min(cbw.dCBWDataTransferLength, 8U);
             return 0;
         }
 
@@ -537,11 +537,11 @@ static int8_t process_scsi(usb_core_driver *udev) {
             }
 
             ctx.state = BbbState::DATA_IN;
-            uint32_t to_transfer_r10 = USB_MIN(cbw.dCBWDataTransferLength, blocks * 512U);
+            uint32_t to_transfer_r10 = usb_min(cbw.dCBWDataTransferLength, blocks * 512U);
             ctx.remaining_bytes = to_transfer_r10;
             ctx.csw_residue = cbw.dCBWDataTransferLength - to_transfer_r10;
 
-            uint32_t first_len_r10 = USB_MIN(ctx.remaining_bytes, MSC_MEDIA_PACKET_SIZE);
+            uint32_t first_len_r10 = usb_min(ctx.remaining_bytes, MSC_MEDIA_PACKET_SIZE);
             usbd_ep_nak_arm(udev, MSC_IN_EP, first_len_r10);
             ctx.need_read = true;
             ctx.need_read_time = hal::time::Instant::now();
@@ -583,11 +583,11 @@ static int8_t process_scsi(usb_core_driver *udev) {
 
             ctx.state = BbbState::DATA_OUT;
             // Use min(CBW length, actual data) so CSW residue is correct (BOT Case 5/8)
-            uint32_t to_transfer_w10 = USB_MIN(cbw.dCBWDataTransferLength, blocks * 512U);
+            uint32_t to_transfer_w10 = usb_min(cbw.dCBWDataTransferLength, blocks * 512U);
             ctx.remaining_bytes = to_transfer_w10;
             ctx.csw_residue = cbw.dCBWDataTransferLength - to_transfer_w10;
 
-            uint32_t rx_len = USB_MIN(ctx.remaining_bytes, MSC_MEDIA_PACKET_SIZE);
+            uint32_t rx_len = usb_min(ctx.remaining_bytes, MSC_MEDIA_PACKET_SIZE);
             usbd_ep_recev(udev, MSC_OUT_EP, ctx.media_buffer, rx_len);
             return 0;
         }
@@ -621,7 +621,7 @@ static int8_t process_scsi(usb_core_driver *udev) {
                 ctx.media_buffer[9] = static_cast<uint8_t>(blk_sz >> 16);
                 ctx.media_buffer[10] = static_cast<uint8_t>(blk_sz >> 8);
                 ctx.media_buffer[11] = static_cast<uint8_t>(blk_sz);
-                ctx.data_len = USB_MIN(cbw.dCBWDataTransferLength, 32U);
+                ctx.data_len = usb_min(cbw.dCBWDataTransferLength, 32U);
                 return 0;
             }
             set_sense(SenseKey::ILLEGAL_REQUEST, Asc::INVALID_FIELD_IN_COMMAND);
@@ -632,7 +632,7 @@ static int8_t process_scsi(usb_core_driver *udev) {
             std::memset(ctx.media_buffer, 0, 16);
             ctx.media_buffer[3] = 0x08; // LUN list length = 8 (one LUN entry)
             // Bytes 8–15: LUN 0 (all zeros = peripheral device addressing)
-            ctx.data_len = USB_MIN(cbw.dCBWDataTransferLength, 16U);
+            ctx.data_len = usb_min(cbw.dCBWDataTransferLength, 16U);
             return 0;
         }
 
@@ -640,7 +640,7 @@ static int8_t process_scsi(usb_core_driver *udev) {
             if (cmd[1] == 0x00) { // Security Protocol Information (0x00)
                 // Return 8 bytes: supported protocol list length = 0
                 std::memset(ctx.media_buffer, 0, 8);
-                ctx.data_len = USB_MIN(cbw.dCBWDataTransferLength, 8U);
+                ctx.data_len = usb_min(cbw.dCBWDataTransferLength, 8U);
                 return 0;
             }
             set_sense(SenseKey::ILLEGAL_REQUEST, Asc::INVALID_FIELD_IN_COMMAND);
@@ -663,8 +663,8 @@ static void cbw_decode(usb_core_driver *udev) {
 
     msc_trace_record(1, cbw.CBWCB[0], cbw.bCBWCBLength, static_cast<uint8_t>(rx_count), cbw.dCBWDataTransferLength, cbw.dCBWTag, cbw.CBWCB);
 
-    volatile uint32_t ctl_ep1 = udev->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL;
-    ep1_debug_record(11, (static_cast<uint32_t>(cbw.CBWCB[0]) << 24) | (cbw.dCBWTag & 0x00FFFFFF), udev->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPLEN, udev->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPTFSTAT, cbw.dCBWDataTransferLength, 0, ctl_ep1);
+    volatile uint32_t ctl_ep1 = udev->regs.er_in[ep_id(MSC_IN_EP)]->DIEPCTL;
+    ep1_debug_record(11, (static_cast<uint32_t>(cbw.CBWCB[0]) << 24) | (cbw.dCBWTag & 0x00FFFFFF), udev->regs.er_in[ep_id(MSC_IN_EP)]->DIEPLEN, udev->regs.er_in[ep_id(MSC_IN_EP)]->DIEPTFSTAT, cbw.dCBWDataTransferLength, 0, ctl_ep1);
 
     if (rx_count != BBB_CBW_LENGTH ||
         cbw.dCBWSignature != BBB_CBW_SIGNATURE ||
@@ -708,9 +708,9 @@ uint8_t init(usb_dev *udev, uint8_t config_index) {
     usbd_fifo_flush(pcore, MSC_OUT_EP);
     usbd_fifo_flush(pcore, MSC_IN_EP);
 
-    pcore->dev.transc_in[EP_ID(MSC_IN_EP)].is_prearmed = 0U;
+    pcore->dev.transc_in[ep_id(MSC_IN_EP)].is_prearmed = 0U;
 
-    auto *er_in1 = pcore->regs.er_in[EP_ID(MSC_IN_EP)];
+    auto *er_in1 = pcore->regs.er_in[ep_id(MSC_IN_EP)];
     if (er_in1->DIEPCTL & DEPCTL_EPEN) {
         er_in1->DIEPCTL |= DEPCTL_EPD | DEPCTL_SNAK;
         uint32_t timeout = 1000;
@@ -718,7 +718,7 @@ uint8_t init(usb_dev *udev, uint8_t config_index) {
     }
     er_in1->DIEPLEN = 0U;
     er_in1->DIEPCTL = (er_in1->DIEPCTL & ~(DEPCTL_EPEN | DEPCTL_EPD | DEPCTL_CNAK)) | DEPCTL_SD0PID | DEPCTL_SNAK;
-    pcore->regs.er_out[EP_ID(MSC_OUT_EP)]->DOEPCTL |= DEPCTL_SD0PID | DEPCTL_SNAK;
+    pcore->regs.er_out[ep_id(MSC_OUT_EP)]->DOEPCTL |= DEPCTL_SD0PID | DEPCTL_SNAK;
 
     usbd_ep_recev(pcore, MSC_OUT_EP, ctx.cbw_buf, BBB_CBW_LENGTH);
     msc_trace_record(5, 0xAA, config_index, 0, 0, 0);
@@ -763,9 +763,9 @@ uint8_t req_handler(usb_dev *udev, usb_req *req) {
                 usbd_fifo_flush(pcore, MSC_IN_EP);
                 usbd_fifo_flush(pcore, MSC_OUT_EP);
 
-                pcore->dev.transc_in[EP_ID(MSC_IN_EP)].is_prearmed = 0U;
+                pcore->dev.transc_in[ep_id(MSC_IN_EP)].is_prearmed = 0U;
 
-                auto *er_in1 = pcore->regs.er_in[EP_ID(MSC_IN_EP)];
+                auto *er_in1 = pcore->regs.er_in[ep_id(MSC_IN_EP)];
                 if (er_in1->DIEPCTL & DEPCTL_EPEN) {
                     er_in1->DIEPCTL |= DEPCTL_EPD | DEPCTL_SNAK;
                     uint32_t timeout = 1000;
@@ -773,7 +773,7 @@ uint8_t req_handler(usb_dev *udev, usb_req *req) {
                 }
                 er_in1->DIEPLEN = 0U;
                 er_in1->DIEPCTL = (er_in1->DIEPCTL & ~(DEPCTL_EPEN | DEPCTL_EPD | DEPCTL_CNAK)) | DEPCTL_SD0PID | DEPCTL_SNAK;
-                pcore->regs.er_out[EP_ID(MSC_OUT_EP)]->DOEPCTL |= DEPCTL_SD0PID | DEPCTL_SNAK;
+                pcore->regs.er_out[ep_id(MSC_OUT_EP)]->DOEPCTL |= DEPCTL_SD0PID | DEPCTL_SNAK;
 
                 // Ready for the next CBW.
                 usbd_ep_recev(pcore, MSC_OUT_EP, ctx.cbw_buf, BBB_CBW_LENGTH);
@@ -792,15 +792,15 @@ uint8_t req_handler(usb_dev *udev, usb_req *req) {
             uint8_t ep = static_cast<uint8_t>(req->wIndex);
             /* Explicitly clear STALL and reset data toggle to DATA0 per USB 2.0 §9.4.5 & MSC BOT §4.4 */
             if (ep & 0x80) {
-                auto *diepctl = &pcore->regs.er_in[EP_ID(ep)]->DIEPCTL;
+                auto *diepctl = &pcore->regs.er_in[ep_id(ep)]->DIEPCTL;
                 *diepctl = (*diepctl & ~(DEPCTL_STALL | DEPCTL_CNAK)) | DEPCTL_SD0PID | DEPCTL_SNAK;
             } else {
-                auto *doepctl = &pcore->regs.er_out[EP_ID(ep)]->DOEPCTL;
+                auto *doepctl = &pcore->regs.er_out[ep_id(ep)]->DOEPCTL;
                 *doepctl = (*doepctl & ~(DEPCTL_STALL | DEPCTL_SNAK)) | DEPCTL_SD0PID | DEPCTL_CNAK;
                 /* Critical recovery step: After clearing HALT on Bulk-OUT, re-arm
                  * the endpoint to receive the next Command Block Wrapper (CBW).
                  * Without this, the endpoint stays in SNAK forever and NAKs the next CBW. */
-                if (EP_ID(ep) == EP_ID(MSC_OUT_EP)) {
+                if (ep_id(ep) == ep_id(MSC_OUT_EP)) {
                     usbd_ep_recev(pcore, MSC_OUT_EP, ctx.cbw_buf, BBB_CBW_LENGTH);
                 }
             }
@@ -829,14 +829,14 @@ uint8_t data_in(usb_dev *udev, uint8_t ep_num) {
         case BbbState::DATA_IN:
 #if MSC_PACED_64B_XFER
             if (ctx.sub_remaining > 0) {
-                uint32_t chunk = USB_MIN(ctx.sub_remaining, 64U);
+                uint32_t chunk = usb_min(ctx.sub_remaining, 64U);
                 uint8_t *pbuf = ctx.media_buffer + ctx.sub_offset;
                 ctx.sub_offset = static_cast<uint16_t>(ctx.sub_offset + chunk);
                 ctx.sub_remaining = static_cast<uint16_t>(ctx.sub_remaining - chunk);
                 msc_ep_send(pcore, pbuf, chunk);
             } else if (ctx.remaining_bytes > 0) {
                 // Next sector needed from SD card (handled asynchronously in poll())
-                uint32_t next_len = USB_MIN(ctx.remaining_bytes, 64U);
+                uint32_t next_len = usb_min(ctx.remaining_bytes, 64U);
                 usbd_ep_nak_arm(pcore, MSC_IN_EP, next_len);
 
                 ctx.need_read = true;
@@ -848,19 +848,19 @@ uint8_t data_in(usb_dev *udev, uint8_t ep_num) {
             }
 #else
             if (ctx.remaining_bytes > 0) {
-                uint32_t next_len = USB_MIN(ctx.remaining_bytes, MSC_MEDIA_PACKET_SIZE);
+                uint32_t next_len = usb_min(ctx.remaining_bytes, MSC_MEDIA_PACKET_SIZE);
                 usbd_ep_nak_arm(pcore, MSC_IN_EP, next_len);
                 ctx.need_read = true;
                 ctx.need_read_time = hal::time::Instant::now();
             } else {
-                volatile uint32_t ctl_before = pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL;
+                volatile uint32_t ctl_before = pcore->regs.er_in[ep_id(MSC_IN_EP)]->DIEPCTL;
                 volatile uint32_t ctl = ctl_before;
                 ctl &= ~(DEPCTL_SD0PID | DEPCTL_SD1PID | DEPCTL_EPD | DEPCTL_CNAK | DEPCTL_SNAK);
-                pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL = ctl | DEPCTL_SNAK;
+                pcore->regs.er_in[ep_id(MSC_IN_EP)]->DIEPCTL = ctl | DEPCTL_SNAK;
                 uint32_t timeout = 1000;
-                while(!(pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL & DEPCTL_NAKS) && --timeout) {}
-                volatile uint32_t ctl_after = pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL;
-                ep1_debug_record(9, ctl_before, pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPLEN, pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPTFSTAT, 0, 0, ctl_after);
+                while(!(pcore->regs.er_in[ep_id(MSC_IN_EP)]->DIEPCTL & DEPCTL_NAKS) && --timeout) {}
+                volatile uint32_t ctl_after = pcore->regs.er_in[ep_id(MSC_IN_EP)]->DIEPCTL;
+                ep1_debug_record(9, ctl_before, pcore->regs.er_in[ep_id(MSC_IN_EP)]->DIEPLEN, pcore->regs.er_in[ep_id(MSC_IN_EP)]->DIEPTFSTAT, 0, 0, ctl_after);
 
                 ctx.csw_status = CswStatus::CMD_PASSED;
                 ctx.data_done_time = hal::time::Instant::now();
@@ -873,7 +873,7 @@ uint8_t data_in(usb_dev *udev, uint8_t ep_num) {
         case BbbState::SEND_DATA:
 #if MSC_PACED_64B_XFER
             if (ctx.sub_remaining > 0) {
-                uint32_t chunk = USB_MIN(ctx.sub_remaining, 64U);
+                uint32_t chunk = usb_min(ctx.sub_remaining, 64U);
                 uint8_t *pbuf = ctx.p_data + ctx.sub_offset;
                 ctx.sub_offset = static_cast<uint16_t>(ctx.sub_offset + chunk);
                 ctx.sub_remaining = static_cast<uint16_t>(ctx.sub_remaining - chunk);
@@ -882,14 +882,14 @@ uint8_t data_in(usb_dev *udev, uint8_t ep_num) {
             }
 #endif
             {
-                volatile uint32_t ctl_before = pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL;
+                volatile uint32_t ctl_before = pcore->regs.er_in[ep_id(MSC_IN_EP)]->DIEPCTL;
                 volatile uint32_t ctl = ctl_before;
                 ctl &= ~(DEPCTL_SD0PID | DEPCTL_SD1PID | DEPCTL_EPD | DEPCTL_CNAK | DEPCTL_SNAK);
-                pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL = ctl | DEPCTL_SNAK;
+                pcore->regs.er_in[ep_id(MSC_IN_EP)]->DIEPCTL = ctl | DEPCTL_SNAK;
                 uint32_t timeout = 1000;
-                while(!(pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL & DEPCTL_NAKS) && --timeout) {}
-                volatile uint32_t ctl_after = pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL;
-                ep1_debug_record(9, ctl_before, pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPLEN, pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPTFSTAT, 0, 0, ctl_after);
+                while(!(pcore->regs.er_in[ep_id(MSC_IN_EP)]->DIEPCTL & DEPCTL_NAKS) && --timeout) {}
+                volatile uint32_t ctl_after = pcore->regs.er_in[ep_id(MSC_IN_EP)]->DIEPCTL;
+                ep1_debug_record(9, ctl_before, pcore->regs.er_in[ep_id(MSC_IN_EP)]->DIEPLEN, pcore->regs.er_in[ep_id(MSC_IN_EP)]->DIEPTFSTAT, 0, 0, ctl_after);
             }
 
             ctx.csw_status = CswStatus::CMD_PASSED;
@@ -905,14 +905,14 @@ uint8_t data_in(usb_dev *udev, uint8_t ep_num) {
         case BbbState::SEND_CSW:
             // CSW transmission has completed on the wire.
             {
-                volatile uint32_t ctl_before = pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL;
+                volatile uint32_t ctl_before = pcore->regs.er_in[ep_id(MSC_IN_EP)]->DIEPCTL;
                 volatile uint32_t ctl = ctl_before;
                 ctl &= ~(DEPCTL_SD0PID | DEPCTL_SD1PID | DEPCTL_EPD | DEPCTL_CNAK | DEPCTL_SNAK);
-                pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL = ctl | DEPCTL_SNAK;
+                pcore->regs.er_in[ep_id(MSC_IN_EP)]->DIEPCTL = ctl | DEPCTL_SNAK;
                 uint32_t timeout = 1000;
-                while(!(pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL & DEPCTL_NAKS) && --timeout) {}
-                volatile uint32_t ctl_after = pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPCTL;
-                ep1_debug_record(10, ctl_before, pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPLEN, pcore->regs.er_in[EP_ID(MSC_IN_EP)]->DIEPTFSTAT, 0, 0, ctl_after);
+                while(!(pcore->regs.er_in[ep_id(MSC_IN_EP)]->DIEPCTL & DEPCTL_NAKS) && --timeout) {}
+                volatile uint32_t ctl_after = pcore->regs.er_in[ep_id(MSC_IN_EP)]->DIEPCTL;
+                ep1_debug_record(10, ctl_before, pcore->regs.er_in[ep_id(MSC_IN_EP)]->DIEPLEN, pcore->regs.er_in[ep_id(MSC_IN_EP)]->DIEPTFSTAT, 0, 0, ctl_after);
             }
             ctx.state = BbbState::IDLE;
             // Prime the OUT endpoint to receive the next CBW from the host.
@@ -946,11 +946,11 @@ uint8_t data_out(usb_dev *udev, uint8_t ep_num) {
 }
 
 static void ep1_in_hard_reset(usb_core_driver *udev) {
-    auto *er_in1 = udev->regs.er_in[EP_ID(MSC_IN_EP)];
+    auto *er_in1 = udev->regs.er_in[ep_id(MSC_IN_EP)];
     if (er_in1->DIEPCTL & DEPCTL_EPEN) {
         er_in1->DIEPCTL |= DEPCTL_EPD | DEPCTL_SNAK;
     }
-    udev->regs.dr->DIEPFEINTEN &= ~(1U << EP_ID(MSC_IN_EP));
+    udev->regs.dr->DIEPFEINTEN &= ~(1U << ep_id(MSC_IN_EP));
     er_in1->DIEPLEN = 0U;
     er_in1->DIEPINTF = DIEPINTF_TF | DIEPINTF_EPDIS | DIEPINTF_TXFUD;
     usbd_fifo_flush(udev, MSC_IN_EP);
@@ -986,8 +986,8 @@ void poll(usb_core_driver *udev) {
             abort_transfer(udev);
         }
     } else if (ctx.state == BbbState::STATUS_PENDING) {
-        auto *er_in1 = udev->regs.er_in[EP_ID(MSC_IN_EP)];
-        usb_transc *transc = &udev->dev.transc_in[EP_ID(MSC_IN_EP)];
+        auto *er_in1 = udev->regs.er_in[ep_id(MSC_IN_EP)];
+        usb_transc *transc = &udev->dev.transc_in[ep_id(MSC_IN_EP)];
 
         bool hw_done     = ((er_in1->DIEPLEN & (DEPLEN_TLEN | DEPLEN_PCNT)) == 0);
         bool fifo_empty  = ((er_in1->DIEPTFSTAT & DIEPTFSTAT_IEPTFS) >= drivers::usb::TX1_FIFO_FS_SIZE);

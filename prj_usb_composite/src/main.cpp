@@ -46,14 +46,14 @@ int main(void)
     lcd_init();
 
     // Visual splash on boot: confirms LCD operation and informs user of USB status
-    lcd_clear(0x000B); // Dark Navy background
-    lcd_rect(0, 0, 160, 80, 0x07FF); // Cyan border
-    lcd_fill_rect(1, 1, 158, 13, 0x4208); // Gray title bar
-    draw_string(28, 4, "LONGAN NANO USB", 0xFFE0, 0x4208); // Yellow title
-    draw_string(8, 22, "HID Composite Stack", 0xFFFF, 0x000B); // White text
-    draw_string(8, 38, "Waiting for Host...", 0xF800, 0x000B); // Red text
-    draw_string(8, 54, "Compile-Time Concept", 0x07FF, 0x000B); // Cyan text
-    draw_string(8, 66, "PID 0xABDD @ 96MHz", 0xCE79, 0x000B);
+    lcd_clear(lcd::color::DarkNavy);
+    lcd_rect(0, 0, 160, 80, lcd::color::Cyan);
+    lcd_fill_rect(1, 1, 158, 13, lcd::color::Gray);
+    lcd::draw_string(28, 4, "LONGAN NANO USB", lcd::color::Yellow, lcd::color::Gray);
+    lcd::draw_string(8, 22, "HID Composite Stack", lcd::color::White, lcd::color::DarkNavy);
+    lcd::draw_string(8, 38, "Waiting for Host...", lcd::color::Red, lcd::color::DarkNavy);
+    lcd::draw_string(8, 54, "Compile-Time Concept", lcd::color::Cyan, lcd::color::DarkNavy);
+    lcd::draw_string(8, 66, "PID 0xABDD @ 96MHz", lcd::color::LightGray, lcd::color::DarkNavy);
 
     // Pre-initialize DisplayManager singleton to ensure static memory is ready
     display::DisplayManager::getInstance();
@@ -109,7 +109,7 @@ int main(void)
         }
     }
     printf("USB device configured successfully!\n");
-    draw_string(8, 38, "USB Configured: OK! ", 0x07E0, 0x000B); // Green text
+    lcd::draw_string(8, 38, "USB Configured: OK! ", lcd::color::Green, lcd::color::DarkNavy);
     bsp::board::LedGreen::on(); // Turn on Green LED to indicate ready state
 
     // 6. Main application loop with non-blocking state machine

@@ -32,12 +32,6 @@ constexpr uint8_t ep_out(uint8_t x) noexcept {
     return static_cast<uint8_t>(x & 0x7FU);
 }
 
-// Zero-overhead constexpr compatibility wrappers
-constexpr uint8_t EP_ID(uint8_t x) noexcept { return ep_id(x); }
-constexpr uint8_t EP_DIR(uint8_t x) noexcept { return ep_dir(x); }
-constexpr uint8_t EP_IN(uint8_t x) noexcept { return ep_in(x); }
-constexpr uint8_t EP_OUT(uint8_t x) noexcept { return ep_out(x); }
-
 enum _usb_mode {
     DEVICE_MODE = 0U,
     HOST_MODE   = 1U,

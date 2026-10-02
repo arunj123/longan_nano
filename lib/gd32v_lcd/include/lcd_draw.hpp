@@ -124,7 +124,3 @@ inline int measure_string(const char* str, uint8_t scale = 1, const Font& = Font
 }
 
 } // namespace lcd
-
-// Global namespace exports for backwards compatibility across existing applications
-using lcd::draw_char;
-using lcd::draw_string;

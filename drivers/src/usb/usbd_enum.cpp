@@ -87,10 +87,10 @@ static usb_reqsta handle_get_status(usb_core_driver* udev, usb_req* req) {
 
         case USB_RECPTYPE_EP: {
             uint8_t ep_addr = static_cast<uint8_t>(req->wIndex);
-            uint8_t ep_num = EP_ID(ep_addr);
+            uint8_t ep_num = ep_id(ep_addr);
             if (ep_num >= 4U) return REQ_NOTSUPP;
 
-            if (EP_DIR(ep_addr)) {
+            if (ep_dir(ep_addr)) {
                 if (udev->regs.er_in[ep_num]->DIEPCTL & DEPCTL_STALL) {
                     g_status_val = 1U;
                 }
@@ -124,7 +124,7 @@ static usb_reqsta handle_clear_feature(usb_core_driver* udev, usb_req* req) {
         case USB_RECPTYPE_EP:
             if (req->wValue == FEATURE_SELECTOR_EP) {
                 uint8_t ep_addr = static_cast<uint8_t>(req->wIndex);
-                uint8_t ep_num = EP_ID(ep_addr);
+                uint8_t ep_num = ep_id(ep_addr);
                 if (ep_num >= 4U) return REQ_NOTSUPP;
 
                 usbd_ep_stall_clear(udev, ep_addr);
@@ -151,7 +151,7 @@ static usb_reqsta handle_set_feature(usb_core_driver* udev, usb_req* req) {
         case USB_RECPTYPE_EP:
             if (req->wValue == FEATURE_SELECTOR_EP) {
                 uint8_t ep_addr = static_cast<uint8_t>(req->wIndex);
-                uint8_t ep_num = EP_ID(ep_addr);
+                uint8_t ep_num = ep_id(ep_addr);
                 if (ep_num >= 4U) return REQ_NOTSUPP;
 
                 usbd_ep_stall(udev, ep_addr);
@@ -179,8 +179,8 @@ static usb_reqsta handle_set_address(usb_core_driver* udev, usb_req* req) {
 }
 
 static usb_reqsta handle_get_descriptor(usb_core_driver* udev, usb_req* req) {
-    uint8_t desc_type = BYTE_HIGH(req->wValue);
-    uint8_t desc_index = BYTE_LOW(req->wValue);
+    uint8_t desc_type = byte_high(req->wValue);
+    uint8_t desc_index = byte_low(req->wValue);
 
     usb_transc* transc = &udev->dev.transc_in[0];
     transc->remain_len = 0U;

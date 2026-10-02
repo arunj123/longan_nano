@@ -52,8 +52,8 @@ static void print_hexdump(const uint8_t* data, size_t len) {
 static void run_sd_test() {
     printf("\n>>> STARTING SD CARD DIAGNOSTIC SEQUENCE <<<\n");
 
-    lcd_fill_rect(0, 16, LCD_WIDTH, LCD_HEIGHT - 16, color::Black);
-    draw_string(4, 18, "Probing SD card...", color::Yellow);
+    lcd_fill_rect(0, 16, LCD_WIDTH, LCD_HEIGHT - 16, lcd::color::Black);
+    lcd::draw_string(4, 18, "Probing SD card...", lcd::color::Yellow);
 
     LedRed::set();   // OFF
     LedGreen::set(); // OFF
@@ -65,14 +65,14 @@ static void run_sd_test() {
         LedBlue::set();   // OFF
         LedGreen::reset(); // ON (Green = Success)
 
-        draw_string(4, 18, "SD Init: SUCCESS! ", color::Green);
+        lcd::draw_string(4, 18, "SD Init: SUCCESS! ", lcd::color::Green);
         
         char type_str[26];
         snprintf(type_str, sizeof(type_str), "Type: %s", 
                  (Sd::card_type == drivers::sdcard::CardType::SD2HC) ? "SDHC/SDXC" : "SDSC/MMC");
-        draw_string(4, 30, type_str, color::White);
+        lcd::draw_string(4, 30, type_str, lcd::color::White);
 
-        draw_string(4, 42, "Reading Sector 0...", color::Cyan);
+        lcd::draw_string(4, 42, "Reading Sector 0...", lcd::color::Cyan);
         printf("[TEST] Reading Sector 0 (Master Boot Record / Boot Sector)...\n");
 
         alignas(4) uint8_t sector_buf[512] = {0};
@@ -87,32 +87,32 @@ static void run_sd_test() {
 
             if (sector_buf[510] == 0x55 && sector_buf[511] == 0xAA) {
                 printf("[SUCCESS] >>> 0x55AA VALID BOOT RECORD SIGNATURE CONFIRMED! <<<\n");
-                draw_string(4, 42, "Sector 0: 0x55AA OK! ", color::Green);
-                draw_string(4, 54, "SD Card 100% OPERATIONAL", color::Green);
+                lcd::draw_string(4, 42, "Sector 0: 0x55AA OK! ", lcd::color::Green);
+                lcd::draw_string(4, 54, "SD Card 100% OPERATIONAL", lcd::color::Green);
 
                 // Inspect partition 1 type
                 uint8_t part_type = sector_buf[446 + 4];
                 printf("          Partition 1 Type: 0x%02X\n", part_type);
             } else {
                 printf("[INFO] Sector 0 read OK (Unpartitioned / Non-MBR format, Sig: 0x%04X)\n", sig);
-                draw_string(4, 42, "Sector 0: Read OK    ", color::Yellow);
-                draw_string(4, 54, "Card operational", color::White);
+                lcd::draw_string(4, 42, "Sector 0: Read OK    ", lcd::color::Yellow);
+                lcd::draw_string(4, 54, "Card operational", lcd::color::White);
             }
         } else {
             printf("[ERROR] Sector 0 read failed: %s\n", drivers::sdcard::result_to_string(read_res));
-            draw_string(4, 42, "Read Sec 0: FAILED", color::Red);
+            lcd::draw_string(4, 42, "Read Sec 0: FAILED", lcd::color::Red);
         }
 
     } else {
         LedBlue::set();  // OFF
         LedRed::reset(); // ON (Red = Error)
 
-        draw_string(4, 18, "SD Init: FAILED!   ", color::Red);
-        draw_string(4, 30, drivers::sdcard::result_to_string(init_res), color::Red);
+        lcd::draw_string(4, 18, "SD Init: FAILED!   ", lcd::color::Red);
+        lcd::draw_string(4, 30, drivers::sdcard::result_to_string(init_res), lcd::color::Red);
 
         if (init_res == drivers::sdcard::SdResult::Cmd0Fail) {
-            draw_string(4, 44, "Check TF card seating", color::Yellow);
-            draw_string(4, 56, "Press PA8 to retry", color::White);
+            lcd::draw_string(4, 44, "Check TF card seating", lcd::color::Yellow);
+            lcd::draw_string(4, 56, "Press PA8 to retry", lcd::color::White);
         }
     }
 }
@@ -133,11 +133,11 @@ int main(void) {
 
     // 3. Initialize ST7735 LCD
     lcd_init();
-    lcd_clear(color::Black);
+    lcd_clear(lcd::color::Black);
 
     // Title banner on LCD
-    lcd_fill_rect(0, 0, LCD_WIDTH, 14, color::DarkNavy);
-    draw_string(4, 3, "LONGAN NANO: SD TEST", color::Cyan, color::DarkNavy);
+    lcd_fill_rect(0, 0, LCD_WIDTH, 14, lcd::color::DarkNavy);
+    lcd::draw_string(4, 3, "LONGAN NANO: SD TEST", lcd::color::Cyan, lcd::color::DarkNavy);
 
     printf("\n==================================================\n");
     printf("Longan Nano -- Modern C++23 SD Card Test\n");

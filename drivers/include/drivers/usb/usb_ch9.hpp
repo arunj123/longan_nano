@@ -103,12 +103,6 @@ constexpr auto usb_min(T a, U b) noexcept {
     return (a < b) ? a : b;
 }
 
-// Zero-overhead constexpr compatibility wrappers
-constexpr uint8_t BYTE_LOW(uint16_t x) noexcept { return byte_low(x); }
-constexpr uint8_t BYTE_HIGH(uint16_t x) noexcept { return byte_high(x); }
-template <typename T, typename U>
-constexpr auto USB_MIN(T a, U b) noexcept { return usb_min(a, b); }
-
 inline constexpr uint8_t  USB_DEFAULT_CONFIG        = 0U;
 inline constexpr uint8_t  USB_CLASS_HID             = 0x03U;
 inline constexpr uint8_t  USB_CLASS_MSC             = 0x08U;
@@ -195,11 +189,6 @@ struct usb_desc_str {
 
 constexpr size_t usb_string_len(size_t unicode_chars) noexcept {
     return sizeof(usb_desc_header) + (unicode_chars * 2);
-}
-
-// Zero-overhead constexpr compatibility wrapper
-constexpr size_t USB_STRING_LEN(size_t unicode_chars) noexcept {
-    return usb_string_len(unicode_chars);
 }
 
 /**

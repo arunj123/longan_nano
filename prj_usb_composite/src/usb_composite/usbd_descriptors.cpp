@@ -120,7 +120,7 @@ static constexpr auto product_string        = make_string_descriptor("Longan Nan
 
 /* USBD serial string */
 alignas(4) static usb_desc_str serial_string = {
-    .header = { .bLength = USB_STRING_LEN(12), .bDescriptorType = USB_DESCTYPE_STR },
+    .header = { .bLength = usb_string_len(12), .bDescriptorType = USB_DESCTYPE_STR },
     .unicode_string = {0} // Fix for -Wmissing-field-initializers
 };
 

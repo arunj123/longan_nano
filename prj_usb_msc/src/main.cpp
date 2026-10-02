@@ -44,25 +44,25 @@ int main() {
 
     // 3. Initialize ST7735 LCD
     lcd_init();
-    lcd_clear(color::Black);
+    lcd_clear(lcd::color::Black);
 
     // Title banner
-    lcd_fill_rect(0, 0, LCD_WIDTH, 14, color::DarkNavy);
-    draw_string(6, 3, "USB SD CARD READER", color::Cyan, color::DarkNavy);
+    lcd_fill_rect(0, 0, LCD_WIDTH, 14, lcd::color::DarkNavy);
+    lcd::draw_string(6, 3, "USB SD CARD READER", lcd::color::Cyan, lcd::color::DarkNavy);
 
     // 4. Initialize SD card
-    draw_string(4, 18, "Probing SD card...", color::Yellow);
+    lcd::draw_string(4, 18, "Probing SD card...", lcd::color::Yellow);
     bool sd_ok = msc_disk_init();
 
     if (sd_ok) {
         LedGreen::reset(); // ON (Green = Card ready)
-        draw_string(4, 18, "SD Card: DETECTED", color::Green);
+        lcd::draw_string(4, 18, "SD Card: DETECTED", lcd::color::Green);
 
         char cap_buf[32];
         using Sd = drivers::sdcard::SdCard<>;
         snprintf(cap_buf, sizeof(cap_buf), "Cap: %lu MB",
                  static_cast<unsigned long>(Sd::sector_count / 2048));
-        draw_string(4, 28, cap_buf, color::White);
+        lcd::draw_string(4, 28, cap_buf, lcd::color::White);
 
         alignas(4) uint8_t test_sec[512];
         auto t0 = hal::time::Instant::now();
@@ -104,8 +104,8 @@ int main() {
         g_msc_stats.is_active = false;
     } else {
         LedRed::reset(); // ON (Red = Card error)
-        draw_string(4, 18, "SD Card: NOT FOUND", color::Red);
-        draw_string(4, 28, "Insert card & reset", color::Yellow);
+        lcd::draw_string(4, 18, "SD Card: NOT FOUND", lcd::color::Red);
+        lcd::draw_string(4, 28, "Insert card & reset", lcd::color::Yellow);
     }
 
     // 5. Initialize USB stack
@@ -116,7 +116,7 @@ int main() {
     }
     printf("\n");
 
-    draw_string(4, 40, "USB: Initializing... ", color::Yellow);
+    lcd::draw_string(4, 40, "USB: Initializing... ", lcd::color::Yellow);
     usb::init();
     extern usb_core_driver msc_udev;
     printf("[FIFO_CFG] GRFLEN=0x%08lX DIEP0=0x%08lX DIEP1=0x%08lX DIEPTFSTAT1=0x%08lX\n",
@@ -141,11 +141,11 @@ int main() {
         bool configured = usb::is_configured();
         if (configured && !usb_was_configured) {
             usb_was_configured = true;
-            draw_string(4, 40, "USB: CONFIGURED OK   ", color::Green);
+            lcd::draw_string(4, 40, "USB: CONFIGURED OK   ", lcd::color::Green);
             printf("[MAIN] >>> USB CONFIGURED BY HOST! <<<\n");
         } else if (!configured && usb_was_configured) {
             usb_was_configured = false;
-            draw_string(4, 40, "USB: Disconnected... ", color::Yellow);
+            lcd::draw_string(4, 40, "USB: Disconnected... ", lcd::color::Yellow);
             printf("[MAIN] USB disconnected / reset.\n");
         }
 

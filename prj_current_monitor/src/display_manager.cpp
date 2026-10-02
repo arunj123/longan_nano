@@ -21,11 +21,11 @@ DisplayManager& DisplayManager::getInstance() {
 
 void DisplayManager::init() {
     lcd_init();
-    lcd_clear(color::Black);
-    lcd::draw_string(10, 0,  "INA219 Monitor", color::White,  color::Black, 1, kFont);
-    lcd::draw_string(10, 20, "Voltage: ",     color::Green,  color::Black, 1, kFont);
-    lcd::draw_string(10, 35, "Current: ",     color::Cyan,   color::Black, 1, kFont);
-    lcd::draw_string(10, 50, "Power:   ",     color::Yellow, color::Black, 1, kFont);
+    lcd_clear(lcd::color::Black);
+    lcd::draw_string(10, 0,  "INA219 Monitor", lcd::color::White,  lcd::color::Black, 1, kFont);
+    lcd::draw_string(10, 20, "Voltage: ",     lcd::color::Green,  lcd::color::Black, 1, kFont);
+    lcd::draw_string(10, 35, "Current: ",     lcd::color::Cyan,   lcd::color::Black, 1, kFont);
+    lcd::draw_string(10, 50, "Power:   ",     lcd::color::Yellow, lcd::color::Black, 1, kFont);
 }
 
 void DisplayManager::update(const ina219_data_t& data) {
@@ -33,13 +33,13 @@ void DisplayManager::update(const ina219_data_t& data) {
     
     // Overdrawing with space padding and black background cleanly updates digits
     snprintf(buf, sizeof(buf), "%5u mV ", data.voltage_mv);
-    lcd::draw_string(70, 20, buf, color::White, color::Black, 1, kFont);
+    lcd::draw_string(70, 20, buf, lcd::color::White, lcd::color::Black, 1, kFont);
     
     snprintf(buf, sizeof(buf), "%5d mA ", data.current_ma);
-    lcd::draw_string(70, 35, buf, color::White, color::Black, 1, kFont);
+    lcd::draw_string(70, 35, buf, lcd::color::White, lcd::color::Black, 1, kFont);
     
     snprintf(buf, sizeof(buf), "%5u mW ", data.power_mw);
-    lcd::draw_string(70, 50, buf, color::White, color::Black, 1, kFont);
+    lcd::draw_string(70, 50, buf, lcd::color::White, lcd::color::Black, 1, kFont);
 }
 
 } // namespace display

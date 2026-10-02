@@ -37,8 +37,8 @@ static void run_filesystem_test() {
     LedGreen::set();  // OFF
     LedBlue::reset(); // ON (Blue = Running test)
 
-    lcd_fill_rect(0, 16, LCD_WIDTH, LCD_HEIGHT - 16, color::Black);
-    draw_string(4, 18, "Mounting FAT32...", color::Yellow);
+    lcd_fill_rect(0, 16, LCD_WIDTH, LCD_HEIGHT - 16, lcd::color::Black);
+    lcd::draw_string(4, 18, "Mounting FAT32...", lcd::color::Yellow);
 
     auto& fs = drivers::fatfs::FileSystem::instance();
     FRESULT mount_res = fs.mount("0:", true);
@@ -49,15 +49,15 @@ static void run_filesystem_test() {
         LedBlue::set();  // Blue OFF
         LedRed::reset(); // Red ON (Error)
 
-        draw_string(4, 18, "Mount: FAILED!   ", color::Red);
+        lcd::draw_string(4, 18, "Mount: FAILED!   ", lcd::color::Red);
         char err_msg[32];
         snprintf(err_msg, sizeof(err_msg), "Err: %d", mount_res);
-        draw_string(4, 30, err_msg, color::Red);
+        lcd::draw_string(4, 30, err_msg, lcd::color::Red);
         return;
     }
 
     printf("[FS] FAT32 Volume mounted successfully!\n");
-    draw_string(4, 18, "Volume: MOUNT OK", color::Green);
+    lcd::draw_string(4, 18, "Volume: MOUNT OK", lcd::color::Green);
 
     // 1. Generate pseudo-random 8.3 filename based on 64-bit hardware mtime ticks
     uint32_t ticks = static_cast<uint32_t>(hal::time::Instant::now().ticks);
@@ -82,7 +82,7 @@ static void run_filesystem_test() {
 
     // 3. Write file to SD card
     printf("[FS] Writing payload (%d bytes) to %s...\n", write_len, filename);
-    draw_string(4, 28, "Writing file...", color::Yellow);
+    lcd::draw_string(4, 28, "Writing file...", lcd::color::Yellow);
 
     FRESULT write_res = fs.write_file(filename, std::string_view{write_buf, static_cast<size_t>(write_len)});
     if (write_res != FR_OK) {
@@ -90,15 +90,15 @@ static void run_filesystem_test() {
                filename, write_res, drivers::fatfs::result_to_string(write_res));
         LedBlue::set();
         LedRed::reset(); // Red ON
-        draw_string(4, 28, "Write: FAILED!   ", color::Red);
+        lcd::draw_string(4, 28, "Write: FAILED!   ", lcd::color::Red);
         return;
     }
     printf("[FS] Successfully wrote %d bytes to %s!\n", write_len, filename);
-    draw_string(4, 28, "Write: OK (512B)", color::Green);
+    lcd::draw_string(4, 28, "Write: OK (512B)", lcd::color::Green);
 
     // 4. Re-open file and read back
     printf("[FS] Re-opening %s for read-back verification...\n", filename);
-    draw_string(4, 38, "Reading file...", color::Yellow);
+    lcd::draw_string(4, 38, "Reading file...", lcd::color::Yellow);
 
     char read_buf[256];
     std::memset(read_buf, 0, sizeof(read_buf));
@@ -110,12 +110,12 @@ static void run_filesystem_test() {
                filename, read_res, drivers::fatfs::result_to_string(read_res));
         LedBlue::set();
         LedRed::reset(); // Red ON
-        draw_string(4, 38, "Read: FAILED!    ", color::Red);
+        lcd::draw_string(4, 38, "Read: FAILED!    ", lcd::color::Red);
         return;
     }
 
     printf("[FS] Successfully read %u bytes from %s.\n", bytes_read, filename);
-    draw_string(4, 38, "Read:  OK", color::Green);
+    lcd::draw_string(4, 38, "Read:  OK", lcd::color::Green);
 
     // 5. Print read-back content to UART monitor
     printf("\n---------------- Read-Back File Content ----------------\n");
@@ -150,25 +150,25 @@ static void run_filesystem_test() {
         LedGreen::reset(); // Green ON (PASS!)
 
         // Display summary on ST7735 LCD
-        lcd_fill_rect(0, 16, LCD_WIDTH, LCD_HEIGHT - 16, color::Black);
+        lcd_fill_rect(0, 16, LCD_WIDTH, LCD_HEIGHT - 16, lcd::color::Black);
         
         char line_buf[32];
         snprintf(line_buf, sizeof(line_buf), "File: %s", filename + 1); // omit leading slash
-        draw_string(4, 18, line_buf, color::Cyan);
+        lcd::draw_string(4, 18, line_buf, lcd::color::Cyan);
 
         snprintf(line_buf, sizeof(line_buf), "Size: %u Bytes OK", bytes_read);
-        draw_string(4, 28, line_buf, color::Green);
+        lcd::draw_string(4, 28, line_buf, lcd::color::Green);
 
-        draw_string(4, 40, "VERIFY: 100% OK!", color::Yellow);
-        draw_string(4, 52, "DATA BYTE MATCH", color::Green);
-        draw_string(4, 66, "Press BTN: Retest", color::White);
+        lcd::draw_string(4, 40, "VERIFY: 100% OK!", lcd::color::Yellow);
+        lcd::draw_string(4, 52, "DATA BYTE MATCH", lcd::color::Green);
+        lcd::draw_string(4, 66, "Press BTN: Retest", lcd::color::White);
     } else {
         printf(">>> [FAILURE] Byte mismatch in file read-back! <<<\n");
         LedBlue::set();
         LedGreen::set();
         LedRed::reset(); // Red ON
 
-        draw_string(4, 50, "VERIFY: MISMATCH!", color::Red);
+        lcd::draw_string(4, 50, "VERIFY: MISMATCH!", lcd::color::Red);
     }
 }
 
@@ -197,11 +197,11 @@ int main() {
 
     // 4. Initialize ST7735 SPI LCD (160x80)
     lcd_init();
-    lcd_clear(color::Black);
+    lcd_clear(lcd::color::Black);
 
     // Draw Title Header Bar
-    lcd_fill_rect(0, 0, LCD_WIDTH, 14, color::DarkNavy);
-    draw_string(14, 3, "SD FAT32 FS TEST", color::White, color::DarkNavy);
+    lcd_fill_rect(0, 0, LCD_WIDTH, 14, lcd::color::DarkNavy);
+    lcd::draw_string(14, 3, "SD FAT32 FS TEST", lcd::color::White, lcd::color::DarkNavy);
 
     // 5. Run first file system test
     run_filesystem_test();

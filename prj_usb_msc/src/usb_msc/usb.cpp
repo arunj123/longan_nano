@@ -58,7 +58,7 @@ bool is_configured() {
     // USB 2.0 §9.1.1.6: a suspended device retains its configuration.
     // DWC2 sets cur_status = USBD_SUSPENDED after ~3 ms of bus idle; backup_status
     // preserves the pre-suspend state. Treat both as "configured" to prevent main()
-    // from calling draw_string() on every idle interval (which would block for ~20 ms
+    // from calling lcd::draw_string() on every idle interval (which would block for ~20 ms
     // and cause the device to miss host resume tokens, creating a ping-pong freeze).
     return (msc_udev.dev.cur_status == USBD_CONFIGURED) ||
            (msc_udev.dev.cur_status == USBD_SUSPENDED &&

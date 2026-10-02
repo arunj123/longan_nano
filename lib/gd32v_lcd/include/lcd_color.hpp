@@ -23,6 +23,3 @@ namespace color {
     }
 } // namespace color
 } // namespace lcd
-
-// Global namespace alias for backwards compatibility across existing applications
-namespace color = lcd::color;

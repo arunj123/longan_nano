@@ -75,7 +75,7 @@ static constexpr auto product_string        = make_string_descriptor("Longan Nan
 
 /* USBD serial string */
 alignas(4) static usb_desc_str serial_string = {
-    .header = { .bLength = USB_STRING_LEN(12), .bDescriptorType = USB_DESCTYPE_STR },
+    .header = { .bLength = usb_string_len(12), .bDescriptorType = USB_DESCTYPE_STR },
     .unicode_string = {0}
 };
 
@@ -93,6 +93,6 @@ void set_custom_serial_string(const char *ascii_str) {
         serial_string.unicode_string[len] = static_cast<uint16_t>(ascii_str[len]);
         len++;
     }
-    serial_string.header.bLength = static_cast<uint8_t>(USB_STRING_LEN(len));
+    serial_string.header.bLength = static_cast<uint8_t>(usb_string_len(len));
     serial_string.header.bDescriptorType = USB_DESCTYPE_STR;
 }

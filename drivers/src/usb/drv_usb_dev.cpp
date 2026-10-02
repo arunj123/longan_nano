@@ -277,7 +277,7 @@ usb_status usb_transc_clrstall(usb_core_driver* udev, usb_transc* transc) {
 }
 
 void usbd_ep_nak_arm(usb_core_driver* udev, uint8_t ep_addr, uint32_t len) {
-    uint8_t ep_num = EP_ID(ep_addr);
+    uint8_t ep_num = ep_id(ep_addr);
     if (ep_num >= 4U) return;
 
     uint32_t prev_mstatus = hal::core::disable_interrupts();

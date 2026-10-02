@@ -39,23 +39,23 @@ int main() {
     lcd_init();
 
     // 3. Draw Initial Test Pattern
-    lcd_clear(color::DarkNavy);
+    lcd_clear(lcd::color::DarkNavy);
 
     // Border frame
-    lcd_rect(0, 0, LCD_WIDTH, LCD_HEIGHT, color::Cyan);
+    lcd_rect(0, 0, LCD_WIDTH, LCD_HEIGHT, lcd::color::Cyan);
 
     // Header bar
-    lcd_fill_rect(1, 1, LCD_WIDTH - 2, 13, color::Gray);
-    draw_string(8, 4, "LONGAN NANO ST7735", color::Yellow, color::Gray);
+    lcd_fill_rect(1, 1, LCD_WIDTH - 2, 13, lcd::color::Gray);
+    lcd::draw_string(8, 4, "LONGAN NANO ST7735", lcd::color::Yellow, lcd::color::Gray);
 
     // Subtitle
-    draw_string(6, 20, "RV32IMAC @ 108MHz", color::White, color::DarkNavy);
-    draw_string(6, 32, "Modern C++23 HAL", color::Green, color::DarkNavy);
+    lcd::draw_string(6, 20, "RV32IMAC @ 108MHz", lcd::color::White, lcd::color::DarkNavy);
+    lcd::draw_string(6, 32, "Modern C++23 HAL", lcd::color::Green, lcd::color::DarkNavy);
 
     // Color Swatches at bottom (8 colors)
     constexpr std::array<uint16_t, 8> swatches = {
-        color::Red, color::Green, color::Blue, color::Yellow,
-        color::Cyan, color::Magenta, color::White, color::Gray
+        lcd::color::Red, lcd::color::Green, lcd::color::Blue, lcd::color::Yellow,
+        lcd::color::Cyan, lcd::color::Magenta, lcd::color::White, lcd::color::Gray
     };
     constexpr int swatch_w = 18;
     constexpr int swatch_h = 10;
@@ -64,7 +64,7 @@ int main() {
     for (size_t i = 0; i < swatches.size(); ++i) {
         int swatch_x = 8 + static_cast<int>(i * (swatch_w + 1));
         lcd_fill_rect(swatch_x, swatch_y, swatch_w, swatch_h, swatches[i]);
-        lcd_rect(swatch_x, swatch_y, swatch_w, swatch_h, color::Black);
+        lcd_rect(swatch_x, swatch_y, swatch_w, swatch_h, lcd::color::Black);
     }
 
     uint32_t heartbeat_count = 0;
@@ -89,7 +89,7 @@ int main() {
             // Update live counter on LCD
             char buf[32];
             snprintf(buf, sizeof(buf), "Tick: %05lu s", heartbeat_count / 2);
-            draw_string(6, 48, buf, color::Cyan, color::DarkNavy);
+            lcd::draw_string(6, 48, buf, lcd::color::Cyan, lcd::color::DarkNavy);
 
             // Log heartbeat to UART0
             printf("[LCD TEST #%04lu] Running. System ticks: %lu\r\n",
@@ -103,16 +103,16 @@ int main() {
             bsp::board::LedRed::toggle();
 
             // Visual feedback: highlight center box
-            lcd_fill_rect(20, 20, 120, 40, color::Blue);
-            draw_string(26, 32, "BUTTON PRESSED!", color::Yellow, color::Blue);
-            draw_string(30, 44, "DMA Transfer OK", color::White, color::Blue);
+            lcd_fill_rect(20, 20, 120, 40, lcd::color::Blue);
+            lcd::draw_string(26, 32, "BUTTON PRESSED!", lcd::color::Yellow, lcd::color::Blue);
+            lcd::draw_string(30, 44, "DMA Transfer OK", lcd::color::White, lcd::color::Blue);
 
             hal::time::delay_ms(400);
 
             // Restore screen
-            lcd_fill_rect(20, 20, 120, 40, color::DarkNavy);
-            draw_string(6, 20, "RV32IMAC @ 108MHz", color::White, color::DarkNavy);
-            draw_string(6, 32, "Modern C++23 HAL", color::Green, color::DarkNavy);
+            lcd_fill_rect(20, 20, 120, 40, lcd::color::DarkNavy);
+            lcd::draw_string(6, 20, "RV32IMAC @ 108MHz", lcd::color::White, lcd::color::DarkNavy);
+            lcd::draw_string(6, 32, "Modern C++23 HAL", lcd::color::Green, lcd::color::DarkNavy);
         }
         button_prev = button_pressed;
 
