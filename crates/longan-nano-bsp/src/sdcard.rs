@@ -338,6 +338,7 @@ impl SdCard {
         };
 
         self.cs_low();
+        self.xchg(0xFF); // 8 clocks sync
 
         if !self.spi.wait_ready_fast(500 * 1500) {
             self.release_bus();

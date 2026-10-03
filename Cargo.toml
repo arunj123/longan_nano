@@ -7,6 +7,7 @@ members = [
     "prj_uart_test",
     "prj_lcd_test",
     "prj_sdcard_test",
+    "prj_sdcard_fs_test",
 ]
 resolver = "2"
 
@@ -21,3 +22,7 @@ opt-level = "s"
 panic = "abort"
 lto = true
 codegen-units = 1
+
+[patch.crates-io]
+embedded-sdmmc = { path = "crates/embedded-sdmmc" }
+
