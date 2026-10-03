@@ -63,6 +63,11 @@ impl<P: InputPin> Button<P> {
 
 pub type KeyButton = Button<Pin<PortA, 8, mode::Input<mode::PullUp>>>;
 
+pub mod lcd;
+pub use lcd::{color as lcd_color, Lcd, LCD_HEIGHT, LCD_WIDTH};
+
+use hal::spi::{Prescaler, Spi0};
+
 /// Longan Nano Board peripherals container
 pub struct Board {
     pub led_red: LedRed,
@@ -70,6 +75,7 @@ pub struct Board {
     pub led_blue: LedBlue,
     pub button: KeyButton,
     pub uart0: Uart0,
+    pub lcd: Lcd,
     pub delay: Delay,
     pub clocks: Clocks,
 }
@@ -86,6 +92,7 @@ impl Board {
         let (rcu, clocks) = dp.rcu.freeze(RcuConfig::default());
 
         let gpioa = dp.gpioa.split_a(&rcu);
+        let gpiob = dp.gpiob.split_b(&rcu);
         let gpioc = dp.gpioc.split_c(&rcu);
 
         let mut led_red = Led::new(gpioc.pc13.into_push_pull_output());
@@ -104,6 +111,15 @@ impl Board {
         let rx = gpioa.pa10.into_floating_input();
         let uart0 = Uart0::new(dp.usart0, tx, rx, baud, &clocks, &rcu);
 
+        // Configure SPI0 and LCD control pins (PB2 CS, PB0 DC, PB1 RST, PA5 SCK, PA7 MOSI)
+        let cs = gpiob.pb2.into_push_pull_output();
+        let dc = gpiob.pb0.into_push_pull_output();
+        let rst = gpiob.pb1.into_push_pull_output();
+        let sck = gpioa.pa5.into_alternate_push_pull();
+        let mosi = gpioa.pa7.into_alternate_push_pull();
+        let spi0 = Spi0::new_master(dp.spi0, sck, mosi, Prescaler::Div8, &rcu);
+        let lcd = Lcd::new(spi0, cs, dc, rst);
+
         let delay = Delay::new(dp.mtime, clocks);
 
         Some(Self {
@@ -112,6 +128,7 @@ impl Board {
             led_blue,
             button,
             uart0,
+            lcd,
             delay,
             clocks,
         })

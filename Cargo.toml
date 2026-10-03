@@ -5,6 +5,7 @@ members = [
     "crates/longan-nano-bsp",
     "prj_blink",
     "prj_uart_test",
+    "prj_lcd_test",
 ]
 resolver = "2"
 
