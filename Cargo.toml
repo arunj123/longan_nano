@@ -4,6 +4,7 @@ members = [
     "crates/gd32vf103-hal",
     "crates/longan-nano-bsp",
     "prj_blink",
+    "prj_uart_test",
 ]
 resolver = "2"
 

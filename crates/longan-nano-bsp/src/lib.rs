@@ -6,6 +6,7 @@ use hal::pac::Peripherals;
 use hal::rcu::{Clocks, RcuConfig, RcuExt};
 use hal::gpio::{mode, GpioPortExt, Pin, PortA, PortC};
 use hal::delay::Delay;
+use hal::Uart0;
 use embedded_hal::digital::{InputPin, OutputPin, StatefulOutputPin};
 
 /// Active-low LED abstraction
@@ -68,13 +69,19 @@ pub struct Board {
     pub led_green: LedGreen,
     pub led_blue: LedBlue,
     pub button: KeyButton,
+    pub uart0: Uart0,
     pub delay: Delay,
     pub clocks: Clocks,
 }
 
 impl Board {
-    /// Initializes board clocks (108 MHz via HXTAL PLL) and configures LEDs & button.
+    /// Initializes board clocks (108 MHz via HXTAL PLL), LEDs, button, and UART0 @ 115200 baud.
     pub fn take() -> Option<Self> {
+        Self::take_with_baud(115200)
+    }
+
+    /// Initializes board with a custom UART0 baud rate.
+    pub fn take_with_baud(baud: u32) -> Option<Self> {
         let dp = Peripherals::take()?;
         let (rcu, clocks) = dp.rcu.freeze(RcuConfig::default());
 
@@ -91,6 +98,12 @@ impl Board {
         led_blue.off();
 
         let button = Button::new(gpioa.pa8.into_pull_up_input());
+
+        // Configure PA9 (TX) and PA10 (RX) for USART0
+        let tx = gpioa.pa9.into_alternate_push_pull();
+        let rx = gpioa.pa10.into_floating_input();
+        let uart0 = Uart0::new(dp.usart0, tx, rx, baud, &clocks, &rcu);
+
         let delay = Delay::new(dp.mtime, clocks);
 
         Some(Self {
@@ -98,6 +111,7 @@ impl Board {
             led_green,
             led_blue,
             button,
+            uart0,
             delay,
             clocks,
         })

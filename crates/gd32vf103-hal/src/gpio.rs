@@ -16,6 +16,10 @@ pub mod mode {
     }
     pub struct PushPull;
     pub struct OpenDrain;
+
+    pub struct Alternate<MODE> {
+        _marker: core::marker::PhantomData<MODE>,
+    }
 }
 
 pub struct Pin<PORT, const PIN: u8, MODE> {
@@ -71,6 +75,15 @@ impl<PORT: PortTrait, const PIN: u8, MODE> Pin<PORT, PIN, MODE> {
     #[inline(always)]
     pub fn into_open_drain_output(self) -> Pin<PORT, PIN, mode::Output<mode::OpenDrain>> {
         configure_pin(PORT::PORT, PIN, 0b0111); // Output Open-Drain, 50 MHz
+        Pin {
+            _port: PhantomData,
+            _mode: PhantomData,
+        }
+    }
+
+    #[inline(always)]
+    pub fn into_alternate_push_pull(self) -> Pin<PORT, PIN, mode::Alternate<mode::PushPull>> {
+        configure_pin(PORT::PORT, PIN, 0b1011); // Alternate function Push-Pull, 50 MHz
         Pin {
             _port: PhantomData,
             _mode: PhantomData,

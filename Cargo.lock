@@ -52,6 +52,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "prj_uart_test"
+version = "0.1.0"
+dependencies = [
+ "embedded-hal",
+ "gd32vf103-hal",
+ "longan-nano-bsp",
+ "panic-halt",
+ "riscv-rt",
+]
+
+[[package]]
 name = "proc-macro2"
 version = "1.0.107"
 source = "registry+https://github.com/rust-lang/crates.io-index"

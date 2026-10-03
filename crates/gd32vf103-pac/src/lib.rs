@@ -6,10 +6,12 @@ use core::sync::atomic::{AtomicBool, Ordering};
 pub mod rcu;
 pub mod gpio;
 pub mod mtime;
+pub mod usart;
 
 pub use rcu::Rcu;
 pub use gpio::{Gpio, GpioPort};
 pub use mtime::Mtime;
+pub use usart::Usart;
 
 /// GD32VF103 Peripherals singleton
 pub struct Peripherals {
@@ -18,6 +20,7 @@ pub struct Peripherals {
     pub gpiob: GpioPort,
     pub gpioc: GpioPort,
     pub mtime: Mtime,
+    pub usart0: Usart,
 }
 
 static TAKEN: AtomicBool = AtomicBool::new(false);
@@ -45,6 +48,7 @@ impl Peripherals {
             gpiob: GpioPort::steal(gpio::Port::B),
             gpioc: GpioPort::steal(gpio::Port::C),
             mtime: Mtime::steal(),
+            usart0: Usart::steal(usart::USART0_BASE),
         }
     }
 }
