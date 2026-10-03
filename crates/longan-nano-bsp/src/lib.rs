@@ -69,7 +69,11 @@ pub use lcd::{color as lcd_color, Lcd, LCD_HEIGHT, LCD_WIDTH};
 pub mod sdcard;
 pub use sdcard::{CardType, SdCard, SdError};
 
-pub use hal::UsbCdcAcm;
+pub mod ina219;
+pub use ina219::{Ina219, Ina219Data};
+
+pub use hal::{UsbCdcAcm, UsbHid};
+pub use hal::i2c::{I2c, I2cError};
 use hal::spi::{Prescaler, Spi0, Spi1};
 
 /// Longan Nano Board peripherals container
@@ -82,6 +86,20 @@ pub struct Board {
     pub lcd: Lcd,
     pub sdcard: SdCard,
     pub usb: Option<UsbCdcAcm>,
+    pub delay: Delay,
+    pub clocks: Clocks,
+}
+
+/// Board container specialized for INA219 Current Monitor application
+pub struct CurrentMonitorBoard {
+    pub led_red: LedRed,
+    pub led_green: LedGreen,
+    pub led_blue: LedBlue,
+    pub button: KeyButton,
+    pub uart0: Uart0,
+    pub lcd: Lcd,
+    pub ina219: Ina219,
+    pub usb_hid: UsbHid,
     pub delay: Delay,
     pub clocks: Clocks,
 }
@@ -171,6 +189,63 @@ impl Board {
             lcd,
             sdcard,
             usb,
+            delay,
+            clocks,
+        })
+    }
+
+    /// Initializes board for INA219 Current Monitor (96 MHz PLL, 48 MHz USBFS, LCD, I2C0, UsbHid).
+    pub fn take_current_monitor() -> Option<CurrentMonitorBoard> {
+        let dp = Peripherals::take()?;
+        let rcu_cfg = RcuConfig {
+            use_hxtal: true,
+            target_sysclk: 96_000_000,
+        };
+        let (rcu, clocks) = dp.rcu.freeze(rcu_cfg);
+
+        let gpioa = dp.gpioa.split_a(&rcu);
+        let gpiob = dp.gpiob.split_b(&rcu);
+        let gpioc = dp.gpioc.split_c(&rcu);
+
+        let mut led_red = Led::new(gpioc.pc13.into_push_pull_output());
+        let mut led_green = Led::new(gpioa.pa1.into_push_pull_output());
+        let mut led_blue = Led::new(gpioa.pa2.into_push_pull_output());
+        led_red.off();
+        led_green.off();
+        led_blue.off();
+
+        let button = Button::new(gpioa.pa8.into_pull_up_input());
+
+        let tx = gpioa.pa9.into_alternate_push_pull();
+        let rx = gpioa.pa10.into_floating_input();
+        let uart0 = Uart0::new(dp.usart0, tx, rx, 115200, &clocks, &rcu);
+
+        let cs = gpiob.pb2.into_push_pull_output();
+        let dc = gpiob.pb0.into_push_pull_output();
+        let rst = gpiob.pb1.into_push_pull_output();
+        let sck = gpioa.pa5.into_alternate_push_pull();
+        let mosi = gpioa.pa7.into_alternate_push_pull();
+        let spi0 = Spi0::new_master(dp.spi0, sck, mosi, Prescaler::Div8, &rcu);
+        let lcd = Lcd::new(spi0, cs, dc, rst);
+
+        // PB6 (SCL) and PB7 (SDA) as AF Open-Drain 50MHz
+        let scl = gpiob.pb6.into_alternate_open_drain();
+        let sda = gpiob.pb7.into_alternate_open_drain();
+        let i2c0 = I2c::new(dp.i2c0, scl, sda, 100_000, &clocks, &rcu);
+        let ina219 = Ina219::new(i2c0, ina219::INA219_ADDR_DEFAULT);
+
+        let mut delay = Delay::new(dp.mtime, clocks);
+        let usb_hid = UsbHid::new(dp.usbfs, &rcu, &mut delay);
+
+        Some(CurrentMonitorBoard {
+            led_red,
+            led_green,
+            led_blue,
+            button,
+            uart0,
+            lcd,
+            ina219,
+            usb_hid,
             delay,
             clocks,
         })

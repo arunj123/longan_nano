@@ -9,6 +9,7 @@ members = [
     "prj_sdcard_test",
     "prj_sdcard_fs_test",
     "prj_usb_serial",
+    "prj_current_monitor",
 ]
 resolver = "2"
 

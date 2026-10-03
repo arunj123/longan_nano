@@ -91,7 +91,30 @@ pub mod apb2en {
     pub const ADC1EN: u32 = 1 << 10;
     pub const TIMER0EN: u32 = 1 << 11;
     pub const SPI0EN: u32 = 1 << 12;
-    pub const USART0EN: u32 = 1 << 14;
+}
+
+// Bit definitions for RCU_APB1EN
+pub mod apb1en {
+    pub const TIMER1EN: u32 = 1 << 0;
+    pub const TIMER2EN: u32 = 1 << 1;
+    pub const TIMER3EN: u32 = 1 << 2;
+    pub const TIMER4EN: u32 = 1 << 3;
+    pub const TIMER5EN: u32 = 1 << 4;
+    pub const TIMER6EN: u32 = 1 << 5;
+    pub const WWDGTEN: u32 = 1 << 11;
+    pub const SPI1EN: u32 = 1 << 14;
+    pub const SPI2EN: u32 = 1 << 15;
+    pub const USART1EN: u32 = 1 << 17;
+    pub const USART2EN: u32 = 1 << 18;
+    pub const UART3EN: u32 = 1 << 19;
+    pub const UART4EN: u32 = 1 << 20;
+    pub const I2C0EN: u32 = 1 << 21;
+    pub const I2C1EN: u32 = 1 << 22;
+    pub const CAN0EN: u32 = 1 << 25;
+    pub const CAN1EN: u32 = 1 << 26;
+    pub const BKPIEN: u32 = 1 << 27;
+    pub const PMUEN: u32 = 1 << 28;
+    pub const DACEN: u32 = 1 << 29;
 }
 
 pub struct Rcu {

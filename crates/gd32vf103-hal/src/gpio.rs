@@ -91,6 +91,15 @@ impl<PORT: PortTrait, const PIN: u8, MODE> Pin<PORT, PIN, MODE> {
     }
 
     #[inline(always)]
+    pub fn into_alternate_open_drain(self) -> Pin<PORT, PIN, mode::Alternate<mode::OpenDrain>> {
+        configure_pin(PORT::PORT, PIN, 0b1111); // Alternate function Open-Drain, 50 MHz
+        Pin {
+            _port: PhantomData,
+            _mode: PhantomData,
+        }
+    }
+
+    #[inline(always)]
     pub fn into_pull_up_input(self) -> Pin<PORT, PIN, mode::Input<mode::PullUp>> {
         configure_pin(PORT::PORT, PIN, 0b1000); // Input with pull-up/pull-down
         let port_regs = unsafe { GpioPort::steal(PORT::PORT) };
@@ -195,6 +204,15 @@ pub struct PartsB {
     pub pb0: Pin<PortB, 0, mode::Input<mode::Floating>>,
     pub pb1: Pin<PortB, 1, mode::Input<mode::Floating>>,
     pub pb2: Pin<PortB, 2, mode::Input<mode::Floating>>,
+    pub pb3: Pin<PortB, 3, mode::Input<mode::Floating>>,
+    pub pb4: Pin<PortB, 4, mode::Input<mode::Floating>>,
+    pub pb5: Pin<PortB, 5, mode::Input<mode::Floating>>,
+    pub pb6: Pin<PortB, 6, mode::Input<mode::Floating>>,
+    pub pb7: Pin<PortB, 7, mode::Input<mode::Floating>>,
+    pub pb8: Pin<PortB, 8, mode::Input<mode::Floating>>,
+    pub pb9: Pin<PortB, 9, mode::Input<mode::Floating>>,
+    pub pb10: Pin<PortB, 10, mode::Input<mode::Floating>>,
+    pub pb11: Pin<PortB, 11, mode::Input<mode::Floating>>,
     pub pb12: Pin<PortB, 12, mode::Input<mode::Floating>>,
     pub pb13: Pin<PortB, 13, mode::Input<mode::Floating>>,
     pub pb14: Pin<PortB, 14, mode::Input<mode::Floating>>,
@@ -240,6 +258,15 @@ impl GpioPortExt for GpioPort {
             pb0: Pin { _port: PhantomData, _mode: PhantomData },
             pb1: Pin { _port: PhantomData, _mode: PhantomData },
             pb2: Pin { _port: PhantomData, _mode: PhantomData },
+            pb3: Pin { _port: PhantomData, _mode: PhantomData },
+            pb4: Pin { _port: PhantomData, _mode: PhantomData },
+            pb5: Pin { _port: PhantomData, _mode: PhantomData },
+            pb6: Pin { _port: PhantomData, _mode: PhantomData },
+            pb7: Pin { _port: PhantomData, _mode: PhantomData },
+            pb8: Pin { _port: PhantomData, _mode: PhantomData },
+            pb9: Pin { _port: PhantomData, _mode: PhantomData },
+            pb10: Pin { _port: PhantomData, _mode: PhantomData },
+            pb11: Pin { _port: PhantomData, _mode: PhantomData },
             pb12: Pin { _port: PhantomData, _mode: PhantomData },
             pb13: Pin { _port: PhantomData, _mode: PhantomData },
             pb14: Pin { _port: PhantomData, _mode: PhantomData },
