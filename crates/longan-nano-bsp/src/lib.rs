@@ -75,7 +75,7 @@ pub use ina219::{Ina219, Ina219Data};
 pub mod rotary_encoder;
 pub use rotary_encoder::RotaryEncoder;
 
-pub use hal::{UsbCdcAcm, UsbComposite, UsbHid};
+pub use hal::{MscBlockDevice, MscStats, UsbCdcAcm, UsbComposite, UsbHid, UsbMsc};
 pub use hal::i2c::{I2c, I2cError};
 use hal::spi::{Prescaler, Spi0, Spi1};
 
@@ -125,6 +125,35 @@ pub struct CompositeBoard {
     pub usb_composite: UsbComposite,
     pub delay: Delay,
     pub clocks: Clocks,
+}
+
+/// Board container specialized for USB Mass Storage Class (MSC) application
+pub struct MscBoard {
+    pub led_red: LedRed,
+    pub led_green: LedGreen,
+    pub led_blue: LedBlue,
+    pub button: KeyButton,
+    pub uart0: Uart0,
+    pub lcd: Lcd,
+    pub sdcard: SdCard,
+    pub usb_msc: UsbMsc,
+    pub delay: Delay,
+    pub clocks: Clocks,
+}
+
+impl hal::MscBlockDevice for SdCard {
+    fn is_ready(&self) -> bool {
+        self.is_initialized
+    }
+    fn capacity(&self) -> (u32, u32) {
+        (self.sector_count, 512)
+    }
+    fn read_sector(&mut self, lba: u32, buf: &mut [u8; 512]) -> bool {
+        self.read_sector(lba, buf).is_ok()
+    }
+    fn write_sector(&mut self, lba: u32, buf: &[u8; 512]) -> bool {
+        self.write_sector(lba, buf).is_ok()
+    }
 }
 
 impl Board {
@@ -330,4 +359,65 @@ impl Board {
             clocks,
         })
     }
+
+    /// Initializes board for USB Mass Storage Class (96 MHz PLL, 48 MHz USBFS, LCD, MicroSD SPI1, UsbMsc).
+    pub fn take_msc() -> Option<MscBoard> {
+        let dp = Peripherals::take()?;
+        let rcu_cfg = RcuConfig {
+            use_hxtal: true,
+            target_sysclk: 96_000_000,
+        };
+        let (rcu, clocks) = dp.rcu.freeze(rcu_cfg);
+
+        let gpioa = dp.gpioa.split_a(&rcu);
+        let gpiob = dp.gpiob.split_b(&rcu);
+        let gpioc = dp.gpioc.split_c(&rcu);
+
+        let mut led_red = Led::new(gpioc.pc13.into_push_pull_output());
+        let mut led_green = Led::new(gpioa.pa1.into_push_pull_output());
+        let mut led_blue = Led::new(gpioa.pa2.into_push_pull_output());
+        led_red.off();
+        led_green.off();
+        led_blue.off();
+
+        let button = Button::new(gpioa.pa8.into_pull_up_input());
+
+        let tx = gpioa.pa9.into_alternate_push_pull();
+        let rx = gpioa.pa10.into_floating_input();
+        let uart0 = Uart0::new(dp.usart0, tx, rx, 115200, &clocks, &rcu);
+
+        let cs = gpiob.pb2.into_push_pull_output();
+        let dc = gpiob.pb0.into_push_pull_output();
+        let rst = gpiob.pb1.into_push_pull_output();
+        let sck = gpioa.pa5.into_alternate_push_pull();
+        let mosi = gpioa.pa7.into_alternate_push_pull();
+        let spi0 = Spi0::new_master(dp.spi0, sck, mosi, Prescaler::Div8, &rcu);
+        let lcd = Lcd::new(spi0, cs, dc, rst);
+
+        // Configure SPI1 and SD card control pins (PB12 CS, PB13 SCK, PB14 MISO, PB15 MOSI)
+        let mut sd_cs = gpiob.pb12.into_push_pull_output();
+        let _ = sd_cs.set_high();
+        let sd_sck = gpiob.pb13.into_alternate_push_pull();
+        let sd_miso = gpiob.pb14.into_pull_up_input();
+        let sd_mosi = gpiob.pb15.into_alternate_push_pull();
+        let spi1 = Spi1::new_master(dp.spi1, sd_sck, sd_miso, sd_mosi, Prescaler::Div256, &rcu);
+        let sdcard = SdCard::new(spi1, sd_cs);
+
+        let mut delay = Delay::new(dp.mtime, clocks);
+        let usb_msc = UsbMsc::new(dp.usbfs, &rcu, &mut delay);
+
+        Some(MscBoard {
+            led_red,
+            led_green,
+            led_blue,
+            button,
+            uart0,
+            lcd,
+            sdcard,
+            usb_msc,
+            delay,
+            clocks,
+        })
+    }
 }
+

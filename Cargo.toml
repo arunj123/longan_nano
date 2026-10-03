@@ -11,6 +11,7 @@ members = [
     "prj_usb_serial",
     "prj_current_monitor",
     "prj_usb_composite",
+    "prj_usb_msc",
 ]
 resolver = "2"
 

@@ -160,6 +160,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "prj_usb_msc"
+version = "0.1.0"
+dependencies = [
+ "embedded-hal",
+ "gd32vf103-hal",
+ "longan-nano-bsp",
+ "panic-halt",
+ "riscv-rt",
+]
+
+[[package]]
 name = "prj_usb_serial"
 version = "0.1.0"
 dependencies = [

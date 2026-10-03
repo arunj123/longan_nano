@@ -15,5 +15,5 @@ pub use gpio::{GpioPortExt, Pin, PortA, PortB, PortC};
 pub use delay::Delay;
 pub use uart::Uart0;
 pub use spi::{Prescaler, Spi0, Spi1};
-pub use usb::{UsbCdcAcm, UsbComposite, UsbHid};
+pub use usb::{MscBlockDevice, MscStats, UsbCdcAcm, UsbComposite, UsbHid, UsbMsc};
 pub use i2c::{DutyCycle, I2c, I2cError};
