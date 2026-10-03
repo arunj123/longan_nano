@@ -8,12 +8,14 @@ pub mod gpio;
 pub mod mtime;
 pub mod usart;
 pub mod spi;
+pub mod usbfs;
 
 pub use rcu::Rcu;
 pub use gpio::{Gpio, GpioPort};
 pub use mtime::Mtime;
 pub use usart::Usart;
 pub use spi::Spi;
+pub use usbfs::Usbfs;
 
 /// GD32VF103 Peripherals singleton
 pub struct Peripherals {
@@ -25,6 +27,7 @@ pub struct Peripherals {
     pub usart0: Usart,
     pub spi0: Spi,
     pub spi1: Spi,
+    pub usbfs: Usbfs,
 }
 
 static TAKEN: AtomicBool = AtomicBool::new(false);
@@ -55,6 +58,7 @@ impl Peripherals {
             usart0: Usart::steal(usart::USART0_BASE),
             spi0: Spi::steal(spi::SPI0_BASE),
             spi1: Spi::steal(spi::SPI1_BASE),
+            usbfs: Usbfs::steal(),
         }
     }
 }

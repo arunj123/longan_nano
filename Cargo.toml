@@ -8,6 +8,7 @@ members = [
     "prj_lcd_test",
     "prj_sdcard_test",
     "prj_sdcard_fs_test",
+    "prj_usb_serial",
 ]
 resolver = "2"
 

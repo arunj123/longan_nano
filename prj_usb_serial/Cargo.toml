@@ -1,0 +1,15 @@
+[package]
+name = "prj_usb_serial"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "firmware_rust"
+path = "src/main.rs"
+
+[dependencies]
+gd32vf103-hal = { path = "../crates/gd32vf103-hal" }
+longan-nano-bsp = { path = "../crates/longan-nano-bsp" }
+embedded-hal = "1.0"
+panic-halt = "0.2"
+riscv-rt = "0.12"

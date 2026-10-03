@@ -69,6 +69,7 @@ pub use lcd::{color as lcd_color, Lcd, LCD_HEIGHT, LCD_WIDTH};
 pub mod sdcard;
 pub use sdcard::{CardType, SdCard, SdError};
 
+pub use hal::UsbCdcAcm;
 use hal::spi::{Prescaler, Spi0, Spi1};
 
 /// Longan Nano Board peripherals container
@@ -80,6 +81,7 @@ pub struct Board {
     pub uart0: Uart0,
     pub lcd: Lcd,
     pub sdcard: SdCard,
+    pub usb: Option<UsbCdcAcm>,
     pub delay: Delay,
     pub clocks: Clocks,
 }
@@ -90,10 +92,29 @@ impl Board {
         Self::take_with_baud(115200)
     }
 
-    /// Initializes board with a custom UART0 baud rate.
+    /// Initializes board with a custom UART0 baud rate at 108 MHz.
     pub fn take_with_baud(baud: u32) -> Option<Self> {
+        Self::take_internal(RcuConfig::default(), baud, false)
+    }
+
+    /// Initializes board for USB operation (96 MHz via HXTAL PLL, 48 MHz USB clock),
+    /// LEDs, button, UART0 @ 115200 baud, and USB CDC-ACM peripheral.
+    pub fn take_usb() -> Option<Self> {
+        Self::take_usb_with_baud(115200)
+    }
+
+    /// Initializes board for USB with custom UART0 baud rate.
+    pub fn take_usb_with_baud(baud: u32) -> Option<Self> {
+        let rcu_cfg = RcuConfig {
+            use_hxtal: true,
+            target_sysclk: 96_000_000,
+        };
+        Self::take_internal(rcu_cfg, baud, true)
+    }
+
+    fn take_internal(rcu_cfg: RcuConfig, baud: u32, init_usb: bool) -> Option<Self> {
         let dp = Peripherals::take()?;
-        let (rcu, clocks) = dp.rcu.freeze(RcuConfig::default());
+        let (rcu, clocks) = dp.rcu.freeze(rcu_cfg);
 
         let gpioa = dp.gpioa.split_a(&rcu);
         let gpiob = dp.gpiob.split_b(&rcu);
@@ -133,7 +154,13 @@ impl Board {
         let spi1 = Spi1::new_master(dp.spi1, sd_sck, sd_miso, sd_mosi, Prescaler::Div256, &rcu);
         let sdcard = SdCard::new(spi1, sd_cs);
 
-        let delay = Delay::new(dp.mtime, clocks);
+        let mut delay = Delay::new(dp.mtime, clocks);
+
+        let usb = if init_usb {
+            Some(UsbCdcAcm::new(dp.usbfs, &rcu, &mut delay))
+        } else {
+            None
+        };
 
         Some(Self {
             led_red,
@@ -143,6 +170,7 @@ impl Board {
             uart0,
             lcd,
             sdcard,
+            usb,
             delay,
             clocks,
         })
