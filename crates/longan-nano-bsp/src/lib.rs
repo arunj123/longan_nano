@@ -4,7 +4,7 @@ pub use gd32vf103_hal as hal;
 
 use hal::pac::Peripherals;
 use hal::rcu::{Clocks, RcuConfig, RcuExt};
-use hal::gpio::{mode, GpioPortExt, Pin, PortA, PortC};
+use hal::gpio::{mode, GpioPortExt, Pin, PortA, PortB, PortC};
 use hal::delay::Delay;
 use hal::Uart0;
 use embedded_hal::digital::{InputPin, OutputPin, StatefulOutputPin};
@@ -72,9 +72,18 @@ pub use sdcard::{CardType, SdCard, SdError};
 pub mod ina219;
 pub use ina219::{Ina219, Ina219Data};
 
-pub use hal::{UsbCdcAcm, UsbHid};
+pub mod rotary_encoder;
+pub use rotary_encoder::RotaryEncoder;
+
+pub use hal::{UsbCdcAcm, UsbComposite, UsbHid};
 pub use hal::i2c::{I2c, I2cError};
 use hal::spi::{Prescaler, Spi0, Spi1};
+
+pub type BoardRotaryEncoder = RotaryEncoder<
+    Pin<PortB, 10, mode::Input<mode::PullUp>>,
+    Pin<PortB, 11, mode::Input<mode::PullUp>>,
+    Pin<PortB, 12, mode::Input<mode::PullUp>>,
+>;
 
 /// Longan Nano Board peripherals container
 pub struct Board {
@@ -100,6 +109,20 @@ pub struct CurrentMonitorBoard {
     pub lcd: Lcd,
     pub ina219: Ina219,
     pub usb_hid: UsbHid,
+    pub delay: Delay,
+    pub clocks: Clocks,
+}
+
+/// Board container specialized for USB Composite device application
+pub struct CompositeBoard {
+    pub led_red: LedRed,
+    pub led_green: LedGreen,
+    pub led_blue: LedBlue,
+    pub button: KeyButton,
+    pub uart0: Uart0,
+    pub lcd: Lcd,
+    pub encoder: BoardRotaryEncoder,
+    pub usb_composite: UsbComposite,
     pub delay: Delay,
     pub clocks: Clocks,
 }
@@ -246,6 +269,63 @@ impl Board {
             lcd,
             ina219,
             usb_hid,
+            delay,
+            clocks,
+        })
+    }
+
+    /// Initializes board for USB Composite device (96 MHz PLL, 48 MHz USBFS, LCD, Rotary Encoder, UsbComposite).
+    pub fn take_composite() -> Option<CompositeBoard> {
+        let dp = Peripherals::take()?;
+        let rcu_cfg = RcuConfig {
+            use_hxtal: true,
+            target_sysclk: 96_000_000,
+        };
+        let (rcu, clocks) = dp.rcu.freeze(rcu_cfg);
+
+        let gpioa = dp.gpioa.split_a(&rcu);
+        let gpiob = dp.gpiob.split_b(&rcu);
+        let gpioc = dp.gpioc.split_c(&rcu);
+
+        let mut led_red = Led::new(gpioc.pc13.into_push_pull_output());
+        let mut led_green = Led::new(gpioa.pa1.into_push_pull_output());
+        let mut led_blue = Led::new(gpioa.pa2.into_push_pull_output());
+        led_red.off();
+        led_green.off();
+        led_blue.off();
+
+        let button = Button::new(gpioa.pa8.into_pull_up_input());
+
+        let tx = gpioa.pa9.into_alternate_push_pull();
+        let rx = gpioa.pa10.into_floating_input();
+        let uart0 = Uart0::new(dp.usart0, tx, rx, 115200, &clocks, &rcu);
+
+        let cs = gpiob.pb2.into_push_pull_output();
+        let dc = gpiob.pb0.into_push_pull_output();
+        let rst = gpiob.pb1.into_push_pull_output();
+        let sck = gpioa.pa5.into_alternate_push_pull();
+        let mosi = gpioa.pa7.into_alternate_push_pull();
+        let spi0 = Spi0::new_master(dp.spi0, sck, mosi, Prescaler::Div8, &rcu);
+        let lcd = Lcd::new(spi0, cs, dc, rst);
+
+        // Rotary encoder on PB10 (CLK), PB11 (DT), PB12 (SW)
+        let clk = gpiob.pb10.into_pull_up_input();
+        let dt = gpiob.pb11.into_pull_up_input();
+        let sw = gpiob.pb12.into_pull_up_input();
+        let encoder = RotaryEncoder::new(clk, dt, sw);
+
+        let mut delay = Delay::new(dp.mtime, clocks);
+        let usb_composite = UsbComposite::new(dp.usbfs, &rcu, &mut delay);
+
+        Some(CompositeBoard {
+            led_red,
+            led_green,
+            led_blue,
+            button,
+            uart0,
+            lcd,
+            encoder,
+            usb_composite,
             delay,
             clocks,
         })
