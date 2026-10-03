@@ -12,4 +12,4 @@ pub use rcu::{Clocks, RcuConfig, RcuExt};
 pub use gpio::{GpioPortExt, Pin, PortA, PortB, PortC};
 pub use delay::Delay;
 pub use uart::Uart0;
-pub use spi::{Prescaler, Spi0};
+pub use spi::{Prescaler, Spi0, Spi1};

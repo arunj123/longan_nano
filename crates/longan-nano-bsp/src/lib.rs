@@ -66,7 +66,10 @@ pub type KeyButton = Button<Pin<PortA, 8, mode::Input<mode::PullUp>>>;
 pub mod lcd;
 pub use lcd::{color as lcd_color, Lcd, LCD_HEIGHT, LCD_WIDTH};
 
-use hal::spi::{Prescaler, Spi0};
+pub mod sdcard;
+pub use sdcard::{CardType, SdCard, SdError};
+
+use hal::spi::{Prescaler, Spi0, Spi1};
 
 /// Longan Nano Board peripherals container
 pub struct Board {
@@ -76,6 +79,7 @@ pub struct Board {
     pub button: KeyButton,
     pub uart0: Uart0,
     pub lcd: Lcd,
+    pub sdcard: SdCard,
     pub delay: Delay,
     pub clocks: Clocks,
 }
@@ -120,6 +124,15 @@ impl Board {
         let spi0 = Spi0::new_master(dp.spi0, sck, mosi, Prescaler::Div8, &rcu);
         let lcd = Lcd::new(spi0, cs, dc, rst);
 
+        // Configure SPI1 and SD card control pins (PB12 CS, PB13 SCK, PB14 MISO, PB15 MOSI)
+        let mut sd_cs = gpiob.pb12.into_push_pull_output();
+        let _ = sd_cs.set_high(); // Deselect SD card initially
+        let sd_sck = gpiob.pb13.into_alternate_push_pull();
+        let sd_miso = gpiob.pb14.into_pull_up_input();
+        let sd_mosi = gpiob.pb15.into_alternate_push_pull();
+        let spi1 = Spi1::new_master(dp.spi1, sd_sck, sd_miso, sd_mosi, Prescaler::Div256, &rcu);
+        let sdcard = SdCard::new(spi1, sd_cs);
+
         let delay = Delay::new(dp.mtime, clocks);
 
         Some(Self {
@@ -129,6 +142,7 @@ impl Board {
             button,
             uart0,
             lcd,
+            sdcard,
             delay,
             clocks,
         })

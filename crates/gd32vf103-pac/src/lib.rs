@@ -24,6 +24,7 @@ pub struct Peripherals {
     pub mtime: Mtime,
     pub usart0: Usart,
     pub spi0: Spi,
+    pub spi1: Spi,
 }
 
 static TAKEN: AtomicBool = AtomicBool::new(false);
@@ -53,6 +54,7 @@ impl Peripherals {
             mtime: Mtime::steal(),
             usart0: Usart::steal(usart::USART0_BASE),
             spi0: Spi::steal(spi::SPI0_BASE),
+            spi1: Spi::steal(spi::SPI1_BASE),
         }
     }
 }
