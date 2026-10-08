@@ -15,6 +15,7 @@ namespace drivers {
 struct Ina219Data {
     uint16_t voltage_mv{0};
     int16_t  current_ma{0};
+    int16_t  current_tenth_ma{0}; // 0.1 mA (100 uA) resolution
     uint16_t power_mw{0};
 
     constexpr auto operator<=>(const Ina219Data&) const noexcept = default;
@@ -109,9 +110,10 @@ public:
         if (!read_fn(address, std::to_underlying(Register::Current), &c)) return false;
         if (!read_fn(address, std::to_underlying(Register::Power), &p)) return false;
 
-        out.voltage_mv = static_cast<uint16_t>((v >> 3) * 4);
-        out.current_ma = static_cast<int16_t>(static_cast<int16_t>(c) / 10);
-        out.power_mw   = static_cast<uint16_t>(p * 2);
+        out.voltage_mv       = static_cast<uint16_t>((v >> 3) * 4);
+        out.current_tenth_ma = static_cast<int16_t>(c);
+        out.current_ma       = static_cast<int16_t>(out.current_tenth_ma / 10);
+        out.power_mw         = static_cast<uint16_t>(p * 2);
         return true;
     }
 };

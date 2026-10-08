@@ -8,6 +8,7 @@ pub const INA219_ADDR_DEFAULT: u8 = 0x40;
 pub struct Ina219Data {
     pub voltage_mv: u16,
     pub current_ma: i16,
+    pub current_tenth_ma: i16,
     pub power_mw: u16,
 }
 
@@ -57,9 +58,11 @@ impl Ina219 {
         let c_raw = self.i2c.read_reg16(self.addr, Self::REG_CURRENT)?;
         let p_raw = self.i2c.read_reg16(self.addr, Self::REG_POWER)?;
 
+        let c_tenth = c_raw as i16;
         Ok(Ina219Data {
             voltage_mv: (v_raw >> 3) * 4,
-            current_ma: (c_raw as i16) / 10,
+            current_ma: c_tenth / 10,
+            current_tenth_ma: c_tenth,
             power_mw: p_raw * 2,
         })
     }
