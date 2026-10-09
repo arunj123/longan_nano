@@ -5,7 +5,10 @@ use core::fmt::Write;
 use panic_halt as _;
 use riscv_rt::entry;
 
-use longan_nano_bsp::{lcd_color, Board, Ina219Data};
+use longan_nano_bsp::{
+    lcd::{FONT_28, FONT_5X7, FONT_8X16},
+    lcd_color, Board, Ina219Data,
+};
 
 // Zero-allocation buffer cursor for no_std text formatting
 struct BufferCursor<'a> {
@@ -95,9 +98,9 @@ fn redraw_grid(lcd: &mut longan_nano_bsp::Lcd, tier_idx: usize) {
 
     // 1. Left Y-Axis Labels
     lcd.fill_rect(0, 20, 21, 60, lcd_color::BLACK);
-    lcd.draw_string(1, 22, top_lbl, rgb565(140, 160, 185), lcd_color::BLACK);
-    lcd.draw_string(1, 46, mid_lbl, rgb565(110, 130, 155), lcd_color::BLACK);
-    lcd.draw_string(6, 70, " 0",   rgb565(90, 110, 135),  lcd_color::BLACK);
+    lcd.draw_string(1, 22, top_lbl, &FONT_5X7, rgb565(140, 160, 185), lcd_color::BLACK);
+    lcd.draw_string(1, 46, mid_lbl, &FONT_5X7, rgb565(110, 130, 155), lcd_color::BLACK);
+    lcd.draw_string(6, 70, " 0",   &FONT_5X7, rgb565(90, 110, 135),  lcd_color::BLACK);
 
     // 2. Vertical Axis Line
     lcd.fill_rect(21, 20, 1, 60, COL_AXIS);
@@ -122,18 +125,18 @@ fn draw_text_screen_layout(lcd: &mut longan_nano_bsp::Lcd) {
     // 1. Top Header Bar (Y: 0..13)
     lcd.fill_rect(0, 0, 160, 13, 0x11E6); // Slate Navy
     lcd.fill_rect(0, 13, 160, 1, 0x1AE7); // Hairline separator
-    lcd.draw_string(5, 3, "INA219", lcd_color::WHITE, 0x11E6);
+    lcd.draw_string(5, 3, "INA219", &FONT_5X7, lcd_color::WHITE, 0x11E6);
 
     // 2. Bottom Weather Widget Tiles (Y: 51..78)
     // Left Tile: VOLTAGE
     lcd.fill_rect(3, 51, 76, 27, 0x0944); // Deep Navy Slate tile
     lcd.rect(3, 51, 76, 27, 0x1AE7);      // Subtle border
-    lcd.draw_string(7, 53, "VOLTAGE", 0x7FE0, 0x0944); // Mint label
+    lcd.draw_string(7, 53, "VOLTAGE", &FONT_5X7, 0x7FE0, 0x0944); // Mint label
 
     // Right Tile: POWER
     lcd.fill_rect(81, 51, 76, 27, 0x0944); // Deep Navy Slate tile
     lcd.rect(81, 51, 76, 27, 0x1AE7);      // Subtle border
-    lcd.draw_string(85, 53, "POWER", 0xFEA0, 0x0944); // Amber label
+    lcd.draw_string(85, 53, "POWER", &FONT_5X7, 0xFEA0, 0x0944); // Amber label
 
     // Baseline
     lcd.fill_rect(0, 79, 160, 1, lcd_color::BLACK);
@@ -322,7 +325,7 @@ fn main() -> ! {
                         (v_mv % 1000) / 10
                     )
                     .ok();
-                    board.lcd.draw_string(2, 1, v_cur.as_str(), lcd_color::GREEN, COL_BG_TOP);
+                    board.lcd.draw_string(2, 1, v_cur.as_str(), &FONT_5X7, lcd_color::GREEN, COL_BG_TOP);
 
                     let mut c_buf = [0u8; 14];
                     let mut c_cur = BufferCursor::new(&mut c_buf);
@@ -333,7 +336,7 @@ fn main() -> ! {
                     } else {
                         write!(c_cur, " {:>3}.{}mA", whole_c, frac_c).ok();
                     }
-                    board.lcd.draw_string(42, 1, c_cur.as_str(), lcd_color::CYAN, COL_BG_TOP);
+                    board.lcd.draw_string(42, 1, c_cur.as_str(), &FONT_5X7, lcd_color::CYAN, COL_BG_TOP);
 
                     let mut p_buf = [0u8; 14];
                     let mut p_cur = BufferCursor::new(&mut p_buf);
@@ -344,15 +347,15 @@ fn main() -> ! {
                         let frac_w = ((p_tenth / 10) % 1000) / 10;
                         write!(p_cur, " {:>3}.{:02} W", whole_w, frac_w).ok();
                     }
-                    board.lcd.draw_string(88, 1, p_cur.as_str(), lcd_color::YELLOW, COL_BG_TOP);
+                    board.lcd.draw_string(88, 1, p_cur.as_str(), &FONT_5X7, lcd_color::YELLOW, COL_BG_TOP);
 
                     // Status Badge (Top-Right): [LIVE], [REV], or [ERR]
                     if !ina_present {
-                        board.lcd.draw_string(132, 1, "[ERR] ", lcd_color::RED, COL_BG_TOP);
+                        board.lcd.draw_string(132, 1, "[ERR] ", &FONT_5X7, lcd_color::RED, COL_BG_TOP);
                     } else if is_reverse {
-                        board.lcd.draw_string(132, 1, "[REV] ", lcd_color::RED, COL_BG_TOP);
+                        board.lcd.draw_string(132, 1, "[REV] ", &FONT_5X7, lcd_color::RED, COL_BG_TOP);
                     } else {
-                        board.lcd.draw_string(132, 1, "[LIVE]", lcd_color::GREEN, COL_BG_TOP);
+                        board.lcd.draw_string(132, 1, "[LIVE]", &FONT_5X7, lcd_color::GREEN, COL_BG_TOP);
                     }
 
                     // Top Line 2 (Energy Consumed, Charge, Tier)
@@ -366,17 +369,17 @@ fn main() -> ! {
                     } else {
                         write!(e_cur, "E:{:>2}.{:02}mWh", total_mwh, frac_mwh).ok();
                     }
-                    board.lcd.draw_string(2, 10, e_cur.as_str(), rgb565(255, 160, 40), COL_BG_TOP);
+                    board.lcd.draw_string(2, 10, e_cur.as_str(), &FONT_5X7, rgb565(255, 160, 40), COL_BG_TOP);
 
                     let mut q_buf = [0u8; 16];
                     let mut q_cur = BufferCursor::new(&mut q_buf);
                     let total_mah = (tenth_ma_ticks / 360000) as u32;
                     let frac_mah = ((tenth_ma_ticks % 360000) / 3600) as u32;
                     write!(q_cur, "Q:{:>2}.{:02}mAh", total_mah, frac_mah).ok();
-                    board.lcd.draw_string(64, 10, q_cur.as_str(), rgb565(100, 255, 140), COL_BG_TOP);
+                    board.lcd.draw_string(64, 10, q_cur.as_str(), &FONT_5X7, rgb565(100, 255, 140), COL_BG_TOP);
 
                     // Scale badge
-                    board.lcd.draw_string(126, 10, CURRENT_TIERS[scale_tier].badge, lcd_color::WHITE, COL_BG_TOP);
+                    board.lcd.draw_string(126, 10, CURRENT_TIERS[scale_tier].badge, &FONT_5X7, lcd_color::WHITE, COL_BG_TOP);
 
                     // Oscilloscope Waveform Sweep (Current)
                     let plot_val: i32 = abs_c_tenth as i32;
@@ -482,21 +485,21 @@ fn main() -> ! {
                     } else {
                         write!(e_cur, "E:{:>2}.{:02}mWh", total_mwh, frac_mwh).ok();
                     }
-                    board.lcd.draw_string(54, 3, e_cur.as_str(), rgb565(255, 180, 50), 0x11E6);
+                    board.lcd.draw_string(54, 3, e_cur.as_str(), &FONT_5X7, rgb565(255, 180, 50), 0x11E6);
 
                     // Status Badge in text header
                     if !ina_present {
                         board.lcd.fill_rect(122, 2, 34, 10, rgb565(50, 0, 0));
                         board.lcd.rect(122, 2, 34, 10, lcd_color::RED);
-                        board.lcd.draw_string(128, 3, "ERR ", lcd_color::RED, rgb565(50, 0, 0));
+                        board.lcd.draw_string(128, 3, "ERR ", &FONT_5X7, lcd_color::RED, rgb565(50, 0, 0));
                     } else if is_reverse {
                         board.lcd.fill_rect(122, 2, 34, 10, rgb565(50, 0, 0));
                         board.lcd.rect(122, 2, 34, 10, lcd_color::RED);
-                        board.lcd.draw_string(128, 3, "REV ", lcd_color::RED, rgb565(50, 0, 0));
+                        board.lcd.draw_string(128, 3, "REV ", &FONT_5X7, lcd_color::RED, rgb565(50, 0, 0));
                     } else {
                         board.lcd.fill_rect(122, 2, 34, 10, 0x0162);
                         board.lcd.rect(122, 2, 34, 10, 0x05E2);
-                        board.lcd.draw_string(128, 3, "LIVE", lcd_color::GREEN, 0x0162);
+                        board.lcd.draw_string(128, 3, "LIVE", &FONT_5X7, lcd_color::GREEN, 0x0162);
                     }
 
                     // 1. HERO CURRENT DISPLAY (Smooth 28px font, unit small at right edge)
@@ -519,7 +522,7 @@ fn main() -> ! {
                     };
 
                     let s = c_cur.as_str();
-                    let str_w = board.lcd.string_width_28(s);
+                    let str_w = FONT_28.string_width(s);
                     // Center the numeric digits within the available 138px zone (X: 0..137)
                     let x = if str_w < 136 { (136 - str_w) / 2 } else { 0 };
 
@@ -534,7 +537,7 @@ fn main() -> ! {
                     board.lcd.fill_rect(x, 46, str_w, 5, lcd_color::BLACK);
 
                     // Render smooth 28px hero digits (1:1 TrueType curves, crisp, high-res)
-                    board.lcd.draw_string_28(x, 18, s, curr_col, lcd_color::BLACK);
+                    board.lcd.draw_string(x, 18, s, &FONT_28, curr_col, lcd_color::BLACK);
 
                     // Render small unit attached to the right edge (X: 140..156, baseline aligned at Y: 27)
                     board.lcd.fill_rect(138, 14, 2, 37, lcd_color::BLACK);
@@ -542,14 +545,14 @@ fn main() -> ! {
                     board.lcd.fill_rect(140, 43, 20, 8, lcd_color::BLACK);
                     board.lcd.fill_rect(156, 27, 4, 16, lcd_color::BLACK);
 
-                    board.lcd.draw_string_8x16(140, 27, unit_str, curr_col, lcd_color::BLACK);
+                    board.lcd.draw_string(140, 27, unit_str, &FONT_8X16, curr_col, lcd_color::BLACK);
 
                     // 2. BOTTOM TILE: VOLTAGE (Font 8x16)
                     let mut v_buf = [0u8; 16];
                     let mut v_cur = BufferCursor::new(&mut v_buf);
                     write!(v_cur, "{:>2}.{:03}V", v_mv / 1000, v_mv % 1000).ok();
                     // 7 chars * 8 px = 56 px, centered in tile at X = 13, Y = 62
-                    board.lcd.draw_string_8x16(13, 62, v_cur.as_str(), 0xD7FA, 0x0944);
+                    board.lcd.draw_string(13, 62, v_cur.as_str(), &FONT_8X16, 0xD7FA, 0x0944);
 
                     // 3. BOTTOM TILE: POWER (Font 8x16)
                     let mut p_buf = [0u8; 16];
@@ -562,7 +565,7 @@ fn main() -> ! {
                         write!(p_cur, "{:>3}.{:02} W", whole_w, frac_w).ok();
                     }
                     // 7 chars * 8 px = 56 px, centered in tile at X = 91, Y = 62
-                    board.lcd.draw_string_8x16(91, 62, p_cur.as_str(), lcd_color::YELLOW, 0x0944);
+                    board.lcd.draw_string(91, 62, p_cur.as_str(), &FONT_8X16, lcd_color::YELLOW, 0x0944);
                 }
             }
 

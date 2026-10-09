@@ -4,6 +4,7 @@
 use panic_halt as _;
 use riscv_rt::entry;
 use core::fmt::Write;
+use longan_nano_bsp::lcd::FONT_5X7;
 use longan_nano_bsp::{lcd_color, Board, LCD_WIDTH};
 use longan_nano_bsp::hal::usb::MSC_CONFIG_DESC;
 
@@ -53,22 +54,22 @@ fn main() -> ! {
     // 2. Initialize ST7735 LCD
     board.lcd.clear(lcd_color::BLACK);
     board.lcd.fill_rect(0, 0, LCD_WIDTH, 14, lcd_color::DARK_NAVY);
-    board.lcd.draw_string(6, 3, "USB SD CARD READER", lcd_color::CYAN, lcd_color::DARK_NAVY);
+    board.lcd.draw_string(6, 3, "USB SD CARD READER", &FONT_5X7, lcd_color::CYAN, lcd_color::DARK_NAVY);
 
     // 3. Initialize SD Card
-    board.lcd.draw_string(4, 18, "Probing SD card...", lcd_color::YELLOW, lcd_color::BLACK);
+    board.lcd.draw_string(4, 18, "Probing SD card...", &FONT_5X7, lcd_color::YELLOW, lcd_color::BLACK);
 
     let sd_res = board.sdcard.init(&mut board.delay);
     let sd_ok = sd_res.is_ok();
 
     if sd_ok {
         board.led_green.on();
-        board.lcd.draw_string(4, 18, "SD Card: DETECTED  ", lcd_color::GREEN, lcd_color::BLACK);
+        board.lcd.draw_string(4, 18, "SD Card: DETECTED  ", &FONT_5X7, lcd_color::GREEN, lcd_color::BLACK);
 
         let cap_mb = board.sdcard.sector_count / 2048;
         let mut cap_buf = StrBuf::<32>::new();
         let _ = write!(cap_buf, "Cap: {} MB", cap_mb);
-        board.lcd.draw_string(4, 28, cap_buf.as_str(), lcd_color::WHITE, lcd_color::BLACK);
+        board.lcd.draw_string(4, 28, cap_buf.as_str(), &FONT_5X7, lcd_color::WHITE, lcd_color::BLACK);
 
         let _ = writeln!(
             board.uart0,
@@ -135,13 +136,13 @@ fn main() -> ! {
         }
     } else {
         board.led_red.on();
-        board.lcd.draw_string(4, 18, "SD Card: NOT FOUND ", lcd_color::RED, lcd_color::BLACK);
-        board.lcd.draw_string(4, 28, "Insert card & reset", lcd_color::YELLOW, lcd_color::BLACK);
+        board.lcd.draw_string(4, 18, "SD Card: NOT FOUND ", &FONT_5X7, lcd_color::RED, lcd_color::BLACK);
+        board.lcd.draw_string(4, 28, "Insert card & reset", &FONT_5X7, lcd_color::YELLOW, lcd_color::BLACK);
         let _ = writeln!(board.uart0, "[MSC_DISK] SD Card init failed: {:?}", sd_res);
     }
 
     // 4. Initialize USB
-    board.lcd.draw_string(4, 40, "USB: Initializing...", lcd_color::YELLOW, lcd_color::BLACK);
+    board.lcd.draw_string(4, 40, "USB: Initializing...", &FONT_5X7, lcd_color::YELLOW, lcd_color::BLACK);
 
     let _ = write!(board.uart0, "CfgDesc [len={}]: ", MSC_CONFIG_DESC.len());
     for b in MSC_CONFIG_DESC.iter() {
@@ -159,11 +160,11 @@ fn main() -> ! {
         let configured = board.usb_msc.is_configured();
         if configured && !usb_was_configured {
             usb_was_configured = true;
-            board.lcd.draw_string(4, 40, "USB: CONFIGURED OK   ", lcd_color::GREEN, lcd_color::BLACK);
+            board.lcd.draw_string(4, 40, "USB: CONFIGURED OK   ", &FONT_5X7, lcd_color::GREEN, lcd_color::BLACK);
             let _ = writeln!(board.uart0, "[MAIN] >>> USB CONFIGURED BY HOST! <<<");
         } else if !configured && usb_was_configured {
             usb_was_configured = false;
-            board.lcd.draw_string(4, 40, "USB: Disconnected... ", lcd_color::YELLOW, lcd_color::BLACK);
+            board.lcd.draw_string(4, 40, "USB: Disconnected... ", &FONT_5X7, lcd_color::YELLOW, lcd_color::BLACK);
             let _ = writeln!(board.uart0, "[MAIN] USB disconnected / reset.");
         }
 

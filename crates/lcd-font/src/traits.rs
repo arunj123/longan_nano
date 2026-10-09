@@ -62,4 +62,20 @@ pub trait Font {
         scale: u8,
         put_pixel: P,
     ) -> Option<u8>;
+
+    /// Wraps this font into a `RangeFont` that restricts characters to `start..=end`.
+    fn range(self, start: char, end: char) -> crate::subset::RangeFont<Self>
+    where
+        Self: Sized,
+    {
+        crate::subset::RangeFont { base: self, start, end }
+    }
+
+    /// Wraps this font into a `FilteredFont` that restricts characters to `allowed`.
+    fn filter<'a>(&'a self, allowed: &'static [char]) -> crate::subset::FilteredFont<'a, Self>
+    where
+        Self: Sized,
+    {
+        crate::subset::FilteredFont { base: self, allowed }
+    }
 }

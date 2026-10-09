@@ -8,6 +8,7 @@ use embedded_sdmmc::{
     Block, BlockCount, BlockDevice, BlockIdx, DirEntry, Mode, TimeSource, Timestamp, VolumeIdx,
     VolumeManager,
 };
+use longan_nano_bsp::lcd::FONT_5X7;
 use longan_nano_bsp::lcd_color;
 use longan_nano_bsp::{Board, SdCard, SdError, LCD_HEIGHT, LCD_WIDTH};
 use panic_halt as _;
@@ -110,15 +111,15 @@ fn run_filesystem_test(board: &mut Board, run_counter: u32) {
 
     // Clear display area below header
     board.lcd.fill_rect(0, 16, LCD_WIDTH, LCD_HEIGHT - 16, lcd_color::BLACK);
-    board.lcd.draw_string(4, 18, "Mounting FAT32...", lcd_color::YELLOW, lcd_color::BLACK);
+    board.lcd.draw_string(4, 18, "Mounting FAT32...", &FONT_5X7, lcd_color::YELLOW, lcd_color::BLACK);
 
     // 1. Initialize SD Card SPI protocol
     if let Err(err) = board.sdcard.init(&mut board.delay) {
         let _ = writeln!(board.uart0, "[ERROR] SD Card Probe Failed: {}", err.as_str());
         board.led_blue.off();
         board.led_red.on();
-        board.lcd.draw_string(4, 18, "SD Init: FAILED! ", lcd_color::RED, lcd_color::BLACK);
-        board.lcd.draw_string(4, 30, err.as_str(), lcd_color::RED, lcd_color::BLACK);
+        board.lcd.draw_string(4, 18, "SD Init: FAILED! ", &FONT_5X7, lcd_color::RED, lcd_color::BLACK);
+        board.lcd.draw_string(4, 30, err.as_str(), &FONT_5X7, lcd_color::RED, lcd_color::BLACK);
         return;
     }
 
@@ -134,13 +135,13 @@ fn run_filesystem_test(board: &mut Board, run_counter: u32) {
             let _ = writeln!(board.uart0, "[ERROR] Failed to mount FAT volume: {:?}", err);
             board.led_blue.off();
             board.led_red.on();
-            board.lcd.draw_string(4, 18, "Mount: FAILED!   ", lcd_color::RED, lcd_color::BLACK);
+            board.lcd.draw_string(4, 18, "Mount: FAILED!   ", &FONT_5X7, lcd_color::RED, lcd_color::BLACK);
             return;
         }
     };
 
     let _ = writeln!(board.uart0, "[FS] FAT Volume mounted successfully!");
-    board.lcd.draw_string(4, 18, "Volume: MOUNT OK", lcd_color::GREEN, lcd_color::BLACK);
+    board.lcd.draw_string(4, 18, "Volume: MOUNT OK", &FONT_5X7, lcd_color::GREEN, lcd_color::BLACK);
 
     let root_dir = match volume.open_root_dir() {
         Ok(dir) => dir,
@@ -148,7 +149,7 @@ fn run_filesystem_test(board: &mut Board, run_counter: u32) {
             let _ = writeln!(board.uart0, "[ERROR] Failed to open root directory: {:?}", err);
             board.led_blue.off();
             board.led_red.on();
-            board.lcd.draw_string(4, 28, "RootDir: FAILED! ", lcd_color::RED, lcd_color::BLACK);
+            board.lcd.draw_string(4, 28, "RootDir: FAILED! ", &FONT_5X7, lcd_color::RED, lcd_color::BLACK);
             return;
         }
     };
@@ -196,7 +197,7 @@ fn run_filesystem_test(board: &mut Board, run_counter: u32) {
         payload.len(),
         filename
     );
-    board.lcd.draw_string(4, 28, "Writing file...", lcd_color::YELLOW, lcd_color::BLACK);
+    board.lcd.draw_string(4, 28, "Writing file...", &FONT_5X7, lcd_color::YELLOW, lcd_color::BLACK);
 
     // 5. Create and write file
     match root_dir.open_file_in_dir(filename, Mode::ReadWriteCreateOrTruncate) {
@@ -205,7 +206,7 @@ fn run_filesystem_test(board: &mut Board, run_counter: u32) {
                 let _ = writeln!(board.uart0, "[ERROR] File write failed: {:?}", err);
                 board.led_blue.off();
                 board.led_red.on();
-                board.lcd.draw_string(4, 28, "Write: FAILED!   ", lcd_color::RED, lcd_color::BLACK);
+                board.lcd.draw_string(4, 28, "Write: FAILED!   ", &FONT_5X7, lcd_color::RED, lcd_color::BLACK);
                 let _ = file.close();
                 return;
             }
@@ -216,13 +217,13 @@ fn run_filesystem_test(board: &mut Board, run_counter: u32) {
                 payload.len(),
                 filename
             );
-            board.lcd.draw_string(4, 28, "Write: OK", lcd_color::GREEN, lcd_color::BLACK);
+            board.lcd.draw_string(4, 28, "Write: OK", &FONT_5X7, lcd_color::GREEN, lcd_color::BLACK);
         }
         Err(err) => {
             let _ = writeln!(board.uart0, "[ERROR] Failed to open file for write: {:?}", err);
             board.led_blue.off();
             board.led_red.on();
-            board.lcd.draw_string(4, 28, "Create: FAILED!  ", lcd_color::RED, lcd_color::BLACK);
+            board.lcd.draw_string(4, 28, "Create: FAILED!  ", &FONT_5X7, lcd_color::RED, lcd_color::BLACK);
             return;
         }
     }
@@ -233,7 +234,7 @@ fn run_filesystem_test(board: &mut Board, run_counter: u32) {
         "[FS] Re-opening /{} for read-back verification...",
         filename
     );
-    board.lcd.draw_string(4, 38, "Reading file...", lcd_color::YELLOW, lcd_color::BLACK);
+    board.lcd.draw_string(4, 38, "Reading file...", &FONT_5X7, lcd_color::YELLOW, lcd_color::BLACK);
 
     let mut read_buf = [0u8; 384];
     let bytes_read = match root_dir.open_file_in_dir(filename, Mode::ReadOnly) {
@@ -246,7 +247,7 @@ fn run_filesystem_test(board: &mut Board, run_counter: u32) {
                     let _ = writeln!(board.uart0, "[ERROR] File read failed: {:?}", err);
                     board.led_blue.off();
                     board.led_red.on();
-                    board.lcd.draw_string(4, 38, "Read: FAILED!    ", lcd_color::RED, lcd_color::BLACK);
+                    board.lcd.draw_string(4, 38, "Read: FAILED!    ", &FONT_5X7, lcd_color::RED, lcd_color::BLACK);
                     return;
                 }
             }
@@ -255,7 +256,7 @@ fn run_filesystem_test(board: &mut Board, run_counter: u32) {
             let _ = writeln!(board.uart0, "[ERROR] Failed to open file for read: {:?}", err);
             board.led_blue.off();
             board.led_red.on();
-            board.lcd.draw_string(4, 38, "Open: FAILED!    ", lcd_color::RED, lcd_color::BLACK);
+            board.lcd.draw_string(4, 38, "Open: FAILED!    ", &FONT_5X7, lcd_color::RED, lcd_color::BLACK);
             return;
         }
     };
@@ -265,7 +266,7 @@ fn run_filesystem_test(board: &mut Board, run_counter: u32) {
         "[FS] Successfully read {} bytes from /{}.",
         bytes_read, filename
     );
-    board.lcd.draw_string(4, 38, "Read:  OK", lcd_color::GREEN, lcd_color::BLACK);
+    board.lcd.draw_string(4, 38, "Read:  OK", &FONT_5X7, lcd_color::GREEN, lcd_color::BLACK);
 
     // 7. Print read-back content to UART
     let _ = writeln!(board.uart0, "\r\n---------------- Read-Back File Content ----------------");
@@ -284,11 +285,11 @@ fn run_filesystem_test(board: &mut Board, run_counter: u32) {
         );
         let _ = writeln!(board.uart0, "    File: /{} | Length: {} bytes\r\n", filename, bytes_read);
 
-        board.lcd.draw_string(4, 48, "100% VERIFIED OK!", lcd_color::GREEN, lcd_color::BLACK);
+        board.lcd.draw_string(4, 48, "100% VERIFIED OK!", &FONT_5X7, lcd_color::GREEN, lcd_color::BLACK);
 
         let mut name_disp = StrBuf::<32>::new();
         let _ = write!(name_disp, "File: /{}", filename);
-        board.lcd.draw_string(4, 58, name_disp.as_str(), lcd_color::WHITE, lcd_color::BLACK);
+        board.lcd.draw_string(4, 58, name_disp.as_str(), &FONT_5X7, lcd_color::WHITE, lcd_color::BLACK);
 
         // 9. List files in root directory
         let _ = writeln!(board.uart0, "--- Root Directory Listing (/) ---");
@@ -309,7 +310,7 @@ fn run_filesystem_test(board: &mut Board, run_counter: u32) {
         let _ = writeln!(board.uart0, "[FAIL] Content verification mismatch!");
         board.led_blue.off();
         board.led_red.on();
-        board.lcd.draw_string(4, 48, "VERIFY MISMATCH! ", lcd_color::RED, lcd_color::BLACK);
+        board.lcd.draw_string(4, 48, "VERIFY MISMATCH! ", &FONT_5X7, lcd_color::RED, lcd_color::BLACK);
     }
 
     let _ = root_dir.close();
@@ -327,7 +328,7 @@ fn main() -> ! {
     board.lcd.init(&mut board.delay);
     board.lcd.clear(lcd_color::BLACK);
     board.lcd.fill_rect(0, 0, LCD_WIDTH, 14, lcd_color::DARK_NAVY);
-    board.lcd.draw_string(4, 3, "LONGAN NANO: FAT32", lcd_color::CYAN, lcd_color::DARK_NAVY);
+    board.lcd.draw_string(4, 3, "LONGAN NANO: FAT32", &FONT_5X7, lcd_color::CYAN, lcd_color::DARK_NAVY);
 
     let _ = writeln!(board.uart0, "\r\n==================================================");
     let _ = writeln!(board.uart0, "Longan Nano -- Pure Rust FAT32 Filesystem Test");
@@ -366,7 +367,7 @@ fn main() -> ! {
         if loop_counter % 10 == 0 {
             let mut time_buf = StrBuf::<32>::new();
             let _ = write!(time_buf, "Uptime: {:04} s", loop_counter / 10);
-            board.lcd.draw_string(4, 68, time_buf.as_str(), lcd_color::GRAY, lcd_color::BLACK);
+            board.lcd.draw_string(4, 68, time_buf.as_str(), &FONT_5X7, lcd_color::GRAY, lcd_color::BLACK);
         }
 
         // Check PA8 button (Active Low)

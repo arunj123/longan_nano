@@ -2,12 +2,7 @@ use gd32vf103_hal::delay::Delay;
 use gd32vf103_hal::gpio::{mode, Pin, PortB};
 use gd32vf103_hal::spi::Spi0;
 use embedded_hal::delay::DelayNs;
-pub use lcd_font::{
-    Font, Font16x24, Font28, Font5x7, Font8x16, Glyph28, GlyphLayout,
-    FONT_16X24, FONT_16X24_CHARS, FONT_16X24_RAW, FONT_28,
-    FONT_5X7, FONT_5X7_RAW, FONT_8X16, FONT_8X16_RAW,
-    get_glyph_28, string_width_28,
-};
+pub use lcd_font::*;
 
 pub const LCD_WIDTH: u16 = 160;
 pub const LCD_HEIGHT: u16 = 80;
@@ -218,7 +213,7 @@ impl Lcd {
         self.fill_rect(0, 0, LCD_WIDTH, LCD_HEIGHT, color);
     }
     /// Draws a character using any font implementing `Font`.
-    pub fn draw_char_with<F: Font>(&mut self, x: u16, y: u16, c: char, font: &F, fg: u16, bg: u16) -> Option<u8> {
+    pub fn draw_char<F: Font>(&mut self, x: u16, y: u16, c: char, font: &F, fg: u16, bg: u16) -> Option<u8> {
         let w = font.char_width(c) as u16;
         let h = font.height() as u16;
         if w == 0 || x + w > LCD_WIDTH || y + h > LCD_HEIGHT {
@@ -234,7 +229,7 @@ impl Lcd {
     }
 
     /// Draws a character using any font implementing `Font` with integer scaling.
-    pub fn draw_char_scaled_with<F: Font>(&mut self, x: u16, y: u16, c: char, font: &F, fg: u16, bg: u16, scale: u8) -> Option<u8> {
+    pub fn draw_char_scaled<F: Font>(&mut self, x: u16, y: u16, c: char, font: &F, fg: u16, bg: u16, scale: u8) -> Option<u8> {
         let scale = scale.max(1);
         let w = (font.char_width(c) as u16) * (scale as u16);
         let h = (font.height() as u16) * (scale as u16);
@@ -251,94 +246,27 @@ impl Lcd {
     }
 
     /// Draws a text string horizontally using any font implementing `Font`.
-    pub fn draw_text<F: Font>(&mut self, mut x: u16, y: u16, text: &str, font: &F, fg: u16, bg: u16) {
+    pub fn draw_string<F: Font>(&mut self, mut x: u16, y: u16, text: &str, font: &F, fg: u16, bg: u16) {
         for c in text.chars() {
             let adv = font.char_width(c) as u16;
             if x + adv > LCD_WIDTH {
                 break;
             }
-            self.draw_char_with(x, y, c, font, fg, bg);
+            self.draw_char(x, y, c, font, fg, bg);
             x += adv;
         }
     }
 
-    /// Draws a character using the 5x7 bitmap font.
-    pub fn draw_char(&mut self, x: u16, y: u16, c: char, fg: u16, bg: u16) {
-        self.draw_char_with(x, y, c, &FONT_5X7, fg, bg);
-    }
-
-    /// Draws a text string horizontally using the 5x7 bitmap font.
-    pub fn draw_string(&mut self, x: u16, y: u16, text: &str, fg: u16, bg: u16) {
-        self.draw_text(x, y, text, &FONT_5X7, fg, bg);
-    }
-
-    /// Draws a character using the 8x16 bitmap font.
-    pub fn draw_char_8x16(&mut self, x: u16, y: u16, c: char, fg: u16, bg: u16) {
-        self.draw_char_with(x, y, c, &FONT_8X16, fg, bg);
-    }
-
-    /// Draws a text string horizontally using the 8x16 bitmap font.
-    pub fn draw_string_8x16(&mut self, x: u16, y: u16, text: &str, fg: u16, bg: u16) {
-        self.draw_text(x, y, text, &FONT_8X16, fg, bg);
-    }
-
-    /// Draws a character using the 8x16 bitmap font with integer scaling (e.g. scale=2 yields 16x32).
-    pub fn draw_char_8x16_scaled(&mut self, x: u16, y: u16, c: char, fg: u16, bg: u16, scale: u8) {
-        self.draw_char_scaled_with(x, y, c, &FONT_8X16, fg, bg, scale);
-    }
-
-    /// Draws a text string horizontally using the 8x16 bitmap font with integer scaling.
-    pub fn draw_string_8x16_scaled(&mut self, mut x: u16, y: u16, text: &str, fg: u16, bg: u16, scale: u8) {
+    /// Draws a text string horizontally using any font implementing `Font` with integer scaling.
+    pub fn draw_string_scaled<F: Font>(&mut self, mut x: u16, y: u16, text: &str, font: &F, fg: u16, bg: u16, scale: u8) {
         let scale = scale.max(1);
-        let adv = 8 * (scale as u16);
         for c in text.chars() {
+            let adv = (font.char_width(c) as u16) * (scale as u16);
             if x + adv > LCD_WIDTH {
                 break;
             }
-            self.draw_char_8x16_scaled(x, y, c, fg, bg, scale);
+            self.draw_char_scaled(x, y, c, font, fg, bg, scale);
             x += adv;
         }
-    }
-
-    /// Draws a character using the 16x24 bitmap font (large numbers & units).
-    pub fn draw_char_16x24(&mut self, x: u16, y: u16, c: char, fg: u16, bg: u16) {
-        self.draw_char_with(x, y, c, &FONT_16X24, fg, bg);
-    }
-
-    /// Draws a text string horizontally using the 16x24 bitmap font.
-    pub fn draw_string_16x24(&mut self, x: u16, y: u16, text: &str, fg: u16, bg: u16) {
-        self.draw_text(x, y, text, &FONT_16X24, fg, bg);
-    }
-
-    /// Draws a character using the 28px smooth bold numeric font.
-    pub fn draw_char_28(&mut self, x: u16, y: u16, glyph: &Glyph28, fg: u16, bg: u16) {
-        let w = glyph.width as u16;
-        let h = 28u16;
-        if x + w > LCD_WIDTH || y + h > LCD_HEIGHT {
-            return;
-        }
-
-        self.set_address_window(x, y, w, h);
-        self.spi.wait_idle();
-        self.spi.set_16bit();
-        self.mode_data();
-
-        for row in 0..28 {
-            let row_bits = glyph.rows[row];
-            for col in 0..glyph.width {
-                let set = (row_bits & (1 << (31 - col))) != 0;
-                self.spi.send_u16(if set { fg } else { bg });
-            }
-        }
-    }
-
-    /// Calculates the total rendered pixel width of a string in 28px font.
-    pub fn string_width_28(&self, text: &str) -> u16 {
-        string_width_28(text)
-    }
-
-    /// Draws a text string horizontally using the 28px smooth bold numeric font.
-    pub fn draw_string_28(&mut self, x: u16, y: u16, text: &str, fg: u16, bg: u16) {
-        self.draw_text(x, y, text, &FONT_28, fg, bg);
     }
 }

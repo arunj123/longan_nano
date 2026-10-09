@@ -36,6 +36,8 @@ impl Font5x7 {
             false
         }
     }
+
+
 }
 
 impl Font for Font5x7 {

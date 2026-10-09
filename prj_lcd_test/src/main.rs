@@ -3,6 +3,7 @@
 
 use core::fmt::Write;
 use embedded_hal::delay::DelayNs;
+use longan_nano_bsp::lcd::FONT_5X7;
 use longan_nano_bsp::lcd_color;
 use longan_nano_bsp::{Board, LCD_HEIGHT, LCD_WIDTH};
 use panic_halt as _;
@@ -73,6 +74,7 @@ fn main() -> ! {
         8,
         4,
         "LONGAN NANO ST7735",
+        &FONT_5X7,
         lcd_color::YELLOW,
         lcd_color::GRAY,
     );
@@ -82,6 +84,7 @@ fn main() -> ! {
         6,
         20,
         "RV32IMAC @ 108MHz",
+        &FONT_5X7,
         lcd_color::WHITE,
         lcd_color::DARK_NAVY,
     );
@@ -89,6 +92,7 @@ fn main() -> ! {
         6,
         32,
         "Pure Rust Embedded HAL",
+        &FONT_5X7,
         lcd_color::GREEN,
         lcd_color::DARK_NAVY,
     );
@@ -133,6 +137,7 @@ fn main() -> ! {
             6,
             48,
             buf.as_str(),
+            &FONT_5X7,
             lcd_color::CYAN,
             lcd_color::DARK_NAVY,
         );

@@ -39,6 +39,8 @@ impl Font16x24 {
             false
         }
     }
+
+
 }
 
 impl Font for Font16x24 {

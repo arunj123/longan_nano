@@ -5,6 +5,7 @@ use core::fmt::Write;
 use panic_halt as _;
 use riscv_rt::entry;
 
+use longan_nano_bsp::lcd::FONT_5X7;
 use longan_nano_bsp::{lcd_color, Board};
 
 mod hid_consumer {
@@ -49,20 +50,21 @@ fn main() -> ! {
     board.lcd.fill_rect(1, 1, 158, 13, GRAY);
     board
         .lcd
-        .draw_string(28, 4, "LONGAN NANO USB", lcd_color::YELLOW, GRAY);
+        .draw_string(28, 4, "LONGAN NANO USB", &FONT_5X7, lcd_color::YELLOW, GRAY);
     board
         .lcd
-        .draw_string(8, 22, "HID Composite Stack", lcd_color::WHITE, DARK_NAVY);
+        .draw_string(8, 22, "HID Composite Stack", &FONT_5X7, lcd_color::WHITE, DARK_NAVY);
     board
         .lcd
-        .draw_string(8, 38, "Waiting for Host...", lcd_color::RED, DARK_NAVY);
+        .draw_string(8, 38, "Waiting for Host...", &FONT_5X7, lcd_color::RED, DARK_NAVY);
     board
         .lcd
-        .draw_string(8, 54, "Pure Embedded Rust", lcd_color::CYAN, DARK_NAVY);
+        .draw_string(8, 54, "Pure Embedded Rust", &FONT_5X7, lcd_color::CYAN, DARK_NAVY);
     board.lcd.draw_string(
         8,
         66,
         "PID 0xABE8 @ 96MHz",
+        &FONT_5X7,
         LIGHT_GRAY,
         DARK_NAVY,
     );
@@ -91,6 +93,7 @@ fn main() -> ! {
                 8,
                 38,
                 "USB Configured: OK! ",
+                &FONT_5X7,
                 lcd_color::GREEN,
                 DARK_NAVY,
             );
@@ -102,6 +105,7 @@ fn main() -> ! {
                 8,
                 38,
                 "Waiting for Host... ",
+                &FONT_5X7,
                 lcd_color::RED,
                 DARK_NAVY,
             );

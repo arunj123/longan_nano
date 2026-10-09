@@ -3,6 +3,7 @@
 
 use core::fmt::Write;
 use embedded_hal::delay::DelayNs;
+use longan_nano_bsp::lcd::FONT_5X7;
 use longan_nano_bsp::lcd_color;
 use longan_nano_bsp::{Board, CardType, LCD_HEIGHT, LCD_WIDTH};
 use panic_halt as _;
@@ -65,7 +66,7 @@ fn run_sd_test(board: &mut Board) {
 
     // Clear display area below header
     board.lcd.fill_rect(0, 16, LCD_WIDTH, LCD_HEIGHT - 16, lcd_color::BLACK);
-    board.lcd.draw_string(4, 18, "Probing SD card...", lcd_color::YELLOW, lcd_color::BLACK);
+    board.lcd.draw_string(4, 18, "Probing SD card...", &FONT_5X7, lcd_color::YELLOW, lcd_color::BLACK);
 
     board.led_red.off();
     board.led_green.off();
@@ -76,7 +77,7 @@ fn run_sd_test(board: &mut Board) {
             board.led_blue.off();
             board.led_green.on(); // Green = Success
 
-            board.lcd.draw_string(4, 18, "SD Init: SUCCESS! ", lcd_color::GREEN, lcd_color::BLACK);
+            board.lcd.draw_string(4, 18, "SD Init: SUCCESS! ", &FONT_5X7, lcd_color::GREEN, lcd_color::BLACK);
 
             let type_str = match card_type {
                 CardType::SD2HC => "Type: SDHC/SDXC",
@@ -84,7 +85,7 @@ fn run_sd_test(board: &mut Board) {
                 CardType::SD1 => "Type: SDSC (v1)",
                 CardType::Unknown => "Type: Unknown",
             };
-            board.lcd.draw_string(4, 30, type_str, lcd_color::WHITE, lcd_color::BLACK);
+            board.lcd.draw_string(4, 30, type_str, &FONT_5X7, lcd_color::WHITE, lcd_color::BLACK);
 
             let _ = writeln!(board.uart0, "[SD:OK] SD Card Initialized Successfully!");
             let _ = writeln!(board.uart0, "        Card Type: {}", card_type.as_str());
@@ -95,7 +96,7 @@ fn run_sd_test(board: &mut Board) {
                 board.sdcard.sector_count / 2048
             );
 
-            board.lcd.draw_string(4, 42, "Reading Sector 0...", lcd_color::CYAN, lcd_color::BLACK);
+            board.lcd.draw_string(4, 42, "Reading Sector 0...", &FONT_5X7, lcd_color::CYAN, lcd_color::BLACK);
             let _ = writeln!(board.uart0, "[TEST] Reading Sector 0 (Master Boot Record / Boot Sector)...");
 
             let mut sector_buf = [0u8; 512];
@@ -109,26 +110,26 @@ fn run_sd_test(board: &mut Board) {
 
                     if sector_buf[510] == 0x55 && sector_buf[511] == 0xAA {
                         let _ = writeln!(board.uart0, "[SUCCESS] >>> 0x55AA VALID BOOT RECORD SIGNATURE CONFIRMED! <<<");
-                        board.lcd.draw_string(4, 42, "Sector 0: 0x55AA OK! ", lcd_color::GREEN, lcd_color::BLACK);
+                        board.lcd.draw_string(4, 42, "Sector 0: 0x55AA OK! ", &FONT_5X7, lcd_color::GREEN, lcd_color::BLACK);
 
                         let mut cap_buf = StrBuf::<32>::new();
                         let _ = write!(cap_buf, "Cap: {} MB (OK)", board.sdcard.sector_count / 2048);
-                        board.lcd.draw_string(4, 54, cap_buf.as_str(), lcd_color::GREEN, lcd_color::BLACK);
+                        board.lcd.draw_string(4, 54, cap_buf.as_str(), &FONT_5X7, lcd_color::GREEN, lcd_color::BLACK);
 
                         let part_type = sector_buf[446 + 4];
                         let _ = writeln!(board.uart0, "          Partition 1 Type: 0x{:02X}", part_type);
                     } else {
                         let _ = writeln!(board.uart0, "[INFO] Sector 0 read OK (Unpartitioned / Non-MBR format, Sig: 0x{:04X})", sig);
-                        board.lcd.draw_string(4, 42, "Sector 0: Read OK    ", lcd_color::YELLOW, lcd_color::BLACK);
+                        board.lcd.draw_string(4, 42, "Sector 0: Read OK    ", &FONT_5X7, lcd_color::YELLOW, lcd_color::BLACK);
 
                         let mut cap_buf = StrBuf::<32>::new();
                         let _ = write!(cap_buf, "Cap: {} MB (OK)", board.sdcard.sector_count / 2048);
-                        board.lcd.draw_string(4, 54, cap_buf.as_str(), lcd_color::WHITE, lcd_color::BLACK);
+                        board.lcd.draw_string(4, 54, cap_buf.as_str(), &FONT_5X7, lcd_color::WHITE, lcd_color::BLACK);
                     }
                 }
                 Err(err) => {
                     let _ = writeln!(board.uart0, "[ERROR] Sector 0 read failed: {}", err.as_str());
-                    board.lcd.draw_string(4, 42, "Read Sec 0: FAILED", lcd_color::RED, lcd_color::BLACK);
+                    board.lcd.draw_string(4, 42, "Read Sec 0: FAILED", &FONT_5X7, lcd_color::RED, lcd_color::BLACK);
                 }
             }
         }
@@ -138,10 +139,10 @@ fn run_sd_test(board: &mut Board) {
 
             let _ = writeln!(board.uart0, "[SD:FAIL] SD Card Probe Failed: {}", err.as_str());
 
-            board.lcd.draw_string(4, 18, "SD Init: FAILED!   ", lcd_color::RED, lcd_color::BLACK);
-            board.lcd.draw_string(4, 30, err.as_str(), lcd_color::RED, lcd_color::BLACK);
-            board.lcd.draw_string(4, 44, "Check TF card seating", lcd_color::YELLOW, lcd_color::BLACK);
-            board.lcd.draw_string(4, 56, "Press PA8 to retry", lcd_color::WHITE, lcd_color::BLACK);
+            board.lcd.draw_string(4, 18, "SD Init: FAILED!   ", &FONT_5X7, lcd_color::RED, lcd_color::BLACK);
+            board.lcd.draw_string(4, 30, err.as_str(), &FONT_5X7, lcd_color::RED, lcd_color::BLACK);
+            board.lcd.draw_string(4, 44, "Check TF card seating", &FONT_5X7, lcd_color::YELLOW, lcd_color::BLACK);
+            board.lcd.draw_string(4, 56, "Press PA8 to retry", &FONT_5X7, lcd_color::WHITE, lcd_color::BLACK);
         }
     }
 }
@@ -157,7 +158,7 @@ fn main() -> ! {
     board.lcd.init(&mut board.delay);
     board.lcd.clear(lcd_color::BLACK);
     board.lcd.fill_rect(0, 0, LCD_WIDTH, 14, lcd_color::DARK_NAVY);
-    board.lcd.draw_string(4, 3, "LONGAN NANO: SD TEST", lcd_color::CYAN, lcd_color::DARK_NAVY);
+    board.lcd.draw_string(4, 3, "LONGAN NANO: SD TEST", &FONT_5X7, lcd_color::CYAN, lcd_color::DARK_NAVY);
 
     let _ = writeln!(board.uart0, "\r\n==================================================");
     let _ = writeln!(board.uart0, "Longan Nano -- Pure Rust Embedded SD Card Engine");
@@ -195,7 +196,7 @@ fn main() -> ! {
         if loop_counter % 10 == 0 {
             let mut time_buf = StrBuf::<32>::new();
             let _ = write!(time_buf, "Uptime: {:04} s", loop_counter / 10);
-            board.lcd.draw_string(4, 68, time_buf.as_str(), lcd_color::GRAY, lcd_color::BLACK);
+            board.lcd.draw_string(4, 68, time_buf.as_str(), &FONT_5X7, lcd_color::GRAY, lcd_color::BLACK);
         }
 
         // Check PA8 button (Active Low)
