@@ -48,8 +48,8 @@ int main(void)
                 // Long press: Reset accumulated energy & capacity!
                 display::DisplayManager::getInstance().reset_energy();
             } else if (duration >= 50) {
-                // Short press: Toggle plot mode (Current vs Power waveform)
-                display::DisplayManager::getInstance().toggle_plot_mode();
+                // Short press: Toggle screen mode (Graph vs Text)
+                display::DisplayManager::getInstance().toggle_screen_mode();
             }
         }
         prev_button_pressed = button_pressed;

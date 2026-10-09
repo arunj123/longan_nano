@@ -102,6 +102,64 @@ void DisplayManager::redraw_grid() {
     }
 }
 
+void DisplayManager::toggle_screen_mode() {
+    m_screen_mode = (m_screen_mode == ScreenMode::Graph) ? ScreenMode::Text : ScreenMode::Graph;
+    if (m_screen_mode == ScreenMode::Graph) {
+        lcd_clear(lcd::color::Black);
+        lcd_fill_rect(0, 0, 160, 19, kColBgTop);
+        lcd_fill_rect(0, 19, 160, 1, kColDivider);
+        m_sweep_x = kGraphXMin;
+        m_prev_y = kGraphYBase;
+        m_scale_tier = 2;
+        m_peak_in_sweep = 0;
+        redraw_grid();
+    } else {
+        draw_text_layout();
+    }
+}
+
+void DisplayManager::draw_text_layout() {
+    lcd_clear(lcd::color::Black);
+
+    // 1. Header Bar (Y: 0..14)
+    lcd_fill_rect(0, 0, 160, 14, 0x11E6);
+    lcd_fill_rect(0, 14, 160, 1, lcd::color::Cyan);
+    lcd::draw_string(6, 4, "INA219", lcd::color::White, 0x11E6);
+
+    // 2. Voltage Row Card Badge (Y: 18..31)
+    lcd_fill_rect(4, 18, 34, 14, 0x0141);
+    lcd_fill_rect(4, 18, 34, 1, 0x05E3);
+    lcd_fill_rect(4, 31, 34, 1, 0x05E3);
+    lcd_fill_rect(4, 18, 1, 14, 0x05E3);
+    lcd_fill_rect(37, 18, 1, 14, 0x05E3);
+    lcd::draw_string(8, 21, "VOLT", lcd::color::Green, 0x0141);
+
+    // Divider 1
+    lcd_fill_rect(4, 35, 152, 1, 0x1AE7);
+
+    // 3. Current Row Card Badge (Y: 39..52)
+    lcd_fill_rect(4, 39, 34, 14, 0x0106);
+    lcd_fill_rect(4, 39, 34, 1, 0x051B);
+    lcd_fill_rect(4, 52, 34, 1, 0x051B);
+    lcd_fill_rect(4, 39, 1, 14, 0x051B);
+    lcd_fill_rect(37, 39, 1, 14, 0x051B);
+    lcd::draw_string(8, 42, "CURR", lcd::color::Cyan, 0x0106);
+
+    // Divider 2
+    lcd_fill_rect(4, 56, 152, 1, 0x1AE7);
+
+    // 4. Power Row Card Badge (Y: 60..73)
+    lcd_fill_rect(4, 60, 34, 14, 0x3100);
+    lcd_fill_rect(4, 60, 34, 1, 0x7460);
+    lcd_fill_rect(4, 73, 34, 1, 0x7460);
+    lcd_fill_rect(4, 60, 1, 14, 0x7460);
+    lcd_fill_rect(37, 60, 1, 14, 0x7460);
+    lcd::draw_string(8, 63, "POWR", lcd::color::Yellow, 0x3100);
+
+    // Bottom decorative bar
+    lcd_fill_rect(0, 78, 160, 2, 0x11E6);
+}
+
 void DisplayManager::toggle_plot_mode() {
     m_plot_mode = (m_plot_mode == PlotMode::Current) ? PlotMode::Power : PlotMode::Current;
     m_scale_tier = 2;
@@ -164,6 +222,50 @@ void DisplayManager::update(const ina219_data_t& data, bool sensor_ok) {
     if (sensor_ok && v_mv > 500 && abs_c_tenth > 2) {
         m_mw_ticks += static_cast<uint64_t>(p_tenth / 10);
         m_tenth_ma_ticks += static_cast<uint64_t>(abs_c_tenth);
+    }
+
+    if (m_screen_mode == ScreenMode::Text) {
+        char buf[24];
+        uint32_t total_mwh = static_cast<uint32_t>(m_mw_ticks / 36000ULL);
+        uint32_t frac_mwh  = static_cast<uint32_t>((m_mw_ticks % 36000ULL) / 360ULL);
+        if (total_mwh == 0) {
+            uint32_t uwh = static_cast<uint32_t>((m_mw_ticks * 100ULL) / 360ULL);
+            snprintf(buf, sizeof(buf), "E:%3luuWh", uwh);
+        } else {
+            snprintf(buf, sizeof(buf), "E:%2lu.%02lumWh", total_mwh, frac_mwh);
+        }
+        lcd::draw_string(52, 4, buf, lcd::color::rgb(255, 180, 50), 0x11E6);
+
+        // Status Badge in text header
+        if (!sensor_ok) {
+            lcd_fill_rect(122, 2, 34, 10, lcd::color::rgb(50, 0, 0));
+            lcd::draw_string(128, 3, "ERR ", lcd::color::Red, lcd::color::rgb(50, 0, 0));
+        } else if (is_reverse) {
+            lcd_fill_rect(122, 2, 34, 10, lcd::color::rgb(50, 0, 0));
+            lcd::draw_string(128, 3, "REV ", lcd::color::Red, lcd::color::rgb(50, 0, 0));
+        } else {
+            lcd_fill_rect(122, 2, 34, 10, 0x0162);
+            lcd::draw_string(128, 3, "LIVE", lcd::color::Green, 0x0162);
+        }
+
+        // Digits
+        snprintf(buf, sizeof(buf), "%3u.%03u V  ", v_mv / 1000, v_mv % 1000);
+        lcd::draw_string(48, 21, buf, 0xD7FA, lcd::color::Black);
+
+        if (is_reverse) {
+            snprintf(buf, sizeof(buf), "-%4d.%1d mA ", abs_c_tenth / 10, abs_c_tenth % 10);
+        } else {
+            snprintf(buf, sizeof(buf), " %4d.%1d mA ", abs_c_tenth / 10, abs_c_tenth % 10);
+        }
+        lcd::draw_string(48, 42, buf, lcd::color::Cyan, lcd::color::Black);
+
+        if (p_tenth < 100000) {
+            snprintf(buf, sizeof(buf), " %4lu.%1lu mW ", p_tenth / 10, p_tenth % 10);
+        } else {
+            snprintf(buf, sizeof(buf), " %4lu.%02lu W  ", (p_tenth / 10) / 1000, ((p_tenth / 10) % 1000) / 10);
+        }
+        lcd::draw_string(48, 63, buf, lcd::color::Yellow, lcd::color::Black);
+        return;
     }
 
     // 3. Render Top Line 1 (Instantaneous V, I, P)

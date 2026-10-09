@@ -47,8 +47,6 @@ const COL_GRID: u16     = rgb565(22, 34, 48);   // Subtle grid dot
 const COL_AXIS: u16     = rgb565(45, 65, 95);   // Axis border
 const COL_TRACE_I: u16  = rgb565(0, 240, 255);  // Neon Cyan
 const COL_FILL_I: u16   = rgb565(0, 24, 38);    // Dark Cyan glow fill
-const COL_TRACE_P: u16  = rgb565(255, 215, 0);  // Electric Amber
-const COL_FILL_P: u16   = rgb565(42, 30, 0);    // Dark Amber glow fill
 
 // Graph canvas geometry
 const GRAPH_X_MIN: u16 = 22;
@@ -58,13 +56,13 @@ const GRAPH_Y_BASE: u16 = 76;
 const GRAPH_HEIGHT: u16 = GRAPH_Y_BASE - GRAPH_Y_TOP; // 54 pixels
 
 #[derive(Copy, Clone, PartialEq)]
-enum PlotMode {
-    Current,
-    Power,
+enum ScreenMode {
+    Graph,
+    Text,
 }
 
 struct ScaleTier {
-    max_val: i32, // In tenths (0.1 mA or 0.1 mW)
+    max_val: i32, // In tenths (0.1 mA)
     top_lbl: &'static str,
     mid_lbl: &'static str,
     badge: &'static str,
@@ -81,21 +79,19 @@ static CURRENT_TIERS: [ScaleTier; 8] = [
     ScaleTier { max_val: 32000, top_lbl: "3.2A", mid_lbl: "1.6A", badge: "[3.2A]"},
 ];
 
-static POWER_TIERS: [ScaleTier; 7] = [
-    ScaleTier { max_val: 100,    top_lbl: "10m",  mid_lbl: " 5m",  badge: "[10mW]" },
-    ScaleTier { max_val: 500,    top_lbl: "50m",  mid_lbl: "25m",  badge: "[50mW]" },
-    ScaleTier { max_val: 1000,   top_lbl: "100m", mid_lbl: "50m",  badge: "[100m]"},
-    ScaleTier { max_val: 5000,   top_lbl: "500m", mid_lbl: "250m", badge: "[500m]"},
-    ScaleTier { max_val: 10000,  top_lbl: " 1W",  mid_lbl: "500m", badge: " [1W] "},
-    ScaleTier { max_val: 50000,  top_lbl: " 5W",  mid_lbl: "2.5W", badge: " [5W] "},
-    ScaleTier { max_val: 100000, top_lbl: "10W",  mid_lbl: " 5W",  badge: "[10W] "},
-];
+fn draw_graph_screen_layout(lcd: &mut longan_nano_bsp::Lcd, tier_idx: usize) {
+    lcd.clear(lcd_color::BLACK);
 
-fn redraw_grid(lcd: &mut longan_nano_bsp::Lcd, mode: PlotMode, tier_idx: usize) {
-    let (top_lbl, mid_lbl) = match mode {
-        PlotMode::Current => (CURRENT_TIERS[tier_idx].top_lbl, CURRENT_TIERS[tier_idx].mid_lbl),
-        PlotMode::Power => (POWER_TIERS[tier_idx].top_lbl, POWER_TIERS[tier_idx].mid_lbl),
-    };
+    // Header Bar (Y: 0..19)
+    lcd.fill_rect(0, 0, 160, 19, COL_BG_TOP);
+    lcd.fill_rect(0, 19, 160, 1, COL_DIVIDER);
+
+    redraw_grid(lcd, tier_idx);
+}
+
+fn redraw_grid(lcd: &mut longan_nano_bsp::Lcd, tier_idx: usize) {
+    let top_lbl = CURRENT_TIERS[tier_idx].top_lbl;
+    let mid_lbl = CURRENT_TIERS[tier_idx].mid_lbl;
 
     // 1. Left Y-Axis Labels
     lcd.fill_rect(0, 20, 21, 60, lcd_color::BLACK);
@@ -120,12 +116,45 @@ fn redraw_grid(lcd: &mut longan_nano_bsp::Lcd, mode: PlotMode, tier_idx: usize) 
     }
 }
 
+fn draw_text_screen_layout(lcd: &mut longan_nano_bsp::Lcd) {
+    lcd.clear(lcd_color::BLACK);
+
+    // 1. Header Bar (Y: 0..14)
+    lcd.fill_rect(0, 0, 160, 14, 0x11E6); // Slate Navy
+    lcd.fill_rect(0, 14, 160, 1, lcd_color::CYAN);
+    lcd.draw_string(6, 4, "INA219", lcd_color::WHITE, 0x11E6);
+
+    // 2. Voltage Row Card Badge (Y: 18..31)
+    lcd.fill_rect(4, 18, 34, 14, 0x0141);
+    lcd.rect(4, 18, 34, 14, 0x05E3);
+    lcd.draw_string(8, 21, "VOLT", lcd_color::GREEN, 0x0141);
+
+    // Divider 1
+    lcd.fill_rect(4, 35, 152, 1, 0x1AE7);
+
+    // 3. Current Row Card Badge (Y: 39..52)
+    lcd.fill_rect(4, 39, 34, 14, 0x0106);
+    lcd.rect(4, 39, 34, 14, 0x051B);
+    lcd.draw_string(8, 42, "CURR", lcd_color::CYAN, 0x0106);
+
+    // Divider 2
+    lcd.fill_rect(4, 56, 152, 1, 0x1AE7);
+
+    // 4. Power Row Card Badge (Y: 60..73)
+    lcd.fill_rect(4, 60, 34, 14, 0x3100);
+    lcd.rect(4, 60, 34, 14, 0x7460);
+    lcd.draw_string(8, 63, "POWR", lcd_color::YELLOW, 0x3100);
+
+    // Bottom decorative bar
+    lcd.fill_rect(0, 78, 160, 2, 0x11E6);
+}
+
 #[entry]
 fn main() -> ! {
     let mut board = Board::take_current_monitor().expect("Board initialization failed");
 
     writeln!(board.uart0, "\r\n========================================").ok();
-    writeln!(board.uart0, " Longan Nano INA219 Oscilloscope Monitor (Rust)").ok();
+    writeln!(board.uart0, " Longan Nano INA219 Current Monitor (Rust)").ok();
     writeln!(
         board.uart0,
         " SYSCLK: {} MHz, I2C0: 100 kHz (PB6 SCL, PB7 SDA)",
@@ -137,15 +166,10 @@ fn main() -> ! {
 
     // Initialize ST7735 160x80 LCD
     board.lcd.init(&mut board.delay);
-    board.lcd.clear(lcd_color::BLACK);
-
-    // Initial Header Bar (Y: 0..19)
-    board.lcd.fill_rect(0, 0, 160, 19, COL_BG_TOP);
-    board.lcd.fill_rect(0, 19, 160, 1, COL_DIVIDER);
 
     // State Variables
-    let mut plot_mode = PlotMode::Current;
-    let mut scale_tier: usize = 2; // Default 50mA tier
+    let mut screen_mode = ScreenMode::Graph; // Default: Oscilloscope Graph Screen
+    let mut scale_tier: usize = 2;          // Default 50mA tier
     let mut peak_in_sweep: i32 = 0;
     let mut sweep_x: u16 = GRAPH_X_MIN;
     let mut prev_y: u16 = GRAPH_Y_BASE;
@@ -154,7 +178,8 @@ fn main() -> ! {
     let mut mw_ticks: u64 = 0;
     let mut tenth_ma_ticks: u64 = 0;
 
-    redraw_grid(&mut board.lcd, plot_mode, scale_tier);
+    // Initial Screen Draw
+    draw_graph_screen_layout(&mut board.lcd, scale_tier);
 
     // Initial INA219 Calibration (cal = 4096 for 0.1 ohm shunt and 3.2A max)
     let mut ina_present = match board.ina219.init(4096) {
@@ -181,7 +206,7 @@ fn main() -> ! {
     let mut report_count = 0u32;
     let mut prev_usb_configured = false;
 
-    // Button tracking
+    // Button tracking (PA8)
     let mut button_press_start = 0u32;
     let mut prev_button_pressed = false;
 
@@ -218,20 +243,23 @@ fn main() -> ! {
                 tenth_ma_ticks = 0;
                 writeln!(board.uart0, "[SYS] Energy & Charge accumulators reset").ok();
             } else if duration >= 50 {
-                // Short press: Toggle plot mode (Current vs Power)
-                plot_mode = match plot_mode {
-                    PlotMode::Current => PlotMode::Power,
-                    PlotMode::Power => PlotMode::Current,
+                // Short press: Toggle screen mode between Graph and Text version!
+                screen_mode = match screen_mode {
+                    ScreenMode::Graph => ScreenMode::Text,
+                    ScreenMode::Text => ScreenMode::Graph,
                 };
-                scale_tier = 2;
-                peak_in_sweep = 0;
-                sweep_x = GRAPH_X_MIN;
-                prev_y = GRAPH_Y_BASE;
-                redraw_grid(&mut board.lcd, plot_mode, scale_tier);
+                if screen_mode == ScreenMode::Graph {
+                    draw_graph_screen_layout(&mut board.lcd, scale_tier);
+                    sweep_x = GRAPH_X_MIN;
+                    prev_y = GRAPH_Y_BASE;
+                    peak_in_sweep = 0;
+                } else {
+                    draw_text_screen_layout(&mut board.lcd);
+                }
                 writeln!(
                     board.uart0,
-                    "[UI] Plot mode changed to {}",
-                    if plot_mode == PlotMode::Current { "CURRENT" } else { "POWER" }
+                    "[UI] Screen mode toggled to {}",
+                    if screen_mode == ScreenMode::Graph { "GRAPH (Oscilloscope)" } else { "TEXT (Cards)" }
                 )
                 .ok();
             }
@@ -240,7 +268,7 @@ fn main() -> ! {
 
         let now = board.delay.uptime_ms();
 
-        // 2. 10 Hz Periodic Measurement, Oscilloscope Sweep & USB HID Streaming
+        // 2. 10 Hz Periodic Measurement, Screen Rendering & USB HID Streaming
         if now.wrapping_sub(last_10hz) >= 100 {
             last_10hz = now;
 
@@ -284,204 +312,237 @@ fn main() -> ! {
             }
 
             // ----------------------------------------------------
-            // 3. Render Top Line 1 (Instantaneous V, I, P, Status)
+            // 3. Screen Rendering (Graph vs Text)
             // ----------------------------------------------------
-            let mut v_buf = [0u8; 12];
-            let mut v_cur = BufferCursor::new(&mut v_buf);
-            write!(
-                v_cur,
-                "{:>2}.{:02}V ",
-                v_mv / 1000,
-                (v_mv % 1000) / 10
-            )
-            .ok();
-            board.lcd.draw_string(2, 1, v_cur.as_str(), lcd_color::GREEN, COL_BG_TOP);
+            match screen_mode {
+                ScreenMode::Graph => {
+                    // Top Line 1 (Instantaneous V, I, P, Status)
+                    let mut v_buf = [0u8; 12];
+                    let mut v_cur = BufferCursor::new(&mut v_buf);
+                    write!(
+                        v_cur,
+                        "{:>2}.{:02}V ",
+                        v_mv / 1000,
+                        (v_mv % 1000) / 10
+                    )
+                    .ok();
+                    board.lcd.draw_string(2, 1, v_cur.as_str(), lcd_color::GREEN, COL_BG_TOP);
 
-            let mut c_buf = [0u8; 14];
-            let mut c_cur = BufferCursor::new(&mut c_buf);
-            let whole_c = abs_c_tenth / 10;
-            let frac_c = abs_c_tenth % 10;
-            if is_reverse {
-                write!(c_cur, "-{:>3}.{}mA", whole_c, frac_c).ok();
-            } else {
-                write!(c_cur, " {:>3}.{}mA", whole_c, frac_c).ok();
-            }
-            board.lcd.draw_string(42, 1, c_cur.as_str(), lcd_color::CYAN, COL_BG_TOP);
-
-            let mut p_buf = [0u8; 14];
-            let mut p_cur = BufferCursor::new(&mut p_buf);
-            if p_tenth < 100000 {
-                write!(p_cur, " {:>3}.{} mW", p_tenth / 10, p_tenth % 10).ok();
-            } else {
-                let whole_w = (p_tenth / 10) / 1000;
-                let frac_w = ((p_tenth / 10) % 1000) / 10;
-                write!(p_cur, " {:>3}.{:02} W", whole_w, frac_w).ok();
-            }
-            board.lcd.draw_string(88, 1, p_cur.as_str(), lcd_color::YELLOW, COL_BG_TOP);
-
-            // Status Badge (Top-Right): [LIVE], [REV], or [ERR]
-            if !ina_present {
-                board.lcd.draw_string(132, 1, "[ERR] ", lcd_color::RED, COL_BG_TOP);
-            } else if is_reverse {
-                board.lcd.draw_string(132, 1, "[REV] ", lcd_color::RED, COL_BG_TOP);
-            } else {
-                board.lcd.draw_string(132, 1, "[LIVE]", lcd_color::GREEN, COL_BG_TOP);
-            }
-
-            // ----------------------------------------------------
-            // 4. Render Top Line 2 (Energy Consumed, Charge, Tier)
-            // ----------------------------------------------------
-            let mut e_buf = [0u8; 16];
-            let mut e_cur = BufferCursor::new(&mut e_buf);
-            let total_mwh = (mw_ticks / 36000) as u32;
-            let frac_mwh = ((mw_ticks % 36000) / 360) as u32;
-            if total_mwh == 0 {
-                let uwh = ((mw_ticks * 100) / 360) as u32;
-                write!(e_cur, "E:{:>3} uWh ", uwh).ok();
-            } else {
-                write!(e_cur, "E:{:>2}.{:02}mWh", total_mwh, frac_mwh).ok();
-            }
-            board.lcd.draw_string(2, 10, e_cur.as_str(), rgb565(255, 160, 40), COL_BG_TOP);
-
-            let mut q_buf = [0u8; 16];
-            let mut q_cur = BufferCursor::new(&mut q_buf);
-            let total_mah = (tenth_ma_ticks / 360000) as u32;
-            let frac_mah = ((tenth_ma_ticks % 360000) / 3600) as u32;
-            write!(q_cur, "Q:{:>2}.{:02}mAh", total_mah, frac_mah).ok();
-            board.lcd.draw_string(64, 10, q_cur.as_str(), rgb565(100, 255, 140), COL_BG_TOP);
-
-            // Scale badge
-            let tier_badge = match plot_mode {
-                PlotMode::Current => CURRENT_TIERS[scale_tier].badge,
-                PlotMode::Power => POWER_TIERS[scale_tier].badge,
-            };
-            board.lcd.draw_string(126, 10, tier_badge, lcd_color::WHITE, COL_BG_TOP);
-
-            // ----------------------------------------------------
-            // 5. Update Oscilloscope Waveform Sweep
-            // ----------------------------------------------------
-            let plot_val: i32 = match plot_mode {
-                PlotMode::Current => abs_c_tenth as i32,
-                PlotMode::Power => p_tenth as i32,
-            };
-
-            if plot_val > peak_in_sweep {
-                peak_in_sweep = plot_val;
-            }
-
-            // Dynamic Auto-scaling
-            let (num_tiers, current_max) = match plot_mode {
-                PlotMode::Current => (CURRENT_TIERS.len(), CURRENT_TIERS[scale_tier].max_val),
-                PlotMode::Power => (POWER_TIERS.len(), POWER_TIERS[scale_tier].max_val),
-            };
-
-            let mut scale_changed = false;
-            // Step UP immediately if value exceeds ceiling
-            if plot_val > current_max && scale_tier + 1 < num_tiers {
-                while scale_tier + 1 < num_tiers {
-                    let next_max = match plot_mode {
-                        PlotMode::Current => CURRENT_TIERS[scale_tier].max_val,
-                        PlotMode::Power => POWER_TIERS[scale_tier].max_val,
-                    };
-                    if plot_val > next_max {
-                        scale_tier += 1;
+                    let mut c_buf = [0u8; 14];
+                    let mut c_cur = BufferCursor::new(&mut c_buf);
+                    let whole_c = abs_c_tenth / 10;
+                    let frac_c = abs_c_tenth % 10;
+                    if is_reverse {
+                        write!(c_cur, "-{:>3}.{}mA", whole_c, frac_c).ok();
                     } else {
-                        break;
+                        write!(c_cur, " {:>3}.{}mA", whole_c, frac_c).ok();
                     }
-                }
-                scale_changed = true;
-            }
+                    board.lcd.draw_string(42, 1, c_cur.as_str(), lcd_color::CYAN, COL_BG_TOP);
 
-            // When sweep wraps around: evaluate hysteresis downscale
-            if sweep_x == GRAPH_X_MIN && !scale_changed {
-                if scale_tier > 0 {
-                    let lower_ceiling = match plot_mode {
-                        PlotMode::Current => CURRENT_TIERS[scale_tier - 1].max_val,
-                        PlotMode::Power => POWER_TIERS[scale_tier - 1].max_val,
-                    };
-                    // Downscale only if peak was below 65% of lower ceiling
-                    if peak_in_sweep < (lower_ceiling * 65 / 100) {
-                        scale_tier -= 1;
+                    let mut p_buf = [0u8; 14];
+                    let mut p_cur = BufferCursor::new(&mut p_buf);
+                    if p_tenth < 100000 {
+                        write!(p_cur, " {:>3}.{} mW", p_tenth / 10, p_tenth % 10).ok();
+                    } else {
+                        let whole_w = (p_tenth / 10) / 1000;
+                        let frac_w = ((p_tenth / 10) % 1000) / 10;
+                        write!(p_cur, " {:>3}.{:02} W", whole_w, frac_w).ok();
+                    }
+                    board.lcd.draw_string(88, 1, p_cur.as_str(), lcd_color::YELLOW, COL_BG_TOP);
+
+                    // Status Badge (Top-Right): [LIVE], [REV], or [ERR]
+                    if !ina_present {
+                        board.lcd.draw_string(132, 1, "[ERR] ", lcd_color::RED, COL_BG_TOP);
+                    } else if is_reverse {
+                        board.lcd.draw_string(132, 1, "[REV] ", lcd_color::RED, COL_BG_TOP);
+                    } else {
+                        board.lcd.draw_string(132, 1, "[LIVE]", lcd_color::GREEN, COL_BG_TOP);
+                    }
+
+                    // Top Line 2 (Energy Consumed, Charge, Tier)
+                    let mut e_buf = [0u8; 16];
+                    let mut e_cur = BufferCursor::new(&mut e_buf);
+                    let total_mwh = (mw_ticks / 36000) as u32;
+                    let frac_mwh = ((mw_ticks % 36000) / 360) as u32;
+                    if total_mwh == 0 {
+                        let uwh = ((mw_ticks * 100) / 360) as u32;
+                        write!(e_cur, "E:{:>3} uWh ", uwh).ok();
+                    } else {
+                        write!(e_cur, "E:{:>2}.{:02}mWh", total_mwh, frac_mwh).ok();
+                    }
+                    board.lcd.draw_string(2, 10, e_cur.as_str(), rgb565(255, 160, 40), COL_BG_TOP);
+
+                    let mut q_buf = [0u8; 16];
+                    let mut q_cur = BufferCursor::new(&mut q_buf);
+                    let total_mah = (tenth_ma_ticks / 360000) as u32;
+                    let frac_mah = ((tenth_ma_ticks % 360000) / 3600) as u32;
+                    write!(q_cur, "Q:{:>2}.{:02}mAh", total_mah, frac_mah).ok();
+                    board.lcd.draw_string(64, 10, q_cur.as_str(), rgb565(100, 255, 140), COL_BG_TOP);
+
+                    // Scale badge
+                    board.lcd.draw_string(126, 10, CURRENT_TIERS[scale_tier].badge, lcd_color::WHITE, COL_BG_TOP);
+
+                    // Oscilloscope Waveform Sweep (Current)
+                    let plot_val: i32 = abs_c_tenth as i32;
+                    if plot_val > peak_in_sweep {
+                        peak_in_sweep = plot_val;
+                    }
+
+                    // Dynamic Auto-scaling
+                    let num_tiers = CURRENT_TIERS.len();
+                    let current_max = CURRENT_TIERS[scale_tier].max_val;
+                    let mut scale_changed = false;
+
+                    if plot_val > current_max && scale_tier + 1 < num_tiers {
+                        while scale_tier + 1 < num_tiers {
+                            if plot_val > CURRENT_TIERS[scale_tier].max_val {
+                                scale_tier += 1;
+                            } else {
+                                break;
+                            }
+                        }
                         scale_changed = true;
                     }
-                }
-                peak_in_sweep = 0;
-            }
 
-            if scale_changed {
-                redraw_grid(&mut board.lcd, plot_mode, scale_tier);
-            }
+                    if sweep_x == GRAPH_X_MIN && !scale_changed {
+                        if scale_tier > 0 {
+                            let lower_ceiling = CURRENT_TIERS[scale_tier - 1].max_val;
+                            if peak_in_sweep < (lower_ceiling * 65 / 100) {
+                                scale_tier -= 1;
+                                scale_changed = true;
+                            }
+                        }
+                        peak_in_sweep = 0;
+                    }
 
-            let scale_max = match plot_mode {
-                PlotMode::Current => CURRENT_TIERS[scale_tier].max_val,
-                PlotMode::Power => POWER_TIERS[scale_tier].max_val,
-            };
+                    if scale_changed {
+                        redraw_grid(&mut board.lcd, scale_tier);
+                    }
 
-            // Calculate Y coordinate on 54-pixel canvas
-            let y_calc = (GRAPH_Y_BASE as i32) - ((plot_val * GRAPH_HEIGHT as i32) / scale_max);
-            let y_curr = if y_calc < GRAPH_Y_TOP as i32 {
-                GRAPH_Y_TOP
-            } else if y_calc > GRAPH_Y_BASE as i32 {
-                GRAPH_Y_BASE
-            } else {
-                y_calc as u16
-            };
-
-            let trace_col = match plot_mode {
-                PlotMode::Current => COL_TRACE_I,
-                PlotMode::Power => COL_TRACE_P,
-            };
-            let fill_col = match plot_mode {
-                PlotMode::Current => COL_FILL_I,
-                PlotMode::Power => COL_FILL_P,
-            };
-
-            // Erase lookahead column head (2 pixels ahead)
-            let erase_x1 = if sweep_x + 1 > GRAPH_X_MAX { GRAPH_X_MIN } else { sweep_x + 1 };
-            let erase_x2 = if sweep_x + 2 > GRAPH_X_MAX { GRAPH_X_MIN + 1 } else { sweep_x + 2 };
-
-            for ex in [erase_x1, erase_x2] {
-                board.lcd.fill_rect(ex, GRAPH_Y_TOP, 1, GRAPH_HEIGHT + 1, COL_GRAPH_BG);
-                board.lcd.set_pixel(ex, GRAPH_Y_BASE, COL_AXIS);
-                if ex % 4 == 0 {
-                    board.lcd.set_pixel(ex, 36, COL_GRID);
-                    board.lcd.set_pixel(ex, 49, COL_GRID);
-                    board.lcd.set_pixel(ex, 63, COL_GRID);
-                }
-            }
-
-            // Blit single vertical column (55 pixels)
-            let mut col_buf = [0u16; 55];
-            let y_min = core::cmp::min(prev_y, y_curr);
-            let y_max = core::cmp::max(prev_y, y_curr);
-
-            for y in GRAPH_Y_TOP..=GRAPH_Y_BASE {
-                let idx = (y - GRAPH_Y_TOP) as usize;
-                if idx < col_buf.len() {
-                    if y >= y_min && y <= y_max {
-                        col_buf[idx] = trace_col; // Vibrant trace segment
-                    } else if y > y_max && y < GRAPH_Y_BASE {
-                        col_buf[idx] = fill_col; // Glowing area under curve
-                    } else if y == GRAPH_Y_BASE {
-                        col_buf[idx] = COL_AXIS; // Baseline
-                    } else if (y == 36 || y == 49 || y == 63) && (sweep_x % 4 == 0) {
-                        col_buf[idx] = COL_GRID; // Dotted grid point
+                    let scale_max = CURRENT_TIERS[scale_tier].max_val;
+                    let y_calc = (GRAPH_Y_BASE as i32) - ((plot_val * GRAPH_HEIGHT as i32) / scale_max);
+                    let y_curr = if y_calc < GRAPH_Y_TOP as i32 {
+                        GRAPH_Y_TOP
+                    } else if y_calc > GRAPH_Y_BASE as i32 {
+                        GRAPH_Y_BASE
                     } else {
-                        col_buf[idx] = COL_GRAPH_BG;
+                        y_calc as u16
+                    };
+
+                    // Erase lookahead (2 pixels ahead)
+                    let erase_x1 = if sweep_x + 1 > GRAPH_X_MAX { GRAPH_X_MIN } else { sweep_x + 1 };
+                    let erase_x2 = if sweep_x + 2 > GRAPH_X_MAX { GRAPH_X_MIN + 1 } else { sweep_x + 2 };
+
+                    for ex in [erase_x1, erase_x2] {
+                        board.lcd.fill_rect(ex, GRAPH_Y_TOP, 1, GRAPH_HEIGHT + 1, COL_GRAPH_BG);
+                        board.lcd.set_pixel(ex, GRAPH_Y_BASE, COL_AXIS);
+                        if ex % 4 == 0 {
+                            board.lcd.set_pixel(ex, 36, COL_GRID);
+                            board.lcd.set_pixel(ex, 49, COL_GRID);
+                            board.lcd.set_pixel(ex, 63, COL_GRID);
+                        }
+                    }
+
+                    // Blit single vertical column (55 pixels)
+                    let mut col_buf = [0u16; 55];
+                    let y_min = core::cmp::min(prev_y, y_curr);
+                    let y_max = core::cmp::max(prev_y, y_curr);
+
+                    for y in GRAPH_Y_TOP..=GRAPH_Y_BASE {
+                        let idx = (y - GRAPH_Y_TOP) as usize;
+                        if idx < col_buf.len() {
+                            if y >= y_min && y <= y_max {
+                                col_buf[idx] = COL_TRACE_I; // Vibrant trace segment
+                            } else if y > y_max && y < GRAPH_Y_BASE {
+                                col_buf[idx] = COL_FILL_I;  // Glowing area under curve
+                            } else if y == GRAPH_Y_BASE {
+                                col_buf[idx] = COL_AXIS;    // Baseline
+                            } else if (y == 36 || y == 49 || y == 63) && (sweep_x % 4 == 0) {
+                                col_buf[idx] = COL_GRID;    // Dotted grid point
+                            } else {
+                                col_buf[idx] = COL_GRAPH_BG;
+                            }
+                        }
+                    }
+
+                    board.lcd.write_pixels(sweep_x, GRAPH_Y_TOP, 1, GRAPH_HEIGHT + 1, &col_buf);
+
+                    prev_y = y_curr;
+                    sweep_x += 1;
+                    if sweep_x > GRAPH_X_MAX {
+                        sweep_x = GRAPH_X_MIN;
                     }
                 }
-            }
 
-            board.lcd.write_pixels(sweep_x, GRAPH_Y_TOP, 1, GRAPH_HEIGHT + 1, &col_buf);
+                ScreenMode::Text => {
+                    // Header Bar with Energy & Status Badge
+                    let mut e_buf = [0u8; 16];
+                    let mut e_cur = BufferCursor::new(&mut e_buf);
+                    let total_mwh = (mw_ticks / 36000) as u32;
+                    let frac_mwh = ((mw_ticks % 36000) / 360) as u32;
+                    if total_mwh == 0 {
+                        let uwh = ((mw_ticks * 100) / 360) as u32;
+                        write!(e_cur, "E:{:>3}uWh", uwh).ok();
+                    } else {
+                        write!(e_cur, "E:{:>2}.{:02}mWh", total_mwh, frac_mwh).ok();
+                    }
+                    board.lcd.draw_string(52, 4, e_cur.as_str(), rgb565(255, 180, 50), 0x11E6);
 
-            prev_y = y_curr;
-            sweep_x += 1;
-            if sweep_x > GRAPH_X_MAX {
-                sweep_x = GRAPH_X_MIN;
+                    // Status Badge in text header
+                    if !ina_present {
+                        board.lcd.fill_rect(122, 2, 34, 10, rgb565(50, 0, 0));
+                        board.lcd.rect(122, 2, 34, 10, lcd_color::RED);
+                        board.lcd.draw_string(128, 3, "ERR ", lcd_color::RED, rgb565(50, 0, 0));
+                    } else if is_reverse {
+                        board.lcd.fill_rect(122, 2, 34, 10, rgb565(50, 0, 0));
+                        board.lcd.rect(122, 2, 34, 10, lcd_color::RED);
+                        board.lcd.draw_string(128, 3, "REV ", lcd_color::RED, rgb565(50, 0, 0));
+                    } else {
+                        board.lcd.fill_rect(122, 2, 34, 10, 0x0162);
+                        board.lcd.rect(122, 2, 34, 10, 0x05E2);
+                        board.lcd.draw_string(128, 3, "LIVE", lcd_color::GREEN, 0x0162);
+                    }
+
+                    // 1. Voltage Row Card Digits
+                    let mut v_buf = [0u8; 20];
+                    let mut v_cur = BufferCursor::new(&mut v_buf);
+                    write!(
+                        v_cur,
+                        "{:>3}.{:03} V  ",
+                        v_mv / 1000,
+                        v_mv % 1000
+                    )
+                    .ok();
+                    board.lcd.draw_string(48, 21, v_cur.as_str(), 0xD7FA, lcd_color::BLACK);
+
+                    // 2. Current Row Card Digits (sub-mA resolution)
+                    let mut c_buf = [0u8; 20];
+                    let mut c_cur = BufferCursor::new(&mut c_buf);
+                    let whole_c = abs_c_tenth / 10;
+                    let frac_c = abs_c_tenth % 10;
+                    if is_reverse {
+                        write!(c_cur, "-{:>4}.{} mA ", whole_c, frac_c).ok();
+                    } else {
+                        write!(c_cur, " {:>4}.{} mA ", whole_c, frac_c).ok();
+                    }
+                    board.lcd.draw_string(48, 42, c_cur.as_str(), lcd_color::CYAN, lcd_color::BLACK);
+
+                    // 3. Power Row Card Digits
+                    let mut p_buf = [0u8; 20];
+                    let mut p_cur = BufferCursor::new(&mut p_buf);
+                    if p_tenth < 100000 {
+                        write!(p_cur, " {:>4}.{} mW ", p_tenth / 10, p_tenth % 10).ok();
+                    } else {
+                        let whole_w = (p_tenth / 10) / 1000;
+                        let frac_w = ((p_tenth / 10) % 1000) / 10;
+                        write!(p_cur, " {:>4}.{:02} W  ", whole_w, frac_w).ok();
+                    }
+                    board.lcd.draw_string(48, 63, p_cur.as_str(), lcd_color::YELLOW, lcd_color::BLACK);
+                }
             }
 
             // ----------------------------------------------------
-            // 6. USB HID Telemetry Streaming (9 bytes)
+            // 4. USB HID Telemetry Streaming (9 bytes, continuous)
             // ----------------------------------------------------
             let report: [u8; 9] = [
                 0x01,
@@ -503,7 +564,7 @@ fn main() -> ! {
             board.led_green.toggle();
         }
 
-        // 7. 1 Hz Diagnostic Telemetry over UART0
+        // 5. 1 Hz Diagnostic Telemetry over UART0
         if now.wrapping_sub(last_1hz) >= 1000 {
             last_1hz = now;
             let sec = now / 1000;
@@ -513,10 +574,11 @@ fn main() -> ! {
                 "DISC"
             };
             let sensor_str = if ina_present { "ONLINE" } else { "OFFLINE" };
+            let mode_str = if screen_mode == ScreenMode::Graph { "GRAPH" } else { "TEXT" };
             writeln!(
                 board.uart0,
-                "[HEARTBEAT] T+{}s | Sensor: {} | USB: {} | HID Reports: {}",
-                sec, sensor_str, cfg_str, report_count
+                "[HEARTBEAT] T+{}s | Mode: {} | Sensor: {} | USB: {} | HID Reports: {}",
+                sec, mode_str, sensor_str, cfg_str, report_count
             )
             .ok();
         }
