@@ -279,13 +279,13 @@ impl Board {
         let rst = gpiob.pb1.into_push_pull_output();
         let sck = gpioa.pa5.into_alternate_push_pull();
         let mosi = gpioa.pa7.into_alternate_push_pull();
-        let spi0 = Spi0::new_master(dp.spi0, sck, mosi, Prescaler::Div8, &rcu);
+        let spi0 = Spi0::new_master(dp.spi0, sck, mosi, Prescaler::Div4, &rcu);
         let lcd = Lcd::new(spi0, cs, dc, rst);
 
-        // PB6 (SCL) and PB7 (SDA) as AF Open-Drain 50MHz
+        // PB6 (SCL) and PB7 (SDA) as AF Open-Drain 50MHz, Fast Mode 400 kHz
         let scl = gpiob.pb6.into_alternate_open_drain();
         let sda = gpiob.pb7.into_alternate_open_drain();
-        let i2c0 = I2c::new(dp.i2c0, scl, sda, 100_000, &clocks, &rcu);
+        let i2c0 = I2c::new(dp.i2c0, scl, sda, 400_000, &clocks, &rcu);
         let ina219 = Ina219::new(i2c0, ina219::INA219_ADDR_DEFAULT);
 
         let mut delay = Delay::new(dp.mtime, clocks);

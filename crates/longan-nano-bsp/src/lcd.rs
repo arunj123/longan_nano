@@ -208,6 +208,18 @@ impl Lcd {
         }
     }
 
+    /// Draws a horizontal line.
+    #[inline]
+    pub fn draw_hline(&mut self, x: u16, y: u16, len: u16, color: u16) {
+        self.fill_rect(x, y, len, 1, color);
+    }
+
+    /// Draws a vertical line.
+    #[inline]
+    pub fn draw_vline(&mut self, x: u16, y: u16, len: u16, color: u16) {
+        self.fill_rect(x, y, 1, len, color);
+    }
+
     /// Clears the entire display to a single color.
     pub fn clear(&mut self, color: u16) {
         self.fill_rect(0, 0, LCD_WIDTH, LCD_HEIGHT, color);

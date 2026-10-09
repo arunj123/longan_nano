@@ -1,104 +1,75 @@
-# Longan Nano - INA219 DC Current Monitor
+# Longan Nano - INA219 DC Current & Power Monitor (Pure Rust)
 
-This project turns the Sipeed Longan Nano board into a real-time DC current and power monitor. It interfaces with an INA219 sensor via hardware I2C, displays live readings on the integrated LCD, and streams high-frequency monitoring data to a host PC via a custom USB HID interface.
+This project transforms the Sipeed Longan Nano (GD32VF103 RISC-V RV32IMAC MCU @ 96 MHz) into a real-time DC current, power, and energy monitor with an on-device ST7735 color display, persistent MicroSD FAT32 CSV logging, and continuous high-frequency USB HID telemetry streaming.
 
-![Project Overview](../current_display.png)
+The firmware is implemented in **100% vendor-free, pure embedded Rust** (`no_std`) with zero software float arithmetic, achieving high DSP throughput and low latency.
 
-## Features
+---
 
-- **Real-Time Visualization:** Displays Voltage (mV), Current (mA), and Power (mW) directly on the Longan Nano's 160x80 LCD.
-- **High-Frequency Streaming:** Streams sensor data over USB HID at 10Hz for logging and analysis on a host PC.
-- **Hardware I2C:** Utilizes the GD32VF103's hardware I2C peripheral (I2C0) for efficient, non-blocking sensor communication.
-- **Custom Graphics:** Includes a lightweight embedded font library for high-performance text rendering on the LCD.
-- **Agent Enhanced:** Includes pre-defined agent workflows and rules for automated building, flashing, and maintenance.
+## Key Features
 
-## Hardware Required
+- **Multi-Screen On-Device UI (160x80 ST7735 LCD @ 24 MHz SPI):**
+  - **Hero Screen:** Large 28px TrueType-rasterized current metric, live dynamic load gauge bar with peak-hold transient marker, mint voltage card, amber power card, and live status badges (`[LIVE]`, `[REV]`, `[OVF]`, `[ERR]`).
+  - **Oscilloscope Screen:** 10 Hz real-time sweep with an integrated **137-sample circular buffer**. When autoscaling shifts scale tiers, the historical waveform is instantly replotted without erasing previous measurements. Includes shaded area fill, grid dots, and non-overlapping header telemetry.
+  - **Stats Dashboard:** Live session run time, estimated load impedance (\(R = V/I\)), voltage min..max range, current min..max range, peak power, MicroSD log counter, and accumulated energy (\(\mu\text{Wh} \to \text{mWh} \to \text{Wh}\)) & charge (\(\mu\text{Ah} \to \text{mAh} \to \text{Ah}\)).
+- **Precision Sensor DSP (INA219 @ 400 kHz Fast I2C):**
+  - 128-sample hardware shunt ADC averaging (68.1 ms conversion time) covering ~68% of continuous real time.
+  - 16-sample hardware bus ADC averaging.
+  - Math overflow (`OVF`) and conversion ready (`CNVR`) monitoring.
+  - Near-zero deadband filter to eliminate ADC quantization jitter.
+  - Sub-sample millisecond delta integration with zero timing drift.
+- **MicroSD FAT32 CSV Datalogging (`MONITOR.CSV`):**
+  - Internal 512-byte sector buffer: eliminates costly per-second filesystem overhead and flash wear by writing full sector blocks.
+  - Hot-plug recovery with exponential backoff (2.5s \(\to\) 5s \(\to\) 10s \(\to\) 30s) to guarantee zero UI or USB stutter when no card is inserted.
+  - Logs true instantaneous measurements with exact decimal points and signed current.
+- **Interactive Controls (User Button PA8):**
+  - **Short Press (< 1.5s):** Cycle through screens: `Hero` \(\to\) `Graph` \(\to\) `Stats` \(\to\) `Hero`.
+  - **Long Press (\(\ge\) 1.5s):** **Tare Zero Calibration** (stores active reading as zero-offset) + resets session accumulators and stats.
+- **High-Frequency USB HID Telemetry Streaming:**
+  - Streams 9-byte reports at 10 Hz over custom USB HID (VID: `0x28E9`, PID: `0x1234`).
+  - Transmits bus voltage (mV), signed current with 0.1 mA resolution, power (mW), sequence counter, and diagnostic flags (`ONLINE`, `REV`, `OVF`, `SD-REC`).
+  - Accompanied by a live Python terminal dashboard (`monitor.py`).
 
-- **Sipeed Longan Nano** board.
-- **INA219 DC Current Monitor** module.
-- Jumper wires.
+---
 
-## Wiring
+## Hardware Pinout & Wiring
 
-Connect the INA219 sensor to the Longan Nano using the hardware I2C0 pins:
+Connect the INA219 sensor module to the Longan Nano:
 
-| INA219 Pin | Longan Nano Pin | Physical Pin # | Function   |
-| :--------- | :-------------- | :------------- | :--------- |
-| `VCC`      | **3.3V**        |                | Power      |
-| `GND`      | **GND**         |                | Ground     |
-| `SCL`      | **PB6**         | Pin 17         | I2C0 Clock |
-| `SDA`      | **PB7**         | Pin 18         | I2C0 Data  |
+| INA219 Pin | Longan Nano Pin | Physical Pin # | Function                       |
+| :--------- | :-------------- | :------------- | :----------------------------- |
+| `VCC`      | **3.3V**        |                | 3.3V System Power              |
+| `GND`      | **GND**         |                | Common Ground                  |
+| `SCL`      | **PB6**         | Pin 17         | I2C0 Clock (400 kHz Fast Mode) |
+| `SDA`      | **PB7**         | Pin 18         | I2C0 Data (AF Open-Drain)      |
 
-## Getting Started
+Other integrated on-board peripherals used:
+- **LCD (SPI0):** PA5 (SCK), PA7 (MOSI), PB0 (DC), PB1 (RST), PB2 (CS) @ 24 MHz (`Prescaler::Div4`).
+- **MicroSD (SPI1):** PB12 (CS), PB13 (SCK), PB14 (MISO), PB15 (MOSI).
+- **USB:** PA11 (DM), PA12 (DP).
+- **Button:** PA8 (Active-low with internal pull-up).
+- **LEDs:** PC13 (Red - Error), PA1 (Green - Heartbeat), PA2 (Blue - User input feedback).
 
-### Prerequisites
+---
 
-1.  A RISC-V development toolchain (automatically managed by the provided build scripts on Windows).
-2.  Refer to the repository's root `README.md` for general build system setup.
+## Building and Flashing
 
-### Building and Flashing
-
-You can use the custom build manager to compile and program the device:
+Build the release binary using Cargo or the repository build manager:
 
 ```powershell
-# To build the project:
-python bldmgr/build.py prj_current_monitor build
+# Build Rust firmware and generate .hex / .bin
+$env:PYTHONUTF8=1; python bldmgr/build.py prj_current_monitor build
 
-# To flash the firmware to the device:
-python bldmgr/build.py prj_current_monitor flash
+# Flash via remote OpenOCD programmer
+$env:PYTHONUTF8=1; python tools/remote_flash.py build/prj_current_monitor/rust/firmware_rust.hex
 ```
 
-Alternatively, if you are using an agentic IDE, you can use the built-in workflow:
-`/build_and_flash`
-
-## USB HID Data Format
-
-The device enumerates as a Custom HID device and sends a 9-byte data packet at 10Hz.
-
-**Report ID:** `0x01`
-
-| Byte Index | Field       | Type     | Unites | Description         |
-| :--------- | :---------- | :------- | :----- | :------------------ |
-| 0          | Report ID   | uint8    | -      | Fixed at 0x01       |
-| 1-2        | Voltage     | uint16le | mV     | Bus Voltage         |
-| 3-4        | Current     | int16le  | mA     | Shunt Current       |
-| 5-6        | Power       | uint16le | mW     | Calculated Power    |
-| 7-8        | Padding     | -        | -      | Reserved for future |
+---
 
 ## Host PC Monitoring
 
-A Python script is provided to receive and display the live data stream on your computer.
+Run the Python telemetry monitor to view the live ANSI dashboard:
 
-### Prerequisites (Host)
-
-1.  Python 3 installed.
-2.  Install the `hidapi` library:
-    ```bash
-    pip install hidapi
-    ```
-
-### Running the Monitor
-
-Connect the Longan Nano to your PC via USB and run the script from the project directory:
-
-```bash
+```powershell
 python prj_current_monitor/monitor.py
 ```
-
-The script will display a live table of Voltage, Current, and Power readings.
-
-## Code Structure
-
-- `src/main.cpp`: Main application loop, sensors polling, and USB reporting logic.
-- `src/i2c_hw.c / .h`: Robust hardware I2C driver for the GD32VF103.
-- `src/ina219.c / .h`: Driver for the INA219 sensor, configured for high resolution.
-- `src/display_manager.cpp / .h`: Manages the LCD UI, text rendering, and screen updates.
-- `src/usb_hid/`: Simplified USB stack for custom HID communication.
-- `config.py`: Project-specific build configuration and source listing.
-
-## Agent Support
-
-This project is "Agent-Ready" and includes:
-- **.agentrules**: Context and constraints for AI coding assistants.
-- **.agents/workflows/**: Automated steps for building and deployment.
-- **.agents/brain/**: Preserved design documents and technical history.

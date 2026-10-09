@@ -98,12 +98,15 @@ def run_cli_dashboard(csv_file=None):
             while True:
                 report = device.read(64)
                 if report and report[0] == 0x01 and len(report) >= 7:
-                    v_mv, c_ma, p_mw = struct.unpack('<HhH', bytes(report[1:7]))
+                    v_mv, c_raw, p_mw = struct.unpack('<HhH', bytes(report[1:7]))
+                    c_ma = c_raw / 10.0  # High-resolution 0.1 mA signed current
+                    flags = report[7] if len(report) >= 8 else 0
+                    seq = report[8] if len(report) >= 9 else 0
                     stats.update(v_mv, c_ma, p_mw)
 
                     if csv_writer:
                         iso = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-                        csv_writer.write(f"{iso},{time.time()-stats.start_time:.2f},{v_mv},{c_ma},{p_mw},{stats.mwh_accum:.2f},{stats.mah_accum:.2f}\n")
+                        csv_writer.write(f"{iso},{time.time()-stats.start_time:.2f},{v_mv},{c_ma:.1f},{p_mw},{stats.mwh_accum:.2f},{stats.mah_accum:.2f}\n")
 
                     uptime_s = int(time.time() - stats.start_time)
                     h, m, s = uptime_s // 3600, (uptime_s % 3600) // 60, uptime_s % 60
@@ -112,13 +115,21 @@ def run_cli_dashboard(csv_file=None):
                     v_bar = make_bar(v_mv, 6000, 20)
                     c_bar = make_bar(abs(c_ma), 1000, 20)
 
+                    flag_str = " ".join([
+                        "ONLINE" if flags & 0x01 else "OFFLINE",
+                        "REV" if flags & 0x02 else "FWD",
+                        "OVF" if flags & 0x04 else "OK",
+                        "SD-REC" if flags & 0x08 else "NO-SD",
+                    ])
+
                     # Dynamic ANSI terminal dashboard
                     output = (
                         f"\033[H\033[J" # Clear screen
                         f"╔════════════════════════════════════════════════════════════════════════╗\n"
                         f"║             LONGAN NANO INA219 DC CURRENT & POWER MONITOR              ║\n"
                         f"╠════════════════════════════════════════════════════════════════════════╣\n"
-                        f"║ Uptime: {h:02d}:{m:02d}:{s:02d} | Packets: {stats.samples:<6} | Load Impedance: {r_str:<12}       ║\n"
+                        f"║ Uptime: {h:02d}:{m:02d}:{s:02d} | Seq: #{seq:<3} | Status: [{flag_str:<21}] ║\n"
+                        f"║ Packets: {stats.samples:<6} | Load Impedance: {r_str:<12}                    ║\n"
                         f"╠════════════════════════════════════════════════════════════════════════╣\n"
                         f"║ VOLTAGE : {v_mv/1000.0:>6.3f} V   [{v_bar}] Min: {stats.v_min/1000.0:>5.2f}V Max: {stats.v_max/1000.0:>5.2f}V ║\n"
                         f"║ CURRENT : {c_ma:>7.1f} mA  [{c_bar}] Min: {stats.c_min:>6.1f}  Max: {stats.c_max:>6.1f}mA ║\n"
