@@ -119,34 +119,24 @@ fn redraw_grid(lcd: &mut longan_nano_bsp::Lcd, tier_idx: usize) {
 fn draw_text_screen_layout(lcd: &mut longan_nano_bsp::Lcd) {
     lcd.clear(lcd_color::BLACK);
 
-    // 1. Header Bar (Y: 0..14)
-    lcd.fill_rect(0, 0, 160, 14, 0x11E6); // Slate Navy
-    lcd.fill_rect(0, 14, 160, 1, lcd_color::CYAN);
-    lcd.draw_string(6, 4, "INA219", lcd_color::WHITE, 0x11E6);
+    // 1. Top Header Bar (Y: 0..13)
+    lcd.fill_rect(0, 0, 160, 13, 0x11E6); // Slate Navy
+    lcd.fill_rect(0, 13, 160, 1, 0x1AE7); // Hairline separator
+    lcd.draw_string(5, 3, "INA219", lcd_color::WHITE, 0x11E6);
 
-    // 2. Voltage Row Card Badge (Y: 18..31)
-    lcd.fill_rect(4, 18, 34, 14, 0x0141);
-    lcd.rect(4, 18, 34, 14, 0x05E3);
-    lcd.draw_string(8, 21, "VOLT", lcd_color::GREEN, 0x0141);
+    // 2. Bottom Weather Widget Tiles (Y: 51..78)
+    // Left Tile: VOLTAGE
+    lcd.fill_rect(3, 51, 76, 27, 0x0944); // Deep Navy Slate tile
+    lcd.rect(3, 51, 76, 27, 0x1AE7);      // Subtle border
+    lcd.draw_string(7, 53, "VOLTAGE", 0x7FE0, 0x0944); // Mint label
 
-    // Divider 1
-    lcd.fill_rect(4, 35, 152, 1, 0x1AE7);
+    // Right Tile: POWER
+    lcd.fill_rect(81, 51, 76, 27, 0x0944); // Deep Navy Slate tile
+    lcd.rect(81, 51, 76, 27, 0x1AE7);      // Subtle border
+    lcd.draw_string(85, 53, "POWER", 0xFEA0, 0x0944); // Amber label
 
-    // 3. Current Row Card Badge (Y: 39..52)
-    lcd.fill_rect(4, 39, 34, 14, 0x0106);
-    lcd.rect(4, 39, 34, 14, 0x051B);
-    lcd.draw_string(8, 42, "CURR", lcd_color::CYAN, 0x0106);
-
-    // Divider 2
-    lcd.fill_rect(4, 56, 152, 1, 0x1AE7);
-
-    // 4. Power Row Card Badge (Y: 60..73)
-    lcd.fill_rect(4, 60, 34, 14, 0x3100);
-    lcd.rect(4, 60, 34, 14, 0x7460);
-    lcd.draw_string(8, 63, "POWR", lcd_color::YELLOW, 0x3100);
-
-    // Bottom decorative bar
-    lcd.fill_rect(0, 78, 160, 2, 0x11E6);
+    // Baseline
+    lcd.fill_rect(0, 79, 160, 1, lcd_color::BLACK);
 }
 
 #[entry]
@@ -486,7 +476,7 @@ fn main() -> ! {
                     } else {
                         write!(e_cur, "E:{:>2}.{:02}mWh", total_mwh, frac_mwh).ok();
                     }
-                    board.lcd.draw_string(52, 4, e_cur.as_str(), rgb565(255, 180, 50), 0x11E6);
+                    board.lcd.draw_string(54, 3, e_cur.as_str(), rgb565(255, 180, 50), 0x11E6);
 
                     // Status Badge in text header
                     if !ina_present {
@@ -503,41 +493,66 @@ fn main() -> ! {
                         board.lcd.draw_string(128, 3, "LIVE", lcd_color::GREEN, 0x0162);
                     }
 
-                    // 1. Voltage Row Card Digits
-                    let mut v_buf = [0u8; 20];
-                    let mut v_cur = BufferCursor::new(&mut v_buf);
-                    write!(
-                        v_cur,
-                        "{:>3}.{:03} V  ",
-                        v_mv / 1000,
-                        v_mv % 1000
-                    )
-                    .ok();
-                    board.lcd.draw_string(48, 21, v_cur.as_str(), 0xD7FA, lcd_color::BLACK);
-
-                    // 2. Current Row Card Digits (sub-mA resolution)
-                    let mut c_buf = [0u8; 20];
+                    // 1. HERO CURRENT DISPLAY (Font 16x24 - LARGEST on display)
+                    let mut c_buf = [0u8; 16];
                     let mut c_cur = BufferCursor::new(&mut c_buf);
                     let whole_c = abs_c_tenth / 10;
                     let frac_c = abs_c_tenth % 10;
-                    if is_reverse {
-                        write!(c_cur, "-{:>4}.{} mA ", whole_c, frac_c).ok();
+                    if abs_c_tenth < 10000 {
+                        if is_reverse {
+                            write!(c_cur, "-{:>4}.{}mA", whole_c, frac_c).ok();
+                        } else {
+                            write!(c_cur, " {:>4}.{}mA", whole_c, frac_c).ok();
+                        }
                     } else {
-                        write!(c_cur, " {:>4}.{} mA ", whole_c, frac_c).ok();
+                        if is_reverse {
+                            write!(c_cur, "-{:>2}.{:03}A", whole_c / 1000, whole_c % 1000).ok();
+                        } else {
+                            write!(c_cur, " {:>2}.{:03}A", whole_c / 1000, whole_c % 1000).ok();
+                        }
                     }
-                    board.lcd.draw_string(48, 42, c_cur.as_str(), lcd_color::CYAN, lcd_color::BLACK);
 
-                    // 3. Power Row Card Digits
-                    let mut p_buf = [0u8; 20];
+                    let curr_col = if is_reverse {
+                        rgb565(255, 80, 80)
+                    } else {
+                        COL_TRACE_I
+                    };
+                    // Exactly 8 chars * 16 px = 128 px, centered at X = 16, Y = 16
+                    board.lcd.draw_string_16x24(16, 16, c_cur.as_str(), curr_col, lcd_color::BLACK);
+
+                    // Hero Subtitle / Condition Tag (Mobile weather condition style)
+                    let (sub_text, sub_col) = if !ina_present {
+                        (" • SENSOR OFFLINE • ", lcd_color::RED)
+                    } else if abs_c_tenth < 2 {
+                        (" • STANDBY / IDLE • ", rgb565(130, 140, 150))
+                    } else if is_reverse {
+                        (" • REVERSE CURRENT •", rgb565(255, 90, 90))
+                    } else if abs_c_tenth >= 5000 {
+                        ("   • HIGH LOAD •    ", rgb565(255, 180, 50))
+                    } else {
+                        ("  • ACTIVE LOAD •   ", lcd_color::GREEN)
+                    };
+                    board.lcd.draw_string(17, 41, sub_text, sub_col, lcd_color::BLACK);
+
+                    // 2. BOTTOM TILE: VOLTAGE (Font 8x16)
+                    let mut v_buf = [0u8; 16];
+                    let mut v_cur = BufferCursor::new(&mut v_buf);
+                    write!(v_cur, "{:>2}.{:03}V", v_mv / 1000, v_mv % 1000).ok();
+                    // 7 chars * 8 px = 56 px, centered in tile at X = 13, Y = 62
+                    board.lcd.draw_string_8x16(13, 62, v_cur.as_str(), 0xD7FA, 0x0944);
+
+                    // 3. BOTTOM TILE: POWER (Font 8x16)
+                    let mut p_buf = [0u8; 16];
                     let mut p_cur = BufferCursor::new(&mut p_buf);
                     if p_tenth < 100000 {
-                        write!(p_cur, " {:>4}.{} mW ", p_tenth / 10, p_tenth % 10).ok();
+                        write!(p_cur, "{:>4}.{}mW", p_tenth / 10, p_tenth % 10).ok();
                     } else {
                         let whole_w = (p_tenth / 10) / 1000;
                         let frac_w = ((p_tenth / 10) % 1000) / 10;
-                        write!(p_cur, " {:>4}.{:02} W  ", whole_w, frac_w).ok();
+                        write!(p_cur, "{:>3}.{:02} W", whole_w, frac_w).ok();
                     }
-                    board.lcd.draw_string(48, 63, p_cur.as_str(), lcd_color::YELLOW, lcd_color::BLACK);
+                    // 7 chars * 8 px = 56 px, centered in tile at X = 91, Y = 62
+                    board.lcd.draw_string_8x16(91, 62, p_cur.as_str(), lcd_color::YELLOW, 0x0944);
                 }
             }
 

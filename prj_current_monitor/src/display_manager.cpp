@@ -121,43 +121,30 @@ void DisplayManager::toggle_screen_mode() {
 void DisplayManager::draw_text_layout() {
     lcd_clear(lcd::color::Black);
 
-    // 1. Header Bar (Y: 0..14)
-    lcd_fill_rect(0, 0, 160, 14, 0x11E6);
-    lcd_fill_rect(0, 14, 160, 1, lcd::color::Cyan);
-    lcd::draw_string(6, 4, "INA219", lcd::color::White, 0x11E6);
+    // 1. Top Header Bar (Y: 0..13)
+    lcd_fill_rect(0, 0, 160, 13, 0x11E6); // Slate Navy
+    lcd_fill_rect(0, 13, 160, 1, 0x1AE7); // Hairline separator
+    lcd::draw_string(5, 3, "INA219", lcd::color::White, 0x11E6);
 
-    // 2. Voltage Row Card Badge (Y: 18..31)
-    lcd_fill_rect(4, 18, 34, 14, 0x0141);
-    lcd_fill_rect(4, 18, 34, 1, 0x05E3);
-    lcd_fill_rect(4, 31, 34, 1, 0x05E3);
-    lcd_fill_rect(4, 18, 1, 14, 0x05E3);
-    lcd_fill_rect(37, 18, 1, 14, 0x05E3);
-    lcd::draw_string(8, 21, "VOLT", lcd::color::Green, 0x0141);
+    // 2. Bottom Weather Widget Tiles (Y: 51..78)
+    // Left Tile: VOLTAGE
+    lcd_fill_rect(3, 51, 76, 27, 0x0944); // Deep Navy Slate tile
+    lcd_fill_rect(3, 51, 76, 1, 0x1AE7);  // Top border
+    lcd_fill_rect(3, 77, 76, 1, 0x1AE7);  // Bottom border
+    lcd_fill_rect(3, 51, 1, 27, 0x1AE7);  // Left border
+    lcd_fill_rect(78, 51, 1, 27, 0x1AE7); // Right border
+    lcd::draw_string(7, 53, "VOLTAGE", 0x7FE0, 0x0944); // Mint label
 
-    // Divider 1
-    lcd_fill_rect(4, 35, 152, 1, 0x1AE7);
+    // Right Tile: POWER
+    lcd_fill_rect(81, 51, 76, 27, 0x0944); // Deep Navy Slate tile
+    lcd_fill_rect(81, 51, 76, 1, 0x1AE7);  // Top border
+    lcd_fill_rect(81, 77, 76, 1, 0x1AE7);  // Bottom border
+    lcd_fill_rect(81, 51, 1, 27, 0x1AE7);  // Left border
+    lcd_fill_rect(156, 51, 1, 27, 0x1AE7); // Right border
+    lcd::draw_string(85, 53, "POWER", 0xFEA0, 0x0944); // Amber label
 
-    // 3. Current Row Card Badge (Y: 39..52)
-    lcd_fill_rect(4, 39, 34, 14, 0x0106);
-    lcd_fill_rect(4, 39, 34, 1, 0x051B);
-    lcd_fill_rect(4, 52, 34, 1, 0x051B);
-    lcd_fill_rect(4, 39, 1, 14, 0x051B);
-    lcd_fill_rect(37, 39, 1, 14, 0x051B);
-    lcd::draw_string(8, 42, "CURR", lcd::color::Cyan, 0x0106);
-
-    // Divider 2
-    lcd_fill_rect(4, 56, 152, 1, 0x1AE7);
-
-    // 4. Power Row Card Badge (Y: 60..73)
-    lcd_fill_rect(4, 60, 34, 14, 0x3100);
-    lcd_fill_rect(4, 60, 34, 1, 0x7460);
-    lcd_fill_rect(4, 73, 34, 1, 0x7460);
-    lcd_fill_rect(4, 60, 1, 14, 0x7460);
-    lcd_fill_rect(37, 60, 1, 14, 0x7460);
-    lcd::draw_string(8, 63, "POWR", lcd::color::Yellow, 0x3100);
-
-    // Bottom decorative bar
-    lcd_fill_rect(0, 78, 160, 2, 0x11E6);
+    // Baseline
+    lcd_fill_rect(0, 79, 160, 1, lcd::color::Black);
 }
 
 void DisplayManager::toggle_plot_mode() {
@@ -234,7 +221,7 @@ void DisplayManager::update(const ina219_data_t& data, bool sensor_ok) {
         } else {
             snprintf(buf, sizeof(buf), "E:%2lu.%02lumWh", total_mwh, frac_mwh);
         }
-        lcd::draw_string(52, 4, buf, lcd::color::rgb(255, 180, 50), 0x11E6);
+        lcd::draw_string(54, 3, buf, lcd::color::rgb(255, 180, 50), 0x11E6);
 
         // Status Badge in text header
         if (!sensor_ok) {
@@ -248,23 +235,60 @@ void DisplayManager::update(const ina219_data_t& data, bool sensor_ok) {
             lcd::draw_string(128, 3, "LIVE", lcd::color::Green, 0x0162);
         }
 
-        // Digits
-        snprintf(buf, sizeof(buf), "%3u.%03u V  ", v_mv / 1000, v_mv % 1000);
-        lcd::draw_string(48, 21, buf, 0xD7FA, lcd::color::Black);
-
-        if (is_reverse) {
-            snprintf(buf, sizeof(buf), "-%4d.%1d mA ", abs_c_tenth / 10, abs_c_tenth % 10);
+        // 1. HERO CURRENT DISPLAY (Font 16x24 - LARGEST on display)
+        char c_buf[16];
+        int16_t whole_c = abs_c_tenth / 10;
+        int16_t frac_c = abs_c_tenth % 10;
+        if (abs_c_tenth < 10000) {
+            if (is_reverse) {
+                snprintf(c_buf, sizeof(c_buf), "-%4d.%1dmA", whole_c, frac_c);
+            } else {
+                snprintf(c_buf, sizeof(c_buf), " %4d.%1dmA", whole_c, frac_c);
+            }
         } else {
-            snprintf(buf, sizeof(buf), " %4d.%1d mA ", abs_c_tenth / 10, abs_c_tenth % 10);
+            if (is_reverse) {
+                snprintf(c_buf, sizeof(c_buf), "-%2d.%03dA", whole_c / 1000, whole_c % 1000);
+            } else {
+                snprintf(c_buf, sizeof(c_buf), " %2d.%03dA", whole_c / 1000, whole_c % 1000);
+            }
         }
-        lcd::draw_string(48, 42, buf, lcd::color::Cyan, lcd::color::Black);
+        uint16_t curr_col = is_reverse ? lcd::color::rgb(255, 80, 80) : lcd::color::Cyan;
+        lcd::draw_string<lcd::font::Font16x24>(16, 16, c_buf, curr_col, lcd::color::Black);
 
+        // Hero Subtitle / Condition Tag (Mobile weather condition style)
+        const char* sub_text;
+        uint16_t sub_col;
+        if (!sensor_ok) {
+            sub_text = " • SENSOR OFFLINE • ";
+            sub_col = lcd::color::Red;
+        } else if (abs_c_tenth < 2) {
+            sub_text = " • STANDBY / IDLE • ";
+            sub_col = lcd::color::rgb(130, 140, 150);
+        } else if (is_reverse) {
+            sub_text = " • REVERSE CURRENT • ";
+            sub_col = lcd::color::rgb(255, 90, 90);
+        } else if (abs_c_tenth >= 5000) {
+            sub_text = "   • HIGH LOAD •    ";
+            sub_col = lcd::color::rgb(255, 180, 50);
+        } else {
+            sub_text = "  • ACTIVE LOAD •   ";
+            sub_col = lcd::color::Green;
+        }
+        lcd::draw_string(17, 41, sub_text, sub_col, lcd::color::Black);
+
+        // 2. BOTTOM TILE: VOLTAGE (Font 8x16)
+        char v_buf[16];
+        snprintf(v_buf, sizeof(v_buf), "%2u.%03uV", v_mv / 1000, v_mv % 1000);
+        lcd::draw_string<lcd::font::Font8x16>(13, 62, v_buf, 0xD7FA, 0x0944);
+
+        // 3. BOTTOM TILE: POWER (Font 8x16)
+        char p_buf[16];
         if (p_tenth < 100000) {
-            snprintf(buf, sizeof(buf), " %4lu.%1lu mW ", p_tenth / 10, p_tenth % 10);
+            snprintf(p_buf, sizeof(p_buf), "%4lu.%1lumW", p_tenth / 10, p_tenth % 10);
         } else {
-            snprintf(buf, sizeof(buf), " %4lu.%02lu W  ", (p_tenth / 10) / 1000, ((p_tenth / 10) % 1000) / 10);
+            snprintf(p_buf, sizeof(p_buf), "%3lu.%02lu W", (p_tenth / 10) / 1000, ((p_tenth / 10) % 1000) / 10);
         }
-        lcd::draw_string(48, 63, buf, lcd::color::Yellow, lcd::color::Black);
+        lcd::draw_string<lcd::font::Font8x16>(91, 62, p_buf, lcd::color::Yellow, 0x0944);
         return;
     }
 
