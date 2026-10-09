@@ -527,21 +527,21 @@ fn main() -> ! {
                     };
 
                     let s = c_cur.as_str();
-                    let str_w = (s.len() as u16) * 16;
+                    let str_w = board.lcd.string_width_28(s);
                     let x = if str_w < 160 { (160 - str_w) / 2 } else { 0 };
 
-                    // Clear margins around the 24px hero area (Y: 14..50)
+                    // Clear margins around the 28px hero area (Y: 14..50, height = 37)
                     if x > 0 {
                         board.lcd.fill_rect(0, 14, x, 37, lcd_color::BLACK);
                     }
                     if x + str_w < 160 {
                         board.lcd.fill_rect(x + str_w, 14, 160 - (x + str_w), 37, lcd_color::BLACK);
                     }
-                    board.lcd.fill_rect(x, 14, str_w, 6, lcd_color::BLACK);
-                    board.lcd.fill_rect(x, 44, str_w, 7, lcd_color::BLACK);
+                    board.lcd.fill_rect(x, 14, str_w, 4, lcd_color::BLACK);
+                    board.lcd.fill_rect(x, 46, str_w, 5, lcd_color::BLACK);
 
-                    // Render smooth 16x24 hero digits (1:1 true curves, crisp, high-res)
-                    board.lcd.draw_string_16x24(x, 20, s, curr_col, lcd_color::BLACK);
+                    // Render smooth 28px hero digits (1:1 TrueType curves, crisp, high-res)
+                    board.lcd.draw_string_28(x, 18, s, curr_col, lcd_color::BLACK);
 
                     // 2. BOTTOM TILE: VOLTAGE (Font 8x16)
                     let mut v_buf = [0u8; 16];
