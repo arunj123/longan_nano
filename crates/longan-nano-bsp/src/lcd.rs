@@ -289,6 +289,58 @@ impl Lcd {
         }
     }
 
+    /// Draws a character using the 8x16 bitmap font with integer scaling (e.g. scale=2 yields 16x32).
+    pub fn draw_char_8x16_scaled(&mut self, x: u16, y: u16, c: char, fg: u16, bg: u16, scale: u8) {
+        if scale <= 1 {
+            self.draw_char_8x16(x, y, c, fg, bg);
+            return;
+        }
+        let w = 8 * (scale as u16);
+        let h = 16 * (scale as u16);
+        if x + w > LCD_WIDTH || y + h > LCD_HEIGHT {
+            return;
+        }
+
+        let glyph = FONT_8X16.glyph(c);
+        self.set_address_window(x, y, w, h);
+
+        self.spi.wait_idle();
+        self.spi.set_16bit();
+        self.mode_data();
+
+        if let Some(g) = glyph {
+            for row in 0..16 {
+                let row_byte = g[row];
+                for _ in 0..scale {
+                    for col in 0..8 {
+                        let set = (row_byte & (1 << col)) != 0;
+                        let color = if set { fg } else { bg };
+                        for _ in 0..scale {
+                            self.spi.send_u16(color);
+                        }
+                    }
+                }
+            }
+        } else {
+            let total = (w as u32) * (h as u32);
+            for _ in 0..total {
+                self.spi.send_u16(bg);
+            }
+        }
+    }
+
+    /// Draws a text string horizontally using the 8x16 bitmap font with integer scaling.
+    pub fn draw_string_8x16_scaled(&mut self, mut x: u16, y: u16, text: &str, fg: u16, bg: u16, scale: u8) {
+        let adv = 8 * (scale as u16);
+        for c in text.chars() {
+            if x + adv > LCD_WIDTH {
+                break;
+            }
+            self.draw_char_8x16_scaled(x, y, c, fg, bg, scale);
+            x += adv;
+        }
+    }
+
     /// Draws a character using the 16x24 bitmap font (large numbers & units).
     pub fn draw_char_16x24(&mut self, x: u16, y: u16, c: char, fg: u16, bg: u16) {
         if x + 16 > LCD_WIDTH || y + 24 > LCD_HEIGHT {

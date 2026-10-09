@@ -41,7 +41,7 @@ private:
     uint64_t m_tenth_ma_ticks{0};  // Accumulates (0.1 mA) * 0.1s ticks
     uint32_t m_tick_count{0};
 
-    ScreenMode m_screen_mode{ScreenMode::Graph};
+    ScreenMode m_screen_mode{ScreenMode::Text};
     PlotMode   m_plot_mode{PlotMode::Current};
     uint8_t    m_scale_tier{2};      // Default 50 mA (500 tenths)
     int32_t    m_peak_in_sweep{0};

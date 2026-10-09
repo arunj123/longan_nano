@@ -158,7 +158,7 @@ fn main() -> ! {
     board.lcd.init(&mut board.delay);
 
     // State Variables
-    let mut screen_mode = ScreenMode::Graph; // Default: Oscilloscope Graph Screen
+    let mut screen_mode = ScreenMode::Text;  // Default: Text Dashboard (Weather-style)
     let mut scale_tier: usize = 2;          // Default 50mA tier
     let mut peak_in_sweep: i32 = 0;
     let mut sweep_x: u16 = GRAPH_X_MIN;
@@ -168,8 +168,8 @@ fn main() -> ! {
     let mut mw_ticks: u64 = 0;
     let mut tenth_ma_ticks: u64 = 0;
 
-    // Initial Screen Draw
-    draw_graph_screen_layout(&mut board.lcd, scale_tier);
+    // Initial Screen Draw (Weather Text Dashboard)
+    draw_text_screen_layout(&mut board.lcd);
 
     // Initial INA219 Calibration (cal = 4096 for 0.1 ohm shunt and 3.2A max)
     let mut ina_present = match board.ina219.init(4096) {
@@ -493,22 +493,24 @@ fn main() -> ! {
                         board.lcd.draw_string(128, 3, "LIVE", lcd_color::GREEN, 0x0162);
                     }
 
-                    // 1. HERO CURRENT DISPLAY (Font 16x24 - LARGEST on display)
+                    // 1. HERO CURRENT DISPLAY (Font 8x16 scaled 2x -> 16x32, LARGEST on display)
                     let mut c_buf = [0u8; 16];
                     let mut c_cur = BufferCursor::new(&mut c_buf);
                     let whole_c = abs_c_tenth / 10;
                     let frac_c = abs_c_tenth % 10;
                     if abs_c_tenth < 10000 {
                         if is_reverse {
-                            write!(c_cur, "-{:>4}.{}mA", whole_c, frac_c).ok();
+                            write!(c_cur, "-{}.{} mA", whole_c, frac_c).ok();
                         } else {
-                            write!(c_cur, " {:>4}.{}mA", whole_c, frac_c).ok();
+                            write!(c_cur, "{}.{} mA", whole_c, frac_c).ok();
                         }
                     } else {
+                        let whole_a = whole_c / 1000;
+                        let frac_a = (whole_c % 1000) / 10;
                         if is_reverse {
-                            write!(c_cur, "-{:>2}.{:03}A", whole_c / 1000, whole_c % 1000).ok();
+                            write!(c_cur, "-{}.{:02} A", whole_a, frac_a).ok();
                         } else {
-                            write!(c_cur, " {:>2}.{:03}A", whole_c / 1000, whole_c % 1000).ok();
+                            write!(c_cur, "{}.{:02} A", whole_a, frac_a).ok();
                         }
                     }
 
@@ -517,22 +519,21 @@ fn main() -> ! {
                     } else {
                         COL_TRACE_I
                     };
-                    // Exactly 8 chars * 16 px = 128 px, centered at X = 16, Y = 16
-                    board.lcd.draw_string_16x24(16, 16, c_cur.as_str(), curr_col, lcd_color::BLACK);
 
-                    // Hero Subtitle / Condition Tag (Mobile weather condition style)
-                    let (sub_text, sub_col) = if !ina_present {
-                        (" • SENSOR OFFLINE • ", lcd_color::RED)
-                    } else if abs_c_tenth < 2 {
-                        (" • STANDBY / IDLE • ", rgb565(130, 140, 150))
-                    } else if is_reverse {
-                        (" • REVERSE CURRENT •", rgb565(255, 90, 90))
-                    } else if abs_c_tenth >= 5000 {
-                        ("   • HIGH LOAD •    ", rgb565(255, 180, 50))
-                    } else {
-                        ("  • ACTIVE LOAD •   ", lcd_color::GREEN)
-                    };
-                    board.lcd.draw_string(17, 41, sub_text, sub_col, lcd_color::BLACK);
+                    let s = c_cur.as_str();
+                    let str_w = (s.len() as u16) * 16;
+                    let x = if str_w < 160 { (160 - str_w) / 2 } else { 0 };
+
+                    // Clear margins outside the text box to prevent ghost artifacts
+                    if x > 0 {
+                        board.lcd.fill_rect(0, 16, x, 32, lcd_color::BLACK);
+                    }
+                    if x + str_w < 160 {
+                        board.lcd.fill_rect(x + str_w, 16, 160 - (x + str_w), 32, lcd_color::BLACK);
+                    }
+
+                    // Render 16x32 hero digits (Font8x16 scaled 2x)
+                    board.lcd.draw_string_8x16_scaled(x, 16, s, curr_col, lcd_color::BLACK, 2);
 
                     // 2. BOTTOM TILE: VOLTAGE (Font 8x16)
                     let mut v_buf = [0u8; 16];

@@ -62,18 +62,18 @@ DisplayManager& DisplayManager::getInstance() {
 
 void DisplayManager::init() {
     lcd_init();
-    lcd_clear(lcd::color::Black);
-
-    // Initial Header Bar
-    lcd_fill_rect(0, 0, 160, 19, kColBgTop);
-    lcd_fill_rect(0, 19, 160, 1, kColDivider);
-
-    m_sweep_x = kGraphXMin;
-    m_prev_y = kGraphYBase;
-    m_scale_tier = 2; // Default 50mA tier
-    m_peak_in_sweep = 0;
-
-    redraw_grid();
+    if (m_screen_mode == ScreenMode::Text) {
+        draw_text_layout();
+    } else {
+        lcd_clear(lcd::color::Black);
+        lcd_fill_rect(0, 0, 160, 19, kColBgTop);
+        lcd_fill_rect(0, 19, 160, 1, kColDivider);
+        m_sweep_x = kGraphXMin;
+        m_prev_y = kGraphYBase;
+        m_scale_tier = 2; // Default 50mA tier
+        m_peak_in_sweep = 0;
+        redraw_grid();
+    }
 }
 
 void DisplayManager::redraw_grid() {
@@ -241,40 +241,34 @@ void DisplayManager::update(const ina219_data_t& data, bool sensor_ok) {
         int16_t frac_c = abs_c_tenth % 10;
         if (abs_c_tenth < 10000) {
             if (is_reverse) {
-                snprintf(c_buf, sizeof(c_buf), "-%4d.%1dmA", whole_c, frac_c);
+                snprintf(c_buf, sizeof(c_buf), "-%d.%1d mA", whole_c, frac_c);
             } else {
-                snprintf(c_buf, sizeof(c_buf), " %4d.%1dmA", whole_c, frac_c);
+                snprintf(c_buf, sizeof(c_buf), "%d.%1d mA", whole_c, frac_c);
             }
         } else {
+            int16_t whole_a = whole_c / 1000;
+            int16_t frac_a = (whole_c % 1000) / 10;
             if (is_reverse) {
-                snprintf(c_buf, sizeof(c_buf), "-%2d.%03dA", whole_c / 1000, whole_c % 1000);
+                snprintf(c_buf, sizeof(c_buf), "-%d.%02d A", whole_a, frac_a);
             } else {
-                snprintf(c_buf, sizeof(c_buf), " %2d.%03dA", whole_c / 1000, whole_c % 1000);
+                snprintf(c_buf, sizeof(c_buf), "%d.%02d A", whole_a, frac_a);
             }
         }
         uint16_t curr_col = is_reverse ? lcd::color::rgb(255, 80, 80) : lcd::color::Cyan;
-        lcd::draw_string<lcd::font::Font16x24>(16, 16, c_buf, curr_col, lcd::color::Black);
 
-        // Hero Subtitle / Condition Tag (Mobile weather condition style)
-        const char* sub_text;
-        uint16_t sub_col;
-        if (!sensor_ok) {
-            sub_text = " • SENSOR OFFLINE • ";
-            sub_col = lcd::color::Red;
-        } else if (abs_c_tenth < 2) {
-            sub_text = " • STANDBY / IDLE • ";
-            sub_col = lcd::color::rgb(130, 140, 150);
-        } else if (is_reverse) {
-            sub_text = " • REVERSE CURRENT • ";
-            sub_col = lcd::color::rgb(255, 90, 90);
-        } else if (abs_c_tenth >= 5000) {
-            sub_text = "   • HIGH LOAD •    ";
-            sub_col = lcd::color::rgb(255, 180, 50);
-        } else {
-            sub_text = "  • ACTIVE LOAD •   ";
-            sub_col = lcd::color::Green;
+        size_t len = strlen(c_buf);
+        int str_w = static_cast<int>(len * 16);
+        int x = (str_w < 160) ? (160 - str_w) / 2 : 0;
+
+        if (x > 0) {
+            lcd_fill_rect(0, 16, x, 32, lcd::color::Black);
         }
-        lcd::draw_string(17, 41, sub_text, sub_col, lcd::color::Black);
+        if (x + str_w < 160) {
+            lcd_fill_rect(x + str_w, 16, 160 - (x + str_w), 32, lcd::color::Black);
+        }
+
+        // Render 16x32 hero digits (Font8x16 scaled 2x)
+        lcd::draw_string<lcd::font::Font8x16>(x, 16, c_buf, curr_col, lcd::color::Black, 2);
 
         // 2. BOTTOM TILE: VOLTAGE (Font 8x16)
         char v_buf[16];
