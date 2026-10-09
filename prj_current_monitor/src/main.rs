@@ -499,25 +499,17 @@ fn main() -> ! {
                         board.lcd.draw_string(128, 3, "LIVE", lcd_color::GREEN, 0x0162);
                     }
 
-                    // 1. HERO CURRENT DISPLAY (Font 8x16 scaled 2x -> 16x32, LARGEST on display)
+                    // 1. HERO CURRENT DISPLAY (Smooth 28px font, unit small at right edge)
                     let mut c_buf = [0u8; 16];
                     let mut c_cur = BufferCursor::new(&mut c_buf);
                     let whole_c = abs_c_tenth / 10;
                     let frac_c = abs_c_tenth % 10;
-                    if abs_c_tenth < 10000 {
-                        if is_reverse {
-                            write!(c_cur, "-{}.{} mA", whole_c, frac_c).ok();
-                        } else {
-                            write!(c_cur, "{}.{} mA", whole_c, frac_c).ok();
-                        }
+                    let unit_str = "mA";
+
+                    if is_reverse {
+                        write!(c_cur, "-{}.{}", whole_c, frac_c).ok();
                     } else {
-                        let whole_a = whole_c / 1000;
-                        let frac_a = (whole_c % 1000) / 10;
-                        if is_reverse {
-                            write!(c_cur, "-{}.{:02} A", whole_a, frac_a).ok();
-                        } else {
-                            write!(c_cur, "{}.{:02} A", whole_a, frac_a).ok();
-                        }
+                        write!(c_cur, "{}.{}", whole_c, frac_c).ok();
                     }
 
                     let curr_col = if is_reverse {
@@ -528,20 +520,29 @@ fn main() -> ! {
 
                     let s = c_cur.as_str();
                     let str_w = board.lcd.string_width_28(s);
-                    let x = if str_w < 160 { (160 - str_w) / 2 } else { 0 };
+                    // Center the numeric digits within the available 138px zone (X: 0..137)
+                    let x = if str_w < 136 { (136 - str_w) / 2 } else { 0 };
 
                     // Clear margins around the 28px hero area (Y: 14..50, height = 37)
                     if x > 0 {
                         board.lcd.fill_rect(0, 14, x, 37, lcd_color::BLACK);
                     }
-                    if x + str_w < 160 {
-                        board.lcd.fill_rect(x + str_w, 14, 160 - (x + str_w), 37, lcd_color::BLACK);
+                    if x + str_w < 138 {
+                        board.lcd.fill_rect(x + str_w, 14, 138 - (x + str_w), 37, lcd_color::BLACK);
                     }
                     board.lcd.fill_rect(x, 14, str_w, 4, lcd_color::BLACK);
                     board.lcd.fill_rect(x, 46, str_w, 5, lcd_color::BLACK);
 
                     // Render smooth 28px hero digits (1:1 TrueType curves, crisp, high-res)
                     board.lcd.draw_string_28(x, 18, s, curr_col, lcd_color::BLACK);
+
+                    // Render small unit attached to the right edge (X: 140..156, baseline aligned at Y: 27)
+                    board.lcd.fill_rect(138, 14, 2, 37, lcd_color::BLACK);
+                    board.lcd.fill_rect(140, 14, 20, 13, lcd_color::BLACK);
+                    board.lcd.fill_rect(140, 43, 20, 8, lcd_color::BLACK);
+                    board.lcd.fill_rect(156, 27, 4, 16, lcd_color::BLACK);
+
+                    board.lcd.draw_string_8x16(140, 27, unit_str, curr_col, lcd_color::BLACK);
 
                     // 2. BOTTOM TILE: VOLTAGE (Font 8x16)
                     let mut v_buf = [0u8; 16];

@@ -236,42 +236,40 @@ void DisplayManager::update(const ina219_data_t& data, bool sensor_ok) {
             lcd::draw_string(128, 3, "LIVE", lcd::color::Green, 0x0162);
         }
 
-        // 1. HERO CURRENT DISPLAY (Font 16x24 - LARGEST on display)
+        // 1. HERO CURRENT DISPLAY (Font 16x24 hero number, unit small at right edge)
         char c_buf[16];
         int16_t whole_c = abs_c_tenth / 10;
         int16_t frac_c = abs_c_tenth % 10;
-        if (abs_c_tenth < 10000) {
-            if (is_reverse) {
-                snprintf(c_buf, sizeof(c_buf), "-%d.%1d mA", whole_c, frac_c);
-            } else {
-                snprintf(c_buf, sizeof(c_buf), "%d.%1d mA", whole_c, frac_c);
-            }
+        const char* unit_str = "mA";
+        if (is_reverse) {
+            snprintf(c_buf, sizeof(c_buf), "-%d.%1d", whole_c, frac_c);
         } else {
-            int16_t whole_a = whole_c / 1000;
-            int16_t frac_a = (whole_c % 1000) / 10;
-            if (is_reverse) {
-                snprintf(c_buf, sizeof(c_buf), "-%d.%02d A", whole_a, frac_a);
-            } else {
-                snprintf(c_buf, sizeof(c_buf), "%d.%02d A", whole_a, frac_a);
-            }
+            snprintf(c_buf, sizeof(c_buf), "%d.%1d", whole_c, frac_c);
         }
         uint16_t curr_col = is_reverse ? lcd::color::rgb(255, 80, 80) : lcd::color::Cyan;
 
         size_t len = strlen(c_buf);
         int str_w = static_cast<int>(len * 16);
-        int x = (str_w < 160) ? (160 - str_w) / 2 : 0;
+        int x = (str_w < 136) ? (136 - str_w) / 2 : 0;
 
         if (x > 0) {
             lcd_fill_rect(0, 14, x, 37, lcd::color::Black);
         }
-        if (x + str_w < 160) {
-            lcd_fill_rect(x + str_w, 14, 160 - (x + str_w), 37, lcd::color::Black);
+        if (x + str_w < 138) {
+            lcd_fill_rect(x + str_w, 14, 138 - (x + str_w), 37, lcd::color::Black);
         }
         lcd_fill_rect(x, 14, str_w, 6, lcd::color::Black);
         lcd_fill_rect(x, 44, str_w, 7, lcd::color::Black);
 
         // Render smooth 16x24 hero digits
         lcd::draw_string<lcd::font::Font16x24>(x, 20, c_buf, curr_col, lcd::color::Black);
+
+        // Render small unit attached to the right edge (X: 140..156, Y: 27)
+        lcd_fill_rect(138, 14, 2, 37, lcd::color::Black);
+        lcd_fill_rect(140, 14, 20, 13, lcd::color::Black);
+        lcd_fill_rect(140, 43, 20, 8, lcd::color::Black);
+        lcd_fill_rect(156, 27, 4, 16, lcd::color::Black);
+        lcd::draw_string<lcd::font::Font8x16>(140, 27, unit_str, curr_col, lcd::color::Black);
 
         // 2. BOTTOM TILE: VOLTAGE (Font 8x16)
         char v_buf[16];
