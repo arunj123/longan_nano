@@ -196,8 +196,9 @@ void DisplayManager::update_scale(int32_t val_tenth) {
 void DisplayManager::update(const ina219_data_t& data, bool sensor_ok) {
     m_tick_count++;
 
-    // 1. Data parsing & signed handling
-    int16_t c_tenth = data.current_tenth_ma;
+    // 1. Data parsing & signed handling with near-zero deadband to eliminate ADC jitter
+    int16_t raw_c_tenth = data.current_tenth_ma;
+    int16_t c_tenth = (raw_c_tenth >= -1 && raw_c_tenth <= 1) ? 0 : raw_c_tenth;
     bool is_reverse = (c_tenth < 0);
     int16_t abs_c_tenth = is_reverse ? -c_tenth : c_tenth;
 
@@ -261,14 +262,16 @@ void DisplayManager::update(const ina219_data_t& data, bool sensor_ok) {
         int x = (str_w < 160) ? (160 - str_w) / 2 : 0;
 
         if (x > 0) {
-            lcd_fill_rect(0, 16, x, 32, lcd::color::Black);
+            lcd_fill_rect(0, 14, x, 37, lcd::color::Black);
         }
         if (x + str_w < 160) {
-            lcd_fill_rect(x + str_w, 16, 160 - (x + str_w), 32, lcd::color::Black);
+            lcd_fill_rect(x + str_w, 14, 160 - (x + str_w), 37, lcd::color::Black);
         }
+        lcd_fill_rect(x, 14, str_w, 6, lcd::color::Black);
+        lcd_fill_rect(x, 44, str_w, 7, lcd::color::Black);
 
-        // Render 16x32 hero digits (Font8x16 scaled 2x)
-        lcd::draw_string<lcd::font::Font8x16>(x, 16, c_buf, curr_col, lcd::color::Black, 2);
+        // Render smooth 16x24 hero digits
+        lcd::draw_string<lcd::font::Font16x24>(x, 20, c_buf, curr_col, lcd::color::Black);
 
         // 2. BOTTOM TILE: VOLTAGE (Font 8x16)
         char v_buf[16];

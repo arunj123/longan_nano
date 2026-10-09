@@ -287,8 +287,14 @@ fn main() -> ! {
                 }
             }
 
-            // Data extraction & signed handling
-            let c_tenth = data.current_tenth_ma;
+            // Data extraction & signed handling with near-zero deadband to eliminate ADC jitter
+            let raw_c_tenth = data.current_tenth_ma;
+            // Deadband: clamp ADC noise within [-1, +1] (i.e. -0.1mA to +0.1mA) to rock-solid 0
+            let c_tenth = if raw_c_tenth >= -1 && raw_c_tenth <= 1 {
+                0
+            } else {
+                raw_c_tenth
+            };
             let is_reverse = c_tenth < 0;
             let abs_c_tenth = if is_reverse { -c_tenth } else { c_tenth };
             let v_mv = data.voltage_mv;
@@ -524,16 +530,18 @@ fn main() -> ! {
                     let str_w = (s.len() as u16) * 16;
                     let x = if str_w < 160 { (160 - str_w) / 2 } else { 0 };
 
-                    // Clear margins outside the text box to prevent ghost artifacts
+                    // Clear margins around the 24px hero area (Y: 14..50)
                     if x > 0 {
-                        board.lcd.fill_rect(0, 16, x, 32, lcd_color::BLACK);
+                        board.lcd.fill_rect(0, 14, x, 37, lcd_color::BLACK);
                     }
                     if x + str_w < 160 {
-                        board.lcd.fill_rect(x + str_w, 16, 160 - (x + str_w), 32, lcd_color::BLACK);
+                        board.lcd.fill_rect(x + str_w, 14, 160 - (x + str_w), 37, lcd_color::BLACK);
                     }
+                    board.lcd.fill_rect(x, 14, str_w, 6, lcd_color::BLACK);
+                    board.lcd.fill_rect(x, 44, str_w, 7, lcd_color::BLACK);
 
-                    // Render 16x32 hero digits (Font8x16 scaled 2x)
-                    board.lcd.draw_string_8x16_scaled(x, 16, s, curr_col, lcd_color::BLACK, 2);
+                    // Render smooth 16x24 hero digits (1:1 true curves, crisp, high-res)
+                    board.lcd.draw_string_16x24(x, 20, s, curr_col, lcd_color::BLACK);
 
                     // 2. BOTTOM TILE: VOLTAGE (Font 8x16)
                     let mut v_buf = [0u8; 16];
