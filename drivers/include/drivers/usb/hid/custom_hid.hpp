@@ -172,7 +172,7 @@ public:
         if (length < packet_size) {
             memset(m_tx_buf + length, 0, packet_size - length);
         }
-        usbd_ep_send(udev, ep_in, m_tx_buf, packet_size);
+        usbd_ep_send(udev, ep_in, m_tx_buf, static_cast<uint32_t>(length));
         return true;
     }
 

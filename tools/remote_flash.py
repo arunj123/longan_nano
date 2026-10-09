@@ -37,7 +37,7 @@ def flash_remote(hex_path):
     sftp.close()
 
     print(f"[REMOTE FLASH] Programming via OpenOCD...")
-    program_cmd = f'program "{remote_hex}" verify; halt; reg pc 0x08000000; resume; shutdown'
+    program_cmd = f'adapter speed 2000; program "{remote_hex}" verify; halt; reg pc 0x08000000; resume; shutdown'
     full_cmd = f"openocd -f {REMOTE_CFG} -c '{program_cmd}'"
 
     stdin, stdout, stderr = client.exec_command(full_cmd)

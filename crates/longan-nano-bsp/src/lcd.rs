@@ -171,6 +171,26 @@ impl Lcd {
         }
     }
 
+    /// Writes a slice of 16-bit RGB565 pixel values into a bounding window.
+    pub fn write_pixels(&mut self, x: u16, y: u16, w: u16, h: u16, pixels: &[u16]) {
+        if x >= LCD_WIDTH || y >= LCD_HEIGHT || w == 0 || h == 0 {
+            return;
+        }
+        let w = if x + w > LCD_WIDTH { LCD_WIDTH - x } else { w };
+        let h = if y + h > LCD_HEIGHT { LCD_HEIGHT - y } else { h };
+
+        self.set_address_window(x, y, w, h);
+
+        self.spi.wait_idle();
+        self.spi.set_16bit();
+        self.mode_data();
+
+        let count = core::cmp::min(pixels.len(), (w as usize) * (h as usize));
+        for &c in &pixels[..count] {
+            self.spi.send_u16(c);
+        }
+    }
+
     /// Draws an outline rectangle.
     pub fn rect(&mut self, x: u16, y: u16, w: u16, h: u16, color: u16) {
         if w == 0 || h == 0 { return; }
