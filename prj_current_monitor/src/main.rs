@@ -1,6 +1,7 @@
 #![no_std]
 #![no_main]
 
+use core::cell::RefCell;
 use core::fmt::Write;
 use panic_halt as _;
 use riscv_rt::entry;
@@ -8,6 +9,11 @@ use riscv_rt::entry;
 use longan_nano_bsp::{
     lcd::{FONT_28, FONT_5X7, FONT_8X16},
     lcd_color, Board, Ina219Data,
+};
+
+use embedded_sdmmc::{
+    Block, BlockCount, BlockDevice, BlockIdx, Mode, TimeSource, Timestamp,
+    VolumeIdx, VolumeManager,
 };
 
 // Zero-allocation buffer cursor for no_std text formatting
@@ -58,10 +64,19 @@ const GRAPH_Y_TOP: u16 = 22;
 const GRAPH_Y_BASE: u16 = 76;
 const GRAPH_HEIGHT: u16 = GRAPH_Y_BASE - GRAPH_Y_TOP; // 54 pixels
 
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Copy, Clone, PartialEq, Eq)]
 enum ScreenMode {
-    Graph,
-    Text,
+    Text,  // Hero large font numbers & weather-style tiles
+    Graph, // Real-time oscilloscope sweep
+    Stats, // Comprehensive session dashboard & min/max analytics
+}
+
+#[derive(Copy, Clone, PartialEq, Eq)]
+enum SdStatus {
+    NoCard,     // Not inserted or probe failed
+    Ready,      // Card detected & initialized, ready to write
+    Logging,    // Active CSV logging underway
+    WriteError, // Write or flush failed (e.g. removed live)
 }
 
 struct ScaleTier {
@@ -82,13 +97,110 @@ static CURRENT_TIERS: [ScaleTier; 8] = [
     ScaleTier { max_val: 32000, top_lbl: "3.2A", mid_lbl: "1.6A", badge: "[3.2A]"},
 ];
 
+// --- Embedded-SDMMC BlockDevice Adapter ---
+struct SdCardDevice<'a>(&'a RefCell<longan_nano_bsp::SdCard>);
+
+impl<'a> Clone for SdCardDevice<'a> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+impl<'a> Copy for SdCardDevice<'a> {}
+
+impl<'a> BlockDevice for SdCardDevice<'a> {
+    type Error = longan_nano_bsp::SdError;
+
+    fn read(&self, blocks: &mut [Block], start_block_idx: BlockIdx) -> Result<(), Self::Error> {
+        let mut card = self.0.borrow_mut();
+        for (i, block) in blocks.iter_mut().enumerate() {
+            let lba = start_block_idx.0 + i as u32;
+            card.read_sector(lba, &mut block.contents)?;
+        }
+        Ok(())
+    }
+
+    fn write(&self, blocks: &[Block], start_block_idx: BlockIdx) -> Result<(), Self::Error> {
+        let mut card = self.0.borrow_mut();
+        for (i, block) in blocks.iter().enumerate() {
+            let lba = start_block_idx.0 + i as u32;
+            card.write_sector(lba, &block.contents)?;
+        }
+        Ok(())
+    }
+
+    fn num_blocks(&self) -> Result<BlockCount, Self::Error> {
+        let card = self.0.borrow();
+        Ok(BlockCount(card.sector_count))
+    }
+}
+
+struct StaticTimeSource;
+impl TimeSource for StaticTimeSource {
+    fn get_timestamp(&self) -> Timestamp {
+        // FAT standard timestamp (2026-10-09 12:00:00)
+        Timestamp::from_calendar(2026, 10, 9, 12, 0, 0).unwrap()
+    }
+}
+
+// --- Session DSP Analytics Container ---
+struct SessionStats {
+    v_min: u16,
+    v_max: u16,
+    c_min: i16,
+    c_max: i16,
+    p_max: u32, // in tenths of mW
+    start_time_ms: u32,
+    has_samples: bool,
+}
+
+impl SessionStats {
+    fn new(now_ms: u32) -> Self {
+        Self {
+            v_min: u16::MAX,
+            v_max: 0,
+            c_min: i16::MAX,
+            c_max: i16::MIN,
+            p_max: 0,
+            start_time_ms: now_ms,
+            has_samples: false,
+        }
+    }
+
+    fn update(&mut self, v_mv: u16, c_tenth: i16, p_tenth: u32) {
+        if v_mv > 500 {
+            self.has_samples = true;
+            if v_mv < self.v_min { self.v_min = v_mv; }
+            if v_mv > self.v_max { self.v_max = v_mv; }
+            if c_tenth < self.c_min { self.c_min = c_tenth; }
+            if c_tenth > self.c_max { self.c_max = c_tenth; }
+            if p_tenth > self.p_max { self.p_max = p_tenth; }
+        }
+    }
+
+    fn reset(&mut self, now_ms: u32) {
+        self.v_min = u16::MAX;
+        self.v_max = 0;
+        self.c_min = i16::MAX;
+        self.c_max = i16::MIN;
+        self.p_max = 0;
+        self.start_time_ms = now_ms;
+        self.has_samples = false;
+    }
+}
+
+// Compute load resistance in tenths of ohms: R = (V_mV * 100) / c_tenth
+fn calculate_load_resistance(v_mv: u16, c_tenth: i16) -> Option<u32> {
+    if v_mv > 500 && c_tenth > 20 { // > 2.0 mA
+        Some((v_mv as u32 * 100) / (c_tenth as u32))
+    } else {
+        None
+    }
+}
+
 fn draw_graph_screen_layout(lcd: &mut longan_nano_bsp::Lcd, tier_idx: usize) {
     lcd.clear(lcd_color::BLACK);
-
-    // Header Bar (Y: 0..19)
     lcd.fill_rect(0, 0, 160, 19, COL_BG_TOP);
     lcd.fill_rect(0, 19, 160, 1, COL_DIVIDER);
-
     redraw_grid(lcd, tier_idx);
 }
 
@@ -96,20 +208,15 @@ fn redraw_grid(lcd: &mut longan_nano_bsp::Lcd, tier_idx: usize) {
     let top_lbl = CURRENT_TIERS[tier_idx].top_lbl;
     let mid_lbl = CURRENT_TIERS[tier_idx].mid_lbl;
 
-    // 1. Left Y-Axis Labels
     lcd.fill_rect(0, 20, 21, 60, lcd_color::BLACK);
     lcd.draw_string(1, 22, top_lbl, &FONT_5X7, rgb565(140, 160, 185), lcd_color::BLACK);
     lcd.draw_string(1, 46, mid_lbl, &FONT_5X7, rgb565(110, 130, 155), lcd_color::BLACK);
     lcd.draw_string(6, 70, " 0",   &FONT_5X7, rgb565(90, 110, 135),  lcd_color::BLACK);
 
-    // 2. Vertical Axis Line
     lcd.fill_rect(21, 20, 1, 60, COL_AXIS);
-
-    // 3. Clear Graph Canvas & Draw Baseline
     lcd.fill_rect(GRAPH_X_MIN, 20, GRAPH_X_MAX - GRAPH_X_MIN + 1, 60, COL_GRAPH_BG);
     lcd.fill_rect(GRAPH_X_MIN, GRAPH_Y_BASE, GRAPH_X_MAX - GRAPH_X_MIN + 1, 1, COL_AXIS);
 
-    // 4. Subtle Dotted Grid Lines (25%, 50%, 75%)
     let mut x = GRAPH_X_MIN;
     while x <= GRAPH_X_MAX {
         lcd.set_pixel(x, 36, COL_GRID); // 75%
@@ -129,17 +236,38 @@ fn draw_text_screen_layout(lcd: &mut longan_nano_bsp::Lcd) {
 
     // 2. Bottom Weather Widget Tiles (Y: 51..78)
     // Left Tile: VOLTAGE
-    lcd.fill_rect(3, 51, 76, 27, 0x0944); // Deep Navy Slate tile
-    lcd.rect(3, 51, 76, 27, 0x1AE7);      // Subtle border
+    lcd.fill_rect(3, 51, 76, 27, 0x0944);
+    lcd.rect(3, 51, 76, 27, 0x1AE7);
     lcd.draw_string(7, 53, "VOLTAGE", &FONT_5X7, 0x7FE0, 0x0944); // Mint label
 
     // Right Tile: POWER
-    lcd.fill_rect(81, 51, 76, 27, 0x0944); // Deep Navy Slate tile
-    lcd.rect(81, 51, 76, 27, 0x1AE7);      // Subtle border
+    lcd.fill_rect(81, 51, 76, 27, 0x0944);
+    lcd.rect(81, 51, 76, 27, 0x1AE7);
     lcd.draw_string(85, 53, "POWER", &FONT_5X7, 0xFEA0, 0x0944); // Amber label
 
-    // Baseline
     lcd.fill_rect(0, 79, 160, 1, lcd_color::BLACK);
+}
+
+fn draw_stats_screen_layout(lcd: &mut longan_nano_bsp::Lcd) {
+    lcd.clear(lcd_color::BLACK);
+
+    // Header Bar (Y: 0..12)
+    lcd.fill_rect(0, 0, 160, 12, 0x11E6); // Slate Navy
+    lcd.fill_rect(0, 12, 160, 1, 0x1AE7); // Hairline separator
+    lcd.draw_string(4, 2, "SYSTEM STATS", &FONT_5X7, lcd_color::WHITE, 0x11E6);
+
+    // Row Labels (Y = 16, 29, 42, 55, 68)
+    lcd.draw_string(4, 16, "TIME:", &FONT_5X7, rgb565(140, 160, 185), lcd_color::BLACK);
+    lcd.draw_string(88, 16, "LOAD:", &FONT_5X7, rgb565(140, 160, 185), lcd_color::BLACK);
+
+    lcd.draw_string(4, 29, "V-RNG:", &FONT_5X7, 0x7FE0, lcd_color::BLACK); // Mint label
+    lcd.draw_string(4, 42, "I-RNG:", &FONT_5X7, COL_TRACE_I, lcd_color::BLACK); // Cyan label
+
+    lcd.draw_string(4, 55, "P-MAX:", &FONT_5X7, 0xFEA0, lcd_color::BLACK); // Amber label
+    lcd.draw_string(88, 55, "LOGS:", &FONT_5X7, rgb565(140, 160, 185), lcd_color::BLACK);
+
+    lcd.draw_string(4, 68, "E:", &FONT_5X7, rgb565(255, 160, 40), lcd_color::BLACK);
+    lcd.draw_string(88, 68, "Q:", &FONT_5X7, rgb565(100, 255, 140), lcd_color::BLACK);
 }
 
 #[entry]
@@ -154,15 +282,44 @@ fn main() -> ! {
         board.clocks.sysclk / 1_000_000
     )
     .ok();
+    writeln!(board.uart0, " MicroSD: SPI1 (PB12 CS, PB13 SCK, PB14 MISO, PB15 MOSI)").ok();
     writeln!(board.uart0, " USB HID: VID 0x28E9, PID 0x1234").ok();
     writeln!(board.uart0, "========================================").ok();
 
     // Initialize ST7735 160x80 LCD
     board.lcd.init(&mut board.delay);
 
+    // Wrap SD card in RefCell for shared block device access
+    let sdcard_cell = RefCell::new(board.sdcard);
+
+    // Initial probe of MicroSD card
+    let init_result = sdcard_cell.borrow_mut().init(&mut board.delay);
+    let mut sd_status = match init_result {
+        Ok(card_type) => {
+            let sectors = sdcard_cell.borrow().sector_count;
+            writeln!(
+                board.uart0,
+                "[SD] Card detected: {} ({} sectors)",
+                card_type.as_str(),
+                sectors
+            )
+            .ok();
+            SdStatus::Ready
+        }
+        Err(e) => {
+            writeln!(
+                board.uart0,
+                "[SD] No card or probe failed: {} (Running in untethered mode)",
+                e.as_str()
+            )
+            .ok();
+            SdStatus::NoCard
+        }
+    };
+
     // State Variables
-    let mut screen_mode = ScreenMode::Text;  // Default: Text Dashboard (Weather-style)
-    let mut scale_tier: usize = 2;          // Default 50mA tier
+    let mut screen_mode = ScreenMode::Text;
+    let mut scale_tier: usize = 2; // Default 50mA tier
     let mut peak_in_sweep: i32 = 0;
     let mut sweep_x: u16 = GRAPH_X_MIN;
     let mut prev_y: u16 = GRAPH_Y_BASE;
@@ -171,7 +328,10 @@ fn main() -> ! {
     let mut mw_ticks: u64 = 0;
     let mut tenth_ma_ticks: u64 = 0;
 
-    // Initial Screen Draw (Weather Text Dashboard)
+    let mut session_stats = SessionStats::new(board.delay.uptime_ms());
+    let mut sd_log_count: u32 = 0;
+
+    // Initial Screen Draw (Text Dashboard)
     draw_text_screen_layout(&mut board.lcd);
 
     // Initial INA219 Calibration (cal = 4096 for 0.1 ohm shunt and 3.2A max)
@@ -188,7 +348,7 @@ fn main() -> ! {
                 e
             )
             .ok();
-            board.led_red.on(); // Error indicator
+            board.led_red.on();
             false
         }
     };
@@ -196,6 +356,7 @@ fn main() -> ! {
     let mut last_10hz = board.delay.uptime_ms();
     let mut last_1hz = board.delay.uptime_ms();
     let mut last_reinit_attempt = board.delay.uptime_ms();
+    let mut last_sd_probe = board.delay.uptime_ms();
     let mut report_count = 0u32;
     let mut prev_usb_configured = false;
 
@@ -231,28 +392,38 @@ fn main() -> ! {
             let duration = board.delay.uptime_ms().wrapping_sub(button_press_start);
             board.led_blue.off();
             if duration >= 1500 {
-                // Long press: Reset accumulated energy & capacity!
+                // Long press: Reset accumulated energy, capacity & session stats!
                 mw_ticks = 0;
                 tenth_ma_ticks = 0;
-                writeln!(board.uart0, "[SYS] Energy & Charge accumulators reset").ok();
+                session_stats.reset(board.delay.uptime_ms());
+                writeln!(board.uart0, "[SYS] Energy, Charge & Session Stats reset!").ok();
             } else if duration >= 50 {
-                // Short press: Toggle screen mode between Graph and Text version!
+                // Short press: Cycle screen modes (Text -> Graph -> Stats -> Text)
                 screen_mode = match screen_mode {
-                    ScreenMode::Graph => ScreenMode::Text,
                     ScreenMode::Text => ScreenMode::Graph,
+                    ScreenMode::Graph => ScreenMode::Stats,
+                    ScreenMode::Stats => ScreenMode::Text,
                 };
-                if screen_mode == ScreenMode::Graph {
-                    draw_graph_screen_layout(&mut board.lcd, scale_tier);
-                    sweep_x = GRAPH_X_MIN;
-                    prev_y = GRAPH_Y_BASE;
-                    peak_in_sweep = 0;
-                } else {
-                    draw_text_screen_layout(&mut board.lcd);
+
+                match screen_mode {
+                    ScreenMode::Text => draw_text_screen_layout(&mut board.lcd),
+                    ScreenMode::Graph => {
+                        draw_graph_screen_layout(&mut board.lcd, scale_tier);
+                        sweep_x = GRAPH_X_MIN;
+                        prev_y = GRAPH_Y_BASE;
+                        peak_in_sweep = 0;
+                    }
+                    ScreenMode::Stats => draw_stats_screen_layout(&mut board.lcd),
                 }
+
                 writeln!(
                     board.uart0,
-                    "[UI] Screen mode toggled to {}",
-                    if screen_mode == ScreenMode::Graph { "GRAPH (Oscilloscope)" } else { "TEXT (Cards)" }
+                    "[UI] Screen mode switched to {}",
+                    match screen_mode {
+                        ScreenMode::Text => "TEXT (Hero Cards)",
+                        ScreenMode::Graph => "GRAPH (Oscilloscope)",
+                        ScreenMode::Stats => "STATS (Dashboard)",
+                    }
                 )
                 .ok();
             }
@@ -261,7 +432,7 @@ fn main() -> ! {
 
         let now = board.delay.uptime_ms();
 
-        // 2. 10 Hz Periodic Measurement, Screen Rendering & USB HID Streaming
+        // 2. 10 Hz Periodic Measurement, Analytics & Screen Rendering
         if now.wrapping_sub(last_10hz) >= 100 {
             last_10hz = now;
 
@@ -292,7 +463,6 @@ fn main() -> ! {
 
             // Data extraction & signed handling with near-zero deadband to eliminate ADC jitter
             let raw_c_tenth = data.current_tenth_ma;
-            // Deadband: clamp ADC noise within [-1, +1] (i.e. -0.1mA to +0.1mA) to rock-solid 0
             let c_tenth = if raw_c_tenth >= -1 && raw_c_tenth <= 1 {
                 0
             } else {
@@ -304,27 +474,27 @@ fn main() -> ! {
             // Power in tenths of mW: (mV * tenths_of_mA) / 1000
             let p_tenth = (v_mv as u32 * abs_c_tenth as u32) / 1000;
 
+            // Update DSP Session Stats
+            session_stats.update(v_mv, c_tenth, p_tenth);
+
             // Accumulate Energy (mWh) and Charge (mAh)
             if ina_present && v_mv > 500 && abs_c_tenth > 2 {
                 mw_ticks = mw_ticks.saturating_add((p_tenth / 10) as u64);
                 tenth_ma_ticks = tenth_ma_ticks.saturating_add(abs_c_tenth as u64);
             }
 
+            // Compute Estimated Load Resistance R = V / I
+            let r_load_tenth = calculate_load_resistance(v_mv, c_tenth);
+
             // ----------------------------------------------------
-            // 3. Screen Rendering (Graph vs Text)
+            // 3. Screen Rendering
             // ----------------------------------------------------
             match screen_mode {
                 ScreenMode::Graph => {
                     // Top Line 1 (Instantaneous V, I, P, Status)
                     let mut v_buf = [0u8; 12];
                     let mut v_cur = BufferCursor::new(&mut v_buf);
-                    write!(
-                        v_cur,
-                        "{:>2}.{:02}V ",
-                        v_mv / 1000,
-                        (v_mv % 1000) / 10
-                    )
-                    .ok();
+                    write!(v_cur, "{:>2}.{:02}V ", v_mv / 1000, (v_mv % 1000) / 10).ok();
                     board.lcd.draw_string(2, 1, v_cur.as_str(), &FONT_5X7, lcd_color::GREEN, COL_BG_TOP);
 
                     let mut c_buf = [0u8; 14];
@@ -381,13 +551,12 @@ fn main() -> ! {
                     // Scale badge
                     board.lcd.draw_string(126, 10, CURRENT_TIERS[scale_tier].badge, &FONT_5X7, lcd_color::WHITE, COL_BG_TOP);
 
-                    // Oscilloscope Waveform Sweep (Current)
+                    // Oscilloscope Waveform Sweep
                     let plot_val: i32 = abs_c_tenth as i32;
                     if plot_val > peak_in_sweep {
                         peak_in_sweep = plot_val;
                     }
 
-                    // Dynamic Auto-scaling
                     let num_tiers = CURRENT_TIERS.len();
                     let current_max = CURRENT_TIERS[scale_tier].max_val;
                     let mut scale_changed = false;
@@ -428,7 +597,6 @@ fn main() -> ! {
                         y_calc as u16
                     };
 
-                    // Erase lookahead (2 pixels ahead)
                     let erase_x1 = if sweep_x + 1 > GRAPH_X_MAX { GRAPH_X_MIN } else { sweep_x + 1 };
                     let erase_x2 = if sweep_x + 2 > GRAPH_X_MAX { GRAPH_X_MIN + 1 } else { sweep_x + 2 };
 
@@ -442,7 +610,6 @@ fn main() -> ! {
                         }
                     }
 
-                    // Blit single vertical column (55 pixels)
                     let mut col_buf = [0u16; 55];
                     let y_min = core::cmp::min(prev_y, y_curr);
                     let y_max = core::cmp::max(prev_y, y_curr);
@@ -451,13 +618,13 @@ fn main() -> ! {
                         let idx = (y - GRAPH_Y_TOP) as usize;
                         if idx < col_buf.len() {
                             if y >= y_min && y <= y_max {
-                                col_buf[idx] = COL_TRACE_I; // Vibrant trace segment
+                                col_buf[idx] = COL_TRACE_I;
                             } else if y > y_max && y < GRAPH_Y_BASE {
-                                col_buf[idx] = COL_FILL_I;  // Glowing area under curve
+                                col_buf[idx] = COL_FILL_I;
                             } else if y == GRAPH_Y_BASE {
-                                col_buf[idx] = COL_AXIS;    // Baseline
+                                col_buf[idx] = COL_AXIS;
                             } else if (y == 36 || y == 49 || y == 63) && (sweep_x % 4 == 0) {
-                                col_buf[idx] = COL_GRID;    // Dotted grid point
+                                col_buf[idx] = COL_GRID;
                             } else {
                                 col_buf[idx] = COL_GRAPH_BG;
                             }
@@ -502,7 +669,7 @@ fn main() -> ! {
                         board.lcd.draw_string(128, 3, "LIVE", &FONT_5X7, lcd_color::GREEN, 0x0162);
                     }
 
-                    // 1. HERO CURRENT DISPLAY (Smooth 28px font, unit small at right edge)
+                    // HERO CURRENT DISPLAY (Smooth 28px font, unit small at right edge)
                     let mut c_buf = [0u8; 16];
                     let mut c_cur = BufferCursor::new(&mut c_buf);
                     let whole_c = abs_c_tenth / 10;
@@ -523,10 +690,8 @@ fn main() -> ! {
 
                     let s = c_cur.as_str();
                     let str_w = FONT_28.string_width(s);
-                    // Center the numeric digits within the available 138px zone (X: 0..137)
                     let x = if str_w < 136 { (136 - str_w) / 2 } else { 0 };
 
-                    // Clear margins around the 28px hero area (Y: 14..50, height = 37)
                     if x > 0 {
                         board.lcd.fill_rect(0, 14, x, 37, lcd_color::BLACK);
                     }
@@ -536,25 +701,22 @@ fn main() -> ! {
                     board.lcd.fill_rect(x, 14, str_w, 4, lcd_color::BLACK);
                     board.lcd.fill_rect(x, 46, str_w, 5, lcd_color::BLACK);
 
-                    // Render smooth 28px hero digits (1:1 TrueType curves, crisp, high-res)
                     board.lcd.draw_string(x, 18, s, &FONT_28, curr_col, lcd_color::BLACK);
 
-                    // Render small unit attached to the right edge (X: 140..156, baseline aligned at Y: 27)
+                    // Render small unit attached to the right edge
                     board.lcd.fill_rect(138, 14, 2, 37, lcd_color::BLACK);
                     board.lcd.fill_rect(140, 14, 20, 13, lcd_color::BLACK);
                     board.lcd.fill_rect(140, 43, 20, 8, lcd_color::BLACK);
                     board.lcd.fill_rect(156, 27, 4, 16, lcd_color::BLACK);
-
                     board.lcd.draw_string(140, 27, unit_str, &FONT_8X16, curr_col, lcd_color::BLACK);
 
-                    // 2. BOTTOM TILE: VOLTAGE (Font 8x16)
+                    // BOTTOM TILE: VOLTAGE (Font 8x16)
                     let mut v_buf = [0u8; 16];
                     let mut v_cur = BufferCursor::new(&mut v_buf);
                     write!(v_cur, "{:>2}.{:03}V", v_mv / 1000, v_mv % 1000).ok();
-                    // 7 chars * 8 px = 56 px, centered in tile at X = 13, Y = 62
                     board.lcd.draw_string(13, 62, v_cur.as_str(), &FONT_8X16, 0xD7FA, 0x0944);
 
-                    // 3. BOTTOM TILE: POWER (Font 8x16)
+                    // BOTTOM TILE: POWER (Font 8x16)
                     let mut p_buf = [0u8; 16];
                     let mut p_cur = BufferCursor::new(&mut p_buf);
                     if p_tenth < 100000 {
@@ -564,8 +726,136 @@ fn main() -> ! {
                         let frac_w = ((p_tenth / 10) % 1000) / 10;
                         write!(p_cur, "{:>3}.{:02} W", whole_w, frac_w).ok();
                     }
-                    // 7 chars * 8 px = 56 px, centered in tile at X = 91, Y = 62
                     board.lcd.draw_string(91, 62, p_cur.as_str(), &FONT_8X16, lcd_color::YELLOW, 0x0944);
+                }
+
+                ScreenMode::Stats => {
+                    // SD Badge on Top Header (X: 110..156)
+                    match sd_status {
+                        SdStatus::Logging => {
+                            board.lcd.fill_rect(112, 1, 44, 10, 0x0162);
+                            board.lcd.draw_string(116, 2, "[REC] ", &FONT_5X7, lcd_color::GREEN, 0x0162);
+                        }
+                        SdStatus::Ready => {
+                            board.lcd.fill_rect(112, 1, 44, 10, 0x0162);
+                            board.lcd.draw_string(116, 2, "[IDLE]", &FONT_5X7, lcd_color::YELLOW, 0x0162);
+                        }
+                        SdStatus::NoCard => {
+                            board.lcd.fill_rect(112, 1, 44, 10, 0x4208);
+                            board.lcd.draw_string(114, 2, "[NO-SD]", &FONT_5X7, rgb565(180, 180, 180), 0x4208);
+                        }
+                        SdStatus::WriteError => {
+                            board.lcd.fill_rect(112, 1, 44, 10, rgb565(80, 0, 0));
+                            board.lcd.draw_string(114, 2, "[SD-ERR]", &FONT_5X7, lcd_color::RED, rgb565(80, 0, 0));
+                        }
+                    }
+
+                    // Row 1: Session Elapsed Time & Load Resistance
+                    let elapsed_sec = (now.wrapping_sub(session_stats.start_time_ms)) / 1000;
+                    let hrs = elapsed_sec / 3600;
+                    let mins = (elapsed_sec % 3600) / 60;
+                    let secs = elapsed_sec % 60;
+
+                    let mut t_buf = [0u8; 12];
+                    let mut t_cur = BufferCursor::new(&mut t_buf);
+                    write!(t_cur, "{:02}:{:02}:{:02}", hrs, mins, secs).ok();
+                    board.lcd.draw_string(36, 16, t_cur.as_str(), &FONT_5X7, lcd_color::WHITE, lcd_color::BLACK);
+
+                    let mut r_buf = [0u8; 12];
+                    let mut r_cur = BufferCursor::new(&mut r_buf);
+                    if let Some(r_t) = r_load_tenth {
+                        if r_t < 1000 {
+                            // < 100 ohms: "12.4R"
+                            write!(r_cur, "{:>3}.{}R", r_t / 10, r_t % 10).ok();
+                        } else if r_t < 100_000 {
+                            // 100..10k ohms: " 470R"
+                            write!(r_cur, "{:>4}R", r_t / 10).ok();
+                        } else {
+                            write!(r_cur, "{:>2}.{:02}kR", (r_t / 10) / 1000, ((r_t / 10) % 1000) / 10).ok();
+                        }
+                    } else {
+                        write!(r_cur, "  --- R").ok();
+                    }
+                    board.lcd.draw_string(120, 16, r_cur.as_str(), &FONT_5X7, 0x7FE0, lcd_color::BLACK);
+
+                    // Row 2: Voltage Min..Max Range
+                    let mut vr_buf = [0u8; 20];
+                    let mut vr_cur = BufferCursor::new(&mut vr_buf);
+                    if session_stats.has_samples {
+                        write!(
+                            vr_cur,
+                            "{:>2}.{:02}V - {:>2}.{:02}V",
+                            session_stats.v_min / 1000,
+                            (session_stats.v_min % 1000) / 10,
+                            session_stats.v_max / 1000,
+                            (session_stats.v_max % 1000) / 10
+                        )
+                        .ok();
+                    } else {
+                        write!(vr_cur, " --.--V - --.--V").ok();
+                    }
+                    board.lcd.draw_string(42, 29, vr_cur.as_str(), &FONT_5X7, lcd_color::GREEN, lcd_color::BLACK);
+
+                    // Row 3: Current Min..Max Range
+                    let mut ir_buf = [0u8; 24];
+                    let mut ir_cur = BufferCursor::new(&mut ir_buf);
+                    if session_stats.has_samples {
+                        let c_min_abs = if session_stats.c_min < 0 { -session_stats.c_min } else { session_stats.c_min };
+                        let c_max_abs = if session_stats.c_max < 0 { -session_stats.c_max } else { session_stats.c_max };
+                        write!(
+                            ir_cur,
+                            "{}{}.{} - {}{}.{}mA",
+                            if session_stats.c_min < 0 { "-" } else { "" },
+                            c_min_abs / 10, c_min_abs % 10,
+                            if session_stats.c_max < 0 { "-" } else { "" },
+                            c_max_abs / 10, c_max_abs % 10
+                        )
+                        .ok();
+                    } else {
+                        write!(ir_cur, " ---.- - ---.- mA").ok();
+                    }
+                    board.lcd.draw_string(42, 42, ir_cur.as_str(), &FONT_5X7, COL_TRACE_I, lcd_color::BLACK);
+
+                    // Row 4: Peak Power & Total SD Logs Count
+                    let mut pm_buf = [0u8; 12];
+                    let mut pm_cur = BufferCursor::new(&mut pm_buf);
+                    if session_stats.has_samples {
+                        if session_stats.p_max < 100000 {
+                            write!(pm_cur, "{:>4}.{}mW", session_stats.p_max / 10, session_stats.p_max % 10).ok();
+                        } else {
+                            let whole_w = (session_stats.p_max / 10) / 1000;
+                            let frac_w = ((session_stats.p_max / 10) % 1000) / 10;
+                            write!(pm_cur, "{:>3}.{:02} W", whole_w, frac_w).ok();
+                        }
+                    } else {
+                        write!(pm_cur, " ---.- mW").ok();
+                    }
+                    board.lcd.draw_string(42, 55, pm_cur.as_str(), &FONT_5X7, lcd_color::YELLOW, lcd_color::BLACK);
+
+                    let mut lg_buf = [0u8; 10];
+                    let mut lg_cur = BufferCursor::new(&mut lg_buf);
+                    write!(lg_cur, "{:>6}", sd_log_count).ok();
+                    board.lcd.draw_string(120, 55, lg_cur.as_str(), &FONT_5X7, rgb565(255, 180, 50), lcd_color::BLACK);
+
+                    // Row 5: Total Energy & Charge
+                    let mut es_buf = [0u8; 14];
+                    let mut es_cur = BufferCursor::new(&mut es_buf);
+                    let total_mwh = (mw_ticks / 36000) as u32;
+                    let frac_mwh = ((mw_ticks % 36000) / 360) as u32;
+                    if total_mwh == 0 {
+                        let uwh = ((mw_ticks * 100) / 360) as u32;
+                        write!(es_cur, "{:>3}uWh", uwh).ok();
+                    } else {
+                        write!(es_cur, "{:>2}.{:02}mWh", total_mwh, frac_mwh).ok();
+                    }
+                    board.lcd.draw_string(18, 68, es_cur.as_str(), &FONT_5X7, rgb565(255, 160, 40), lcd_color::BLACK);
+
+                    let mut qs_buf = [0u8; 14];
+                    let mut qs_cur = BufferCursor::new(&mut qs_buf);
+                    let total_mah = (tenth_ma_ticks / 360000) as u32;
+                    let frac_mah = ((tenth_ma_ticks % 360000) / 3600) as u32;
+                    write!(qs_cur, "{:>2}.{:02}mAh", total_mah, frac_mah).ok();
+                    board.lcd.draw_string(102, 68, qs_cur.as_str(), &FONT_5X7, rgb565(100, 255, 140), lcd_color::BLACK);
                 }
             }
 
@@ -592,21 +882,105 @@ fn main() -> ! {
             board.led_green.toggle();
         }
 
-        // 5. 1 Hz Diagnostic Telemetry over UART0
+        // 3. 1 Hz MicroSD CSV Datalogger & Hot-Plug Recovery
         if now.wrapping_sub(last_1hz) >= 1000 {
             last_1hz = now;
+
+            // Corner Case: Hot-Plug Re-probe if card was missing or unplugged
+            if sd_status != SdStatus::Ready && sd_status != SdStatus::Logging {
+                if now.wrapping_sub(last_sd_probe) >= 2500 {
+                    last_sd_probe = now;
+                    let probe_res = sdcard_cell.borrow_mut().init(&mut board.delay);
+                    if let Ok(card_type) = probe_res {
+                        let sectors = sdcard_cell.borrow().sector_count;
+                        writeln!(
+                            board.uart0,
+                            "[SD] Card inserted! Initialized: {} ({} sectors)",
+                            card_type.as_str(),
+                            sectors
+                        )
+                        .ok();
+                        sd_status = SdStatus::Ready;
+                    }
+                }
+            }
+
+            // Log data record if card is available
+            if sd_status == SdStatus::Ready || sd_status == SdStatus::Logging {
+                let mut row_buf = [0u8; 64];
+                let mut row_cur = BufferCursor::new(&mut row_buf);
+
+                let is_rev = session_stats.c_min < 0;
+                let whole_c = (if is_rev { -session_stats.c_max } else { session_stats.c_max }) / 10;
+                let frac_c = (if is_rev { -session_stats.c_max } else { session_stats.c_max }) % 10;
+                let total_mwh = (mw_ticks / 36000) as u32;
+                let total_mah = (tenth_ma_ticks / 360000) as u32;
+
+                write!(
+                    row_cur,
+                    "{},{},{}{}.{},{},{},{}\r\n",
+                    now,
+                    session_stats.v_max,
+                    if is_rev { "-" } else { "" },
+                    whole_c,
+                    frac_c,
+                    session_stats.p_max / 10,
+                    total_mwh,
+                    total_mah
+                )
+                .ok();
+
+                // Append row to MONITOR.CSV using pure embedded-sdmmc
+                let log_res: Result<(), ()> = (|| {
+                    let dev = SdCardDevice(&sdcard_cell);
+                    let vol_mgr = VolumeManager::new(dev, StaticTimeSource);
+                    let vol = vol_mgr.open_volume(VolumeIdx(0)).map_err(|_| ())?;
+                    let root = vol.open_root_dir().map_err(|_| ())?;
+                    let file = root
+                        .open_file_in_dir("MONITOR.CSV", Mode::ReadWriteCreateOrAppend)
+                        .map_err(|_| ())?;
+
+                    if file.length() == 0 {
+                        // Write standard CSV header on first create
+                        file.write(b"Timestamp_ms,Voltage_mV,Current_mA,Power_mW,Energy_mWh,Charge_mAh\r\n")
+                            .map_err(|_| ())?;
+                    }
+
+                    file.write(row_cur.as_str().as_bytes()).map_err(|_| ())?;
+                    file.flush().map_err(|_| ())?;
+                    Ok(())
+                })();
+
+                if log_res.is_ok() {
+                    sd_log_count = sd_log_count.wrapping_add(1);
+                    sd_status = SdStatus::Logging;
+                } else {
+                    writeln!(board.uart0, "[SD] Write / flush failed! Live card removal or filesystem error.").ok();
+                    sdcard_cell.borrow_mut().is_initialized = false;
+                    sd_status = SdStatus::WriteError;
+                }
+            }
+
+            // UART0 Heartbeat & Diagnostic Output
             let sec = now / 1000;
-            let cfg_str = if board.usb_hid.is_configured() {
-                "CFG"
-            } else {
-                "DISC"
-            };
+            let cfg_str = if board.usb_hid.is_configured() { "CFG" } else { "DISC" };
             let sensor_str = if ina_present { "ONLINE" } else { "OFFLINE" };
-            let mode_str = if screen_mode == ScreenMode::Graph { "GRAPH" } else { "TEXT" };
+            let sd_str = match sd_status {
+                SdStatus::Logging => "LOGGING",
+                SdStatus::Ready => "READY",
+                SdStatus::NoCard => "NO_CARD",
+                SdStatus::WriteError => "ERROR",
+            };
+            let mode_str = match screen_mode {
+                ScreenMode::Text => "TEXT",
+                ScreenMode::Graph => "GRAPH",
+                ScreenMode::Stats => "STATS",
+            };
+
             writeln!(
                 board.uart0,
-                "[HEARTBEAT] T+{}s | Mode: {} | Sensor: {} | USB: {} | HID Reports: {}",
-                sec, mode_str, sensor_str, cfg_str, report_count
+                "[HEARTBEAT] T+{}s | Mode: {} | Sensor: {} | USB: {} | SD: {} (Lines: {})",
+                sec, mode_str, sensor_str, cfg_str, sd_str, sd_log_count
             )
             .ok();
         }

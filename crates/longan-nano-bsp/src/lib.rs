@@ -110,6 +110,7 @@ pub struct CurrentMonitorBoard {
     pub lcd: Lcd,
     pub ina219: Ina219,
     pub usb_hid: UsbHid,
+    pub sdcard: SdCard,
     pub delay: Delay,
     pub clocks: Clocks,
 }
@@ -290,6 +291,15 @@ impl Board {
         let mut delay = Delay::new(dp.mtime, clocks);
         let usb_hid = UsbHid::new(dp.usbfs, &rcu, &mut delay);
 
+        // Configure SPI1 and SD card control pins (PB12 CS, PB13 SCK, PB14 MISO, PB15 MOSI)
+        let mut sd_cs = gpiob.pb12.into_push_pull_output();
+        let _ = sd_cs.set_high(); // Deselect SD card initially
+        let sd_sck = gpiob.pb13.into_alternate_push_pull();
+        let sd_miso = gpiob.pb14.into_pull_up_input();
+        let sd_mosi = gpiob.pb15.into_alternate_push_pull();
+        let spi1 = Spi1::new_master(dp.spi1, sd_sck, sd_miso, sd_mosi, Prescaler::Div256, &rcu);
+        let sdcard = SdCard::new(spi1, sd_cs);
+
         Some(CurrentMonitorBoard {
             led_red,
             led_green,
@@ -299,6 +309,7 @@ impl Board {
             lcd,
             ina219,
             usb_hid,
+            sdcard,
             delay,
             clocks,
         })
