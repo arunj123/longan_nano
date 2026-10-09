@@ -32,64 +32,129 @@ for ch, name in char_map:
     rows_str = ", ".join(rows)
     code_lines.append(f"static GLYPH_28_{name}: Glyph28 = Glyph28 {{ width: {w}, rows: [{rows_str}] }};")
 
-methods = """
-    /// Draws a character using the 28px smooth bold numeric font.
-    pub fn draw_char_28(&mut self, x: u16, y: u16, glyph: &Glyph28, fg: u16, bg: u16) {
-        let w = glyph.width as u16;
-        let h = 28u16;
-        if x + w > LCD_WIDTH || y + h > LCD_HEIGHT {
-            return;
-        }
+glyphs_str = "\n".join(code_lines) + "\n"
 
-        self.set_address_window(x, y, w, h);
-        self.spi.wait_idle();
-        self.spi.set_16bit();
-        self.mode_data();
+content = f"""use crate::traits::{{Font, GlyphLayout}};
 
-        for row in 0..28 {
-            let row_bits = glyph.rows[row];
-            for col in 0..w {
-                let set = (row_bits & (1 << (31 - col))) != 0;
-                self.spi.send_u16(if set { fg } else { bg });
-            }
-        }
-    }
-
-    /// Calculates the total rendered pixel width of a string in 28px font.
-    pub fn string_width_28(&self, text: &str) -> u16 {
-        let mut total = 0u16;
-        for c in text.chars() {
-            if let Some(glyph) = get_glyph_28(c) {
-                total += glyph.width as u16;
-            }
-        }
-        total
-    }
-
-    /// Draws a text string horizontally using the 28px smooth bold numeric font.
-    pub fn draw_string_28(&mut self, mut x: u16, y: u16, text: &str, fg: u16, bg: u16) {
-        for c in text.chars() {
-            if let Some(glyph) = get_glyph_28(c) {
-                let w = glyph.width as u16;
-                if x + w > LCD_WIDTH {
-                    break;
-                }
-                self.draw_char_28(x, y, glyph, fg, bg);
-                x += w;
-            }
-        }
-    }
-"""
-
-struct_def = """
-#[derive(Copy, Clone)]
-pub struct Glyph28 {
+/// 28px Smooth TrueType-Rasterized Font Glyph (variable/proportional width)
+#[derive(Copy, Clone, Debug)]
+pub struct Glyph28 {{
     pub width: u8,
     pub rows: [u32; 28],
-}
+}}
 
-pub fn get_glyph_28(c: char) -> Option<&'static Glyph28> {
-    match c {
+/// 28px Smooth Bold Numeric & Sensor Font
+/// Rasterized directly from Bahnschrift/DIN TrueType vector contours with 1:1 hardware pixel curves.
+/// Supported characters: '0'..'9', '-', '.', ' ', 'm', 'A'
+#[derive(Copy, Clone, Debug, Default)]
+pub struct Font28;
+
+pub static FONT_28: Font28 = Font28;
+
+impl Font28 {{
+    pub const HEIGHT: u8 = 28;
+    pub const LAYOUT: GlyphLayout = GlyphLayout::RowMajorMsbU32;
+
+    /// Looks up glyph for character `c`
+    pub fn glyph(&self, c: char) -> Option<&'static Glyph28> {{
+        get_glyph_28(c)
+    }}
+
+    /// Calculates total rendered pixel width of a string in 28px font
+    pub fn string_width(&self, text: &str) -> u16 {{
+        string_width_28(text)
+    }}
+
+    /// Checks if a pixel at (px, py) is set for the given glyph
+    pub fn is_pixel_set(&self, glyph: &Glyph28, px: u8, py: u8) -> bool {{
+        if px < glyph.width && py < 28 {{
+            (glyph.rows[py as usize] & (1 << (31 - px))) != 0
+        }} else {{
+            false
+        }}
+    }}
+}}
+
+impl Font for Font28 {{
+    #[inline(always)]
+    fn width(&self) -> u8 {{
+        29 // Maximum proportional glyph width ('m')
+    }}
+
+    #[inline(always)]
+    fn height(&self) -> u8 {{
+        28
+    }}
+
+    #[inline(always)]
+    fn spacing(&self) -> u8 {{
+        0
+    }}
+
+    #[inline(always)]
+    fn contains(&self, c: char) -> bool {{
+        get_glyph_28(c).is_some()
+    }}
+
+    #[inline(always)]
+    fn char_width(&self, c: char) -> u8 {{
+        get_glyph_28(c).map(|g| g.width).unwrap_or(0)
+    }}
+
+    #[inline(always)]
+    fn string_width(&self, text: &str) -> u16 {{
+        string_width_28(text)
+    }}
+
+    fn render_char<P: FnMut(u16)>(
+        &self,
+        c: char,
+        fg: u16,
+        bg: u16,
+        mut put_pixel: P,
+    ) -> Option<u8> {{
+        let glyph = get_glyph_28(c)?;
+        let w = glyph.width;
+        for row in 0..28 {{
+            let row_bits = glyph.rows[row];
+            for col in 0..w {{
+                let set = (row_bits & (1 << (31 - col))) != 0;
+                put_pixel(if set {{ fg }} else {{ bg }});
+            }}
+        }}
+        Some(w)
+    }}
+
+    fn render_char_scaled<P: FnMut(u16)>(
+        &self,
+        c: char,
+        fg: u16,
+        bg: u16,
+        scale: u8,
+        mut put_pixel: P,
+    ) -> Option<u8> {{
+        let glyph = get_glyph_28(c)?;
+        let w = glyph.width;
+        let scale = scale.max(1);
+        for row in 0..28 {{
+            let row_bits = glyph.rows[row];
+            for _ in 0..scale {{
+                for col in 0..w {{
+                    let set = (row_bits & (1 << (31 - col))) != 0;
+                    let color = if set {{ fg }} else {{ bg }};
+                    for _ in 0..scale {{
+                        put_pixel(color);
+                    }}
+                }}
+            }}
+        }}
+        Some(w * scale)
+    }}
+}}
+
+/// Retrieves the static 28px glyph definition for character `c`
+pub fn get_glyph_28(c: char) -> Option<&'static Glyph28> {{
+    match c {{
         '0' => Some(&GLYPH_28_0),
         '1' => Some(&GLYPH_28_1),
         '2' => Some(&GLYPH_28_2),
@@ -106,20 +171,24 @@ pub fn get_glyph_28(c: char) -> Option<&'static Glyph28> {
         'm' => Some(&GLYPH_28_M),
         'A' => Some(&GLYPH_28_A),
         _ => None,
-    }
-}
-""" + "\n".join(code_lines) + "\n"
+    }}
+}}
 
-target_file = r"crates\longan-nano-bsp\src\lcd.rs"
-with open(target_file, "r") as f:
-    content = f.read()
+/// Computes the rendered pixel width of a string formatted in 28px font
+pub fn string_width_28(text: &str) -> u16 {{
+    let mut total = 0u16;
+    for c in text.chars() {{
+        if let Some(glyph) = get_glyph_28(c) {{
+            total += glyph.width as u16;
+        }}
+    }}
+    total
+}}
 
-target = "// 5x7 ASCII Bitmap Font Table"
-parts = content.split(target)
+{glyphs_str}"""
 
-new_content = parts[0].rstrip()[:-1].rstrip() + "\n" + methods + "}\n\n" + target + parts[1] + "\n\n// 28px Smooth Bold Numeric Font\n" + struct_def
+target_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), "crates", "lcd-font", "src", "font28.rs")
+with open(target_file, "w", encoding="utf-8") as f:
+    f.write(content)
 
-with open(target_file, "w") as f:
-    f.write(new_content)
-
-print("Updated crates/longan-nano-bsp/src/lcd.rs successfully with 28px font")
+print(f"Updated {target_file} successfully with 28px font")

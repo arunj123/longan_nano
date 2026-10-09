@@ -1,0 +1,7 @@
+[package]
+name = "lcd-font"
+version = "0.1.0"
+edition = "2021"
+description = "Embedded LCD bitmap and TrueType-rasterized fonts for no_std Rust"
+
+[dependencies]

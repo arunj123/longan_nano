@@ -3,6 +3,7 @@ members = [
     "crates/gd32vf103-pac",
     "crates/gd32vf103-hal",
     "crates/longan-nano-bsp",
+    "crates/lcd-font",
     "prj_blink",
     "prj_uart_test",
     "prj_lcd_test",

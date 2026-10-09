@@ -68,11 +68,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "lcd-font"
+version = "0.1.0"
+
+[[package]]
 name = "longan-nano-bsp"
 version = "0.1.0"
 dependencies = [
  "embedded-hal",
  "gd32vf103-hal",
+ "lcd-font",
 ]
 
 [[package]]
