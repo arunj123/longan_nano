@@ -3,7 +3,7 @@ use longan_nano_bsp::{
     Lcd,
 };
 use crate::fmt::{fmt_hero_current, fmt_voltage, BufferCursor, DirtyField};
-use crate::model::{Accumulators, BatteryState, InaReading};
+use crate::model::{Accumulators, BatteryState, EmaFilter, InaReading};
 use crate::ui::theme::*;
 use crate::ui::SdStatus;
 
@@ -15,8 +15,7 @@ pub struct BigDigitScreen {
     prev_x: u16,
     prev_w: u16,
     prev_scale: u8,
-    smoothed_current: i16,
-    ema_initialized: bool,
+    ema: EmaFilter,
     prev_usb_cfg: Option<bool>,
     prev_sd_status: Option<SdStatus>,
     prev_over_current: Option<bool>,
@@ -32,8 +31,7 @@ impl BigDigitScreen {
             prev_x: 0,
             prev_w: 0,
             prev_scale: 0,
-            smoothed_current: 0,
-            ema_initialized: false,
+            ema: EmaFilter::new(),
             prev_usb_cfg: None,
             prev_sd_status: None,
             prev_over_current: None,
@@ -54,8 +52,7 @@ impl BigDigitScreen {
         self.prev_x = 0;
         self.prev_w = 0;
         self.prev_scale = 0;
-        self.smoothed_current = 0;
-        self.ema_initialized = false;
+        self.ema.reset();
         self.prev_usb_cfg = None;
         self.prev_sd_status = None;
         self.prev_over_current = None;
@@ -136,20 +133,7 @@ impl BigDigitScreen {
 
         // --- 2. Giant Scaled Current Display (Y: 13..79) ---
         let current = if ina_present {
-            if !self.ema_initialized {
-                self.smoothed_current = reading.current_tenth_ma;
-                self.ema_initialized = true;
-                reading.current_tenth_ma
-            } else {
-                let diff = reading.current_tenth_ma - self.smoothed_current;
-                if diff.abs() > 100 {
-                    // Step load jump (> 10.0 mA): bypass filter for instant response
-                    self.smoothed_current = reading.current_tenth_ma;
-                } else {
-                    self.smoothed_current += diff / 4;
-                }
-                self.smoothed_current
-            }
+            self.ema.update(reading.current_tenth_ma)
         } else {
             0
         };

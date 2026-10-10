@@ -92,7 +92,8 @@ impl RcuExt for Rcu {
         }
 
         // AHB = SYSCLK / 1, APB2 = AHB / 1, APB1 = AHB / 2 (max APB1 is 54 MHz)
-        regs.cfg0.set_bits(cfg0::AHB_DIV1 | cfg0::APB2_DIV1 | cfg0::APB1_DIV2);
+        // ADCPSC = APB2 / 8 (12 MHz at 96 MHz SYSCLK <= 14 MHz max ADC clock)
+        regs.cfg0.set_bits(cfg0::AHB_DIV1 | cfg0::APB2_DIV1 | cfg0::APB1_DIV2 | cfg0::ADCPSC_DIV8);
 
         // PREDV0 = HXTAL (8 MHz) / 2 = 4 MHz
         regs.cfg1.modify(|val| (val & !0x0001_FFFF) | (cfg1::PREDV0SRC_HXTAL | cfg1::PREDV0_DIV2));

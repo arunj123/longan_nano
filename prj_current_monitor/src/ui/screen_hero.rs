@@ -3,7 +3,7 @@ use longan_nano_bsp::{
     Lcd,
 };
 use crate::fmt::{fmt_energy_auto, fmt_hero_current, fmt_power, fmt_voltage, BufferCursor, DirtyField};
-use crate::model::{Accumulators, InaReading};
+use crate::model::{Accumulators, EmaFilter, InaReading};
 use crate::ui::theme::*;
 use crate::ui::SdStatus;
 
@@ -16,8 +16,7 @@ pub struct HeroScreen {
     energy_field: DirtyField<16>,
     peak_bar_val: u16,
     peak_decay_counter: u8,
-    smoothed_current: i16,
-    ema_initialized: bool,
+    ema: EmaFilter,
     prev_usb_cfg: Option<bool>,
     prev_sd_status: Option<SdStatus>,
 }
@@ -32,8 +31,7 @@ impl HeroScreen {
             energy_field: DirtyField::new(),
             peak_bar_val: 0,
             peak_decay_counter: 0,
-            smoothed_current: 0,
-            ema_initialized: false,
+            ema: EmaFilter::new(),
             prev_usb_cfg: None,
             prev_sd_status: None,
         }
@@ -63,7 +61,7 @@ impl HeroScreen {
         self.pwr_field.invalidate();
         self.energy_field.invalidate();
         self.peak_bar_val = 0;
-        self.ema_initialized = false;
+        self.ema.reset();
         self.prev_usb_cfg = None;
         self.prev_sd_status = None;
     }
@@ -133,21 +131,7 @@ impl HeroScreen {
 
         // --- 2. Hero Current Display with EMA Smoothing ---
         let raw_c = reading.current_tenth_ma;
-        let display_c = if !self.ema_initialized {
-            self.smoothed_current = raw_c;
-            self.ema_initialized = true;
-            raw_c
-        } else {
-            let diff = raw_c - self.smoothed_current;
-            if diff.abs() > 100 {
-                // Large step load jump (> 10.0 mA): bypass filter for instant response
-                self.smoothed_current = raw_c;
-            } else {
-                // Exponential moving average: y += (x - y) >> 2
-                self.smoothed_current += diff / 4;
-            }
-            self.smoothed_current
-        };
+        let display_c = self.ema.update(raw_c);
 
         let mut c_buf = [0u8; 16];
         let mut c_cur = BufferCursor::new(&mut c_buf);

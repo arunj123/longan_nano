@@ -410,3 +410,47 @@ impl HistogramData {
         }
     }
 }
+
+/// Fixed-point Exponential Moving Average filter with 4 fractional bits.
+/// Eliminates integer division truncation stalls and guarantees exact steady-state convergence.
+#[derive(Copy, Clone, Debug)]
+pub struct EmaFilter {
+    acc: i32,
+    initialized: bool,
+}
+
+impl EmaFilter {
+    pub const fn new() -> Self {
+        Self {
+            acc: 0,
+            initialized: false,
+        }
+    }
+
+    pub fn reset(&mut self) {
+        self.initialized = false;
+    }
+
+    pub fn update(&mut self, raw: i16) -> i16 {
+        let x = (raw as i32) << 4;
+        if !self.initialized || (x - self.acc).abs() > (100 << 4) {
+            // Step jump > 10.0 mA: bypass filter for instant response
+            self.acc = x;
+            self.initialized = true;
+        } else {
+            let delta = x - self.acc;
+            // Ensure step moves by at least 1 in the direction of delta
+            // to completely eliminate integer division truncation stalls
+            let step = if delta > 0 {
+                core::cmp::max(1, delta >> 2)
+            } else if delta < 0 {
+                core::cmp::min(-1, delta >> 2)
+            } else {
+                0
+            };
+            self.acc += step;
+        }
+        // Round to nearest integer: (acc + 8) >> 4
+        ((self.acc + 8) >> 4) as i16
+    }
+}

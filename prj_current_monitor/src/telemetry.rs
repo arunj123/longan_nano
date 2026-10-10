@@ -45,14 +45,16 @@ impl TelemetryStreamer {
             flags |= 1 << 4;
         }
 
+        let p_mw = ((reading.power_tenth_mw / 10).min(65535)) as u16;
+
         let report: [u8; 9] = [
             0x01, // Report ID
             (reading.voltage_mv & 0xFF) as u8,
             (reading.voltage_mv >> 8) as u8,
             (reading.current_tenth_ma & 0xFF) as u8,
             ((reading.current_tenth_ma >> 8) & 0xFF) as u8,
-            ((reading.power_tenth_mw / 10) & 0xFF) as u8,
-            (((reading.power_tenth_mw / 10) >> 8) & 0xFF) as u8,
+            (p_mw & 0xFF) as u8,
+            ((p_mw >> 8) & 0xFF) as u8,
             flags,
             self.seq,
         ];

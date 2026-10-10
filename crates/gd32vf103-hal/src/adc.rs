@@ -10,8 +10,9 @@ pub struct Adc0TempSensor {
 impl Adc0TempSensor {
     /// Initializes ADC0 and enables the internal temperature sensor on Channel 16.
     pub fn init(adc: PacAdc, rcu: &Rcu, delay: &mut Delay) -> Self {
-        // 1. Enable ADC0 clock in RCU APB2EN
+        // 1. Enable ADC0 clock in RCU APB2EN and configure ADCPSC to /8
         rcu.regs().apb2en.set_bits(apb2en::ADC0EN);
+        rcu.regs().cfg0.modify(|v| (v & !gd32vf103_pac::rcu::cfg0::ADCPSC_MASK) | gd32vf103_pac::rcu::cfg0::ADCPSC_DIV8);
 
         let regs = adc.regs();
 

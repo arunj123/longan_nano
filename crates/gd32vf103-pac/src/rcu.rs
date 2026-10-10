@@ -52,6 +52,12 @@ pub mod cfg0 {
     pub const APB1_DIV2: u32 = 0x4 << 8;
     pub const APB2_DIV1: u32 = 0x0 << 11;
 
+    pub const ADCPSC_MASK: u32 = 0x3 << 14;
+    pub const ADCPSC_DIV2: u32 = 0x0 << 14;
+    pub const ADCPSC_DIV4: u32 = 0x1 << 14;
+    pub const ADCPSC_DIV6: u32 = 0x2 << 14;
+    pub const ADCPSC_DIV8: u32 = 0x3 << 14;
+
     pub const USBFS_PSC_MASK: u32 = 0x3 << 22;
     pub const USBFS_PSC_DIV1_5: u32 = 0x0 << 22;
     pub const USBFS_PSC_DIV1: u32 = 0x1 << 22;

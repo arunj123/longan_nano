@@ -283,6 +283,10 @@ impl<'a> SdDatalogger<'a> {
         // 2. Check if row fits in buffer
         if self.buf_len + row_len > self.buffer.len() {
             self.flush_buffer();
+            if self.buf_len + row_len > self.buffer.len() {
+                // If flush failed and buffer is still full, clear buffer so fresh samples can enter
+                self.buf_len = 0;
+            }
         }
 
         if self.buf_len + row_len <= self.buffer.len() {
@@ -332,7 +336,7 @@ impl<'a> SdDatalogger<'a> {
         } else {
             self.sdcard.borrow_mut().is_initialized = false;
             self.status = SdStatus::WriteError;
-            self.buf_len = 0;
+            // Retain self.buf_len so buffered data is preserved for retry after card recovery
             self.probe_fail_count = 1;
         }
     }

@@ -9,6 +9,7 @@ mod ui;
 
 use core::cell::RefCell;
 use core::fmt::Write;
+use embedded_hal::delay::DelayNs;
 use panic_halt as _;
 use riscv_rt::entry;
 
@@ -77,15 +78,26 @@ macro_rules! set_screen_mode {
 macro_rules! tare_and_reset {
     ($now:expr, $ina_present:expr, $board:expr, $datalogger:expr, $accum:expr, $hist:expr, $histo:expr, $stats:expr, $screen_mode:expr, $hero:expr, $graph:expr, $stats_s:expr, $histo_s:expr, $big_digit:expr, $battery:expr, $current_limit_ma:expr) => {{
         if $ina_present {
-            if let Ok(raw_data) = $board.ina219.read_all() {
-                let current_raw = raw_data.current_tenth_ma;
-                $board.ina219.set_tare(current_raw);
-                save_nvram_config(&mut $board.rtc, $screen_mode, $battery.profile, current_raw, $current_limit_ma);
+            let mut sum_raw = 0i32;
+            let mut valid_samples = 0i32;
+            let cur_tare = $board.ina219.tare_offset_tenth as i32;
+            for _ in 0..8 {
+                if let Ok(raw_data) = $board.ina219.read_all() {
+                    let true_raw = (raw_data.current_tenth_ma as i32) + cur_tare;
+                    sum_raw += true_raw;
+                    valid_samples += 1;
+                }
+                $board.delay.delay_ms(2);
+            }
+            if valid_samples > 0 {
+                let avg_offset = (sum_raw / valid_samples) as i16;
+                $board.ina219.set_tare(avg_offset);
+                save_nvram_config(&mut $board.rtc, $screen_mode, $battery.profile, avg_offset, $current_limit_ma);
                 writeln!(
                     $board.uart0,
                     "[SYS] Tare Zero Offset Calibrated: {}.{} mA",
-                    current_raw / 10,
-                    current_raw.unsigned_abs() % 10
+                    avg_offset / 10,
+                    avg_offset.unsigned_abs() % 10
                 ).ok();
             }
         }
@@ -167,6 +179,9 @@ macro_rules! dump_session {
             $accum.energy_mwh(), $accum.energy_mwh_frac(),
             $accum.charge_mah(), $accum.charge_mah_frac()
         ).ok();
+        let is_over = $over_current;
+        let is_low_bat = $battery.is_low_voltage;
+        let is_alert = is_over || is_low_bat;
         writeln!(
             $board.uart0,
             "Battery: Profile {} | SoC: {}% | Rem: {} mAh ({} mins)",
@@ -174,9 +189,10 @@ macro_rules! dump_session {
         ).ok();
         writeln!(
             $board.uart0,
-            "Alert Limit: {} mA | Alert Active: {}",
+            "Alert Limit: {} mA | Over-Current: {} | Low-Voltage: {}",
             $current_limit_ma,
-            if $over_current { "YES (OVERCURRENT)" } else { "NO" }
+            if is_over { "YES (OVERCURRENT)" } else { "NO" },
+            if is_low_bat { "YES (LOW BATTERY)" } else { "NO" }
         ).ok();
         writeln!(
             $board.uart0,
@@ -187,7 +203,7 @@ macro_rules! dump_session {
         ).ok();
         writeln!(
             $board.uart0,
-            "[JSON] {{\"uptime_s\":{},\"mode\":\"{}\",\"epoch\":{},\"time\":\"{:04}-{:02}-{:02} {:02}:{:02}:{:02}\",\"rtc_synced\":{},\"v_min\":{},\"v_max\":{},\"c_min\":{},\"c_max\":{},\"c_avg\":{},\"p_peak_mw\":{},\"mwh\":{},\"mah\":{},\"mcu_temp_c\":{}.{},\"bat_soc\":{},\"sd_file\":\"{}\",\"sd_rows\":{},\"limit_ma\":{},\"alert\":{}}}",
+            "[JSON] {{\"uptime_s\":{},\"mode\":\"{}\",\"epoch\":{},\"time\":\"{:04}-{:02}-{:02} {:02}:{:02}:{:02}\",\"rtc_synced\":{},\"v_min\":{},\"v_max\":{},\"c_min\":{},\"c_max\":{},\"c_avg\":{},\"p_peak_mw\":{},\"mwh\":{},\"mah\":{},\"mcu_temp_c\":{}.{},\"bat_soc\":{},\"sd_file\":\"{}\",\"sd_rows\":{},\"limit_ma\":{},\"alert\":{},\"over_current\":{},\"low_voltage\":{}}}",
             uptime_s,
             mode_name,
             rtc_epoch,
@@ -207,7 +223,9 @@ macro_rules! dump_session {
             $datalogger.file_name_str(),
             $datalogger.total_logged_rows,
             $current_limit_ma,
-            $over_current
+            is_alert,
+            is_over,
+            is_low_bat
         ).ok();
         writeln!($board.uart0, "---------------------------------").ok();
     }};
@@ -368,6 +386,7 @@ fn main() -> ! {
     let mut last_reinit_attempt_ms = board.delay.uptime_ms();
     let mut last_heartbeat_ms = board.delay.uptime_ms();
     let mut prev_usb_configured = false;
+    let mut last_reading = InaReading::default();
 
     // User Button tracking (PA8)
     let mut button_press_start_ms = 0u32;
@@ -484,7 +503,7 @@ fn main() -> ! {
                                 idx += 1;
                             }
                             if has_digits {
-                                current_limit_ma = parsed_limit;
+                                current_limit_ma = parsed_limit.min(3200);
                                 save_nvram_config(&mut board.rtc, screen_mode, battery.profile, board.ina219.tare_offset_tenth, current_limit_ma);
                                 writeln!(board.uart0, "[LIMIT] Set Over-Current Alert Limit to: {} mA", current_limit_ma).ok();
                             }
@@ -645,9 +664,9 @@ fn main() -> ! {
                     ).ok();
                 }
                 HidCommand::SetCurrentLimit(limit) => {
-                    current_limit_ma = limit;
+                    current_limit_ma = limit.min(3200);
                     save_nvram_config(&mut board.rtc, screen_mode, battery.profile, board.ina219.tare_offset_tenth, current_limit_ma);
-                    writeln!(board.uart0, "[HID-CMD] Set Over-Current Alert Limit to: {} mA", limit).ok();
+                    writeln!(board.uart0, "[HID-CMD] Set Over-Current Alert Limit to: {} mA", current_limit_ma).ok();
                 }
                 HidCommand::Unknown(c) => {
                     writeln!(board.uart0, "[HID-CMD] Unknown command opcode: 0x{:02X}", c).ok();
@@ -754,15 +773,17 @@ fn main() -> ! {
             battery.update(reading.voltage_mv, &accum, stats.avg_current_tenth_ma());
 
             // Check Over-Current and Low-Voltage Alert
-            let is_alert = (current_limit_ma > 0 && reading.current_tenth_ma > (current_limit_ma as i16 * 10)) || battery.is_low_voltage;
-            over_current = is_alert;
-            if is_alert {
-                board.led_red.on();
-            } else if !ina_present {
+            let is_over_current = current_limit_ma > 0 && (reading.current_tenth_ma as i32) > ((current_limit_ma as i32) * 10);
+            let is_low_voltage = battery.is_low_voltage;
+            over_current = is_over_current;
+            let is_alert = is_over_current || is_low_voltage;
+            if is_alert || !ina_present {
                 board.led_red.on();
             } else {
                 board.led_red.off();
             }
+
+            last_reading = reading;
 
             // Drift-free millisecond energy & charge integration
             if ina_present && reading.voltage_mv > 500 && reading.abs_current_tenth() > 2 {
@@ -850,23 +871,14 @@ fn main() -> ! {
                 }
             }
 
-            // Log representative row to sector buffer
+            // Log representative row to sector buffer using latest valid reading from 10 Hz loop
             if ina_present {
-                if let Ok(d) = board.ina219.read_all() {
-                    let reading = InaReading {
-                        voltage_mv: d.voltage_mv,
-                        current_tenth_ma: d.current_tenth_ma,
-                        power_tenth_mw: d.power_tenth_mw,
-                        overflow: d.overflow,
-                        is_reverse: d.current_tenth_ma < 0,
-                    };
-                    let cur_dt = if board.rtc.is_synced() {
-                        Some(board.rtc.get_datetime())
-                    } else {
-                        None
-                    };
-                    datalogger.log_sample(now, &reading, &accum, cur_dt);
-                }
+                let cur_dt = if board.rtc.is_synced() {
+                    Some(board.rtc.get_datetime())
+                } else {
+                    None
+                };
+                datalogger.log_sample(now, &last_reading, &accum, cur_dt);
             }
 
             // UART0 Heartbeat & Diagnostic Output
