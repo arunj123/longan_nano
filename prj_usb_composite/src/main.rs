@@ -39,7 +39,7 @@ fn main() -> ! {
     )
     .ok();
     writeln!(board.uart0, " Composite: Std HID (EP1) + Custom HID (EP2)").ok();
-    writeln!(board.uart0, " Rotary Encoder: PB10 (CLK), PB11 (DT), PB12 (SW)").ok();
+    writeln!(board.uart0, " Rotary Encoder: PB10 (CLK), PB11 (DT), PB5 (SW)").ok();
     writeln!(board.uart0, " VID: 0x28E9, PID: 0xABE8").ok();
     writeln!(board.uart0, "========================================").ok();
 

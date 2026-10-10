@@ -47,8 +47,8 @@ Other integrated on-board peripherals used:
 - **LCD (SPI0):** PA5 (SCK), PA7 (MOSI), PB0 (DC), PB1 (RST), PB2 (CS) @ 24 MHz (`Prescaler::Div4`).
 - **MicroSD (SPI1):** PB12 (CS), PB13 (SCK), PB14 (MISO), PB15 (MOSI).
 - **USB:** PA11 (DM), PA12 (DP).
-- **Button:** PA8 (Active-low with internal pull-up).
-- **LEDs:** PC13 (Red - Error), PA1 (Green - Heartbeat), PA2 (Blue - User input feedback).
+- **Button:** PA8 (Active-high with internal pull-down resistor; asserts HIGH on press).
+- **LEDs:** PC13 (Red - INA219 error alert), PA1 (Green - Polite 35 ms / 2.5s heartbeat), PA2 (Blue - User input feedback), DS1 (PWR - Hardwired 3.3V indicator).
 
 ---
 

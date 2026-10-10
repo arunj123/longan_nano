@@ -266,7 +266,7 @@ impl<'a> Font for CustomSubsetFont<'a> {
                     }
                 }
             }
-            GlyphLayout::RowMajorMsbU32 => {}
+            GlyphLayout::RowMajorMsbU32 | GlyphLayout::RowMajorNibble => {}
         }
         Some(self.width + self.spacing)
     }
@@ -346,7 +346,7 @@ impl<'a> Font for CustomSubsetFont<'a> {
                     }
                 }
             }
-            GlyphLayout::RowMajorMsbU32 => {}
+            GlyphLayout::RowMajorMsbU32 | GlyphLayout::RowMajorNibble => {}
         }
         Some((self.width + self.spacing) * scale)
     }
@@ -714,7 +714,7 @@ impl<const N: usize, const B: usize> Font for SubsetFont<N, B> {
                     }
                 }
             }
-            GlyphLayout::RowMajorMsbU32 => {}
+            GlyphLayout::RowMajorMsbU32 | GlyphLayout::RowMajorNibble => {}
         }
         Some(self.width + self.spacing)
     }
@@ -787,7 +787,7 @@ impl<const N: usize, const B: usize> Font for SubsetFont<N, B> {
                     }
                 }
             }
-            GlyphLayout::RowMajorMsbU32 => {}
+            GlyphLayout::RowMajorMsbU32 | GlyphLayout::RowMajorNibble => {}
         }
         Some((self.width + self.spacing) * scale)
     }

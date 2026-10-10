@@ -108,12 +108,14 @@ fn main() -> ! {
     let mut prev_button_pressed = false;
 
     loop {
+        let now = board.delay.uptime_ms();
+
         // 1. High-frequency non-blocking USB polling (every loop iteration)
         board.usb_hid.poll();
 
         let usb_configured = board.usb_hid.is_configured();
         if usb_configured && !prev_usb_configured {
-            let uptime = board.delay.uptime_ms();
+            let uptime = now;
             writeln!(
                 board.uart0,
                 "[USB] >>> USB HID State: CONFIGURED [Time: {} ms] <<<",
@@ -129,10 +131,10 @@ fn main() -> ! {
         // 2. Interactive Button Controls (PA8)
         let button_pressed = board.button.is_pressed();
         if button_pressed && !prev_button_pressed {
-            button_press_start_ms = board.delay.uptime_ms();
+            button_press_start_ms = now;
             board.led_blue.on(); // Visual click feedback
         } else if !button_pressed && prev_button_pressed {
-            let duration = board.delay.uptime_ms().wrapping_sub(button_press_start_ms);
+            let duration = now.wrapping_sub(button_press_start_ms);
             board.led_blue.off();
 
             if duration >= 1500 {
@@ -152,7 +154,7 @@ fn main() -> ! {
                 }
                 accum.reset();
                 history.clear();
-                stats.reset(board.delay.uptime_ms());
+                stats.reset(now);
                 writeln!(board.uart0, "[SYS] Session Stats & Accumulators Reset!").ok();
 
                 // Re-draw active screen layout to clear residual data
@@ -192,8 +194,6 @@ fn main() -> ! {
             }
         }
         prev_button_pressed = button_pressed;
-
-        let now = board.delay.uptime_ms();
 
         // 3. Polite Green LED Heartbeat: Subtle 35ms pulse every 2.5s (2500ms)
         let hb_phase = now.wrapping_sub(last_heartbeat_ms);
@@ -263,7 +263,14 @@ fn main() -> ! {
             // Screen Rendering
             match screen_mode {
                 ScreenMode::Hero => {
-                    hero_screen.update(&mut board.lcd, &reading, &accum, ina_present);
+                    hero_screen.update(
+                        &mut board.lcd,
+                        &reading,
+                        &accum,
+                        ina_present,
+                        board.usb_hid.is_configured(),
+                        datalogger.status,
+                    );
                 }
                 ScreenMode::Graph => {
                     graph_screen.update(&mut board.lcd, &reading, &accum, &history, ina_present);

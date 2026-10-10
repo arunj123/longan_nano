@@ -5,6 +5,16 @@ use longan_nano_bsp::{
 use crate::fmt::{fmt_energy_auto, fmt_hero_current, fmt_power, fmt_voltage, BufferCursor, DirtyField};
 use crate::model::{Accumulators, InaReading};
 use crate::ui::theme::*;
+use crate::ui::SdStatus;
+
+// 8x8 USB Plug Icon
+const ICON_USB: [u8; 8] = [0x3C, 0x5A, 0x42, 0xFF, 0xFF, 0x7E, 0x3C, 0x18];
+
+// 8x8 MicroSD Card Icon
+const ICON_SD: [u8; 8] = [0x7E, 0x7E, 0x3E, 0x3E, 0x7E, 0x7E, 0x54, 0x00];
+
+// 8x8 Recording Dot Icon
+const ICON_REC: [u8; 8] = [0x00, 0x18, 0x3C, 0x7E, 0x7E, 0x3C, 0x18, 0x00];
 
 pub struct HeroScreen {
     cur_field: DirtyField<16>,
@@ -14,6 +24,10 @@ pub struct HeroScreen {
     energy_field: DirtyField<16>,
     peak_bar_val: u16,
     peak_decay_counter: u8,
+    smoothed_current: i16,
+    ema_initialized: bool,
+    prev_usb_cfg: Option<bool>,
+    prev_sd_status: Option<SdStatus>,
 }
 
 impl HeroScreen {
@@ -26,6 +40,10 @@ impl HeroScreen {
             energy_field: DirtyField::new(),
             peak_bar_val: 0,
             peak_decay_counter: 0,
+            smoothed_current: 0,
+            ema_initialized: false,
+            prev_usb_cfg: None,
+            prev_sd_status: None,
         }
     }
 
@@ -54,6 +72,9 @@ impl HeroScreen {
         self.pwr_field.invalidate();
         self.energy_field.invalidate();
         self.peak_bar_val = 0;
+        self.ema_initialized = false;
+        self.prev_usb_cfg = None;
+        self.prev_sd_status = None;
     }
 
     pub fn update(
@@ -62,16 +83,45 @@ impl HeroScreen {
         reading: &InaReading,
         accum: &Accumulators,
         ina_present: bool,
+        usb_configured: bool,
+        sd_status: SdStatus,
     ) {
-        // --- 1. Header Bar: Energy & Status Badge ---
+        // --- 1. Header Bar: Status Icons, Energy & Status Badge ---
+        // 1a. USB Status Icon (X: 43, Y: 3)
+        if self.prev_usb_cfg != Some(usb_configured) {
+            let usb_col = if usb_configured { COL_CYAN } else { rgb565(50, 60, 75) };
+            lcd.draw_bitmap_8x8(43, 3, &ICON_USB, usb_col, COL_BG_TOP);
+            self.prev_usb_cfg = Some(usb_configured);
+        }
+
+        // 1b. SD Card Status Icon (X: 54, Y: 3)
+        if self.prev_sd_status != Some(sd_status) {
+            match sd_status {
+                SdStatus::Logging => {
+                    lcd.draw_bitmap_8x8(54, 3, &ICON_REC, COL_RED, COL_BG_TOP);
+                }
+                SdStatus::Ready => {
+                    lcd.draw_bitmap_8x8(54, 3, &ICON_SD, COL_MINT, COL_BG_TOP);
+                }
+                SdStatus::WriteError => {
+                    lcd.draw_bitmap_8x8(54, 3, &ICON_SD, COL_AMBER, COL_BG_TOP);
+                }
+                SdStatus::NoCard => {
+                    lcd.draw_bitmap_8x8(54, 3, &ICON_SD, rgb565(50, 60, 75), COL_BG_TOP);
+                }
+            }
+            self.prev_sd_status = Some(sd_status);
+        }
+
+        // 1c. Energy Accumulator (X: 65, Y: 3)
         let mut e_buf = [0u8; 16];
         let mut e_cur = BufferCursor::new(&mut e_buf);
         fmt_energy_auto(&mut e_cur, accum);
         if self.energy_field.update(e_cur.as_str()) {
-            lcd.draw_string(52, 3, e_cur.as_str(), &FONT_5X7, COL_AMBER, COL_BG_TOP);
+            lcd.draw_string(65, 3, e_cur.as_str(), &FONT_5X7, COL_AMBER, COL_BG_TOP);
         }
 
-        // Status Badge (Top-Right)
+        // 1d. Status Badge (Top-Right)
         if !ina_present {
             lcd.fill_rect(122, 2, 35, 10, rgb565(60, 0, 0));
             lcd.rect(122, 2, 35, 10, COL_RED);
@@ -90,10 +140,27 @@ impl HeroScreen {
             lcd.draw_string(126, 3, "LIVE", &FONT_5X7, COL_MINT, 0x0162);
         }
 
-        // --- 2. Hero Current Display ---
+        // --- 2. Hero Current Display with EMA Smoothing ---
+        let raw_c = reading.current_tenth_ma;
+        let display_c = if !self.ema_initialized {
+            self.smoothed_current = raw_c;
+            self.ema_initialized = true;
+            raw_c
+        } else {
+            let diff = raw_c - self.smoothed_current;
+            if diff.abs() > 100 {
+                // Large step load jump (> 10.0 mA): bypass filter for instant response
+                self.smoothed_current = raw_c;
+            } else {
+                // Exponential moving average: y += (x - y) >> 2
+                self.smoothed_current += diff / 4;
+            }
+            self.smoothed_current
+        };
+
         let mut c_buf = [0u8; 16];
         let mut c_cur = BufferCursor::new(&mut c_buf);
-        let (num_str, unit_str) = fmt_hero_current(&mut c_cur, reading.current_tenth_ma);
+        let (num_str, unit_str) = fmt_hero_current(&mut c_cur, display_c);
 
         let curr_col = if reading.is_reverse {
             COL_RED

@@ -224,6 +224,26 @@ impl Lcd {
     pub fn clear(&mut self, color: u16) {
         self.fill_rect(0, 0, LCD_WIDTH, LCD_HEIGHT, color);
     }
+
+    /// Draws a 1-bit monochrome 8x8 bitmap with foreground and background colors.
+    pub fn draw_bitmap_8x8(&mut self, x: u16, y: u16, bitmap: &[u8; 8], fg: u16, bg: u16) {
+        if x + 8 > LCD_WIDTH || y + 8 > LCD_HEIGHT {
+            return;
+        }
+        self.set_address_window(x, y, 8, 8);
+        self.spi.wait_idle();
+        self.spi.set_16bit();
+        self.mode_data();
+
+        for &row_bits in bitmap {
+            let mut mask = 0x80u8;
+            while mask != 0 {
+                let color = if (row_bits & mask) != 0 { fg } else { bg };
+                self.spi.send_u16(color);
+                mask >>= 1;
+            }
+        }
+    }
     /// Draws a character using any font implementing `Font`.
     pub fn draw_char<F: Font>(&mut self, x: u16, y: u16, c: char, font: &F, fg: u16, bg: u16) -> Option<u8> {
         let w = font.char_width(c) as u16;

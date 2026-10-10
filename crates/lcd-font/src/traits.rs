@@ -7,8 +7,10 @@ pub enum GlyphLayout {
     RowMajorLsb,
     /// 1 or more bytes per row, bit 7 = left column (e.g. Font16x24)
     RowMajorMsb,
-    /// 1 u32 per row, bit 31 = left column (e.g. Font28)
+    /// 1 u32 per row, bit 31 = left column
     RowMajorMsbU32,
+    /// 4-bit alpha per pixel, packed 2 pixels per byte (e.g. Font28 anti-aliased)
+    RowMajorNibble,
 }
 
 /// Generic trait for embedded bitmap and rasterized fonts

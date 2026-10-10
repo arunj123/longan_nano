@@ -84,7 +84,7 @@ use hal::spi::{Prescaler, Spi0, Spi1};
 pub type BoardRotaryEncoder = RotaryEncoder<
     Pin<PortB, 10, mode::Input<mode::PullUp>>,
     Pin<PortB, 11, mode::Input<mode::PullUp>>,
-    Pin<PortB, 12, mode::Input<mode::PullUp>>,
+    Pin<PortB, 5, mode::Input<mode::PullUp>>,
 >;
 
 /// Longan Nano Board peripherals container
@@ -350,10 +350,10 @@ impl Board {
         let spi0 = Spi0::new_master(dp.spi0, sck, mosi, Prescaler::Div8, &rcu);
         let lcd = Lcd::new(spi0, cs, dc, rst);
 
-        // Rotary encoder on PB10 (CLK), PB11 (DT), PB12 (SW)
+        // Rotary encoder on PB10 (CLK), PB11 (DT), PB5 (SW)
         let clk = gpiob.pb10.into_pull_up_input();
         let dt = gpiob.pb11.into_pull_up_input();
-        let sw = gpiob.pb12.into_pull_up_input();
+        let sw = gpiob.pb5.into_pull_up_input();
         let encoder = RotaryEncoder::new(clk, dt, sw);
 
         let mut delay = Delay::new(dp.mtime, clocks);
