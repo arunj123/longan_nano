@@ -53,7 +53,6 @@ impl HeroScreen {
         // 1. Top Header Bar (Y: 0..13)
         lcd.fill_rect(0, 0, 160, 13, COL_BG_TOP);
         lcd.fill_rect(0, 13, 160, 1, COL_DIVIDER);
-        lcd.draw_string(4, 3, "INA219", &FONT_5X7, COL_WHITE, COL_BG_TOP);
 
         // 2. Bottom Weather Widget Tiles (Y: 51..78)
         // Left Tile: VOLTAGE
@@ -87,38 +86,38 @@ impl HeroScreen {
         sd_status: SdStatus,
     ) {
         // --- 1. Header Bar: Status Icons, Energy & Status Badge ---
-        // 1a. USB Status Icon (X: 43, Y: 3)
+        // 1a. USB Status Icon (X: 4, Y: 3)
         if self.prev_usb_cfg != Some(usb_configured) {
             let usb_col = if usb_configured { COL_CYAN } else { rgb565(50, 60, 75) };
-            lcd.draw_bitmap_8x8(43, 3, &ICON_USB, usb_col, COL_BG_TOP);
+            lcd.draw_bitmap_8x8(4, 3, &ICON_USB, usb_col, COL_BG_TOP);
             self.prev_usb_cfg = Some(usb_configured);
         }
 
-        // 1b. SD Card Status Icon (X: 54, Y: 3)
+        // 1b. SD Card Status Icon (X: 16, Y: 3)
         if self.prev_sd_status != Some(sd_status) {
             match sd_status {
                 SdStatus::Logging => {
-                    lcd.draw_bitmap_8x8(54, 3, &ICON_REC, COL_RED, COL_BG_TOP);
+                    lcd.draw_bitmap_8x8(16, 3, &ICON_REC, COL_RED, COL_BG_TOP);
                 }
                 SdStatus::Ready => {
-                    lcd.draw_bitmap_8x8(54, 3, &ICON_SD, COL_MINT, COL_BG_TOP);
+                    lcd.draw_bitmap_8x8(16, 3, &ICON_SD, COL_MINT, COL_BG_TOP);
                 }
                 SdStatus::WriteError => {
-                    lcd.draw_bitmap_8x8(54, 3, &ICON_SD, COL_AMBER, COL_BG_TOP);
+                    lcd.draw_bitmap_8x8(16, 3, &ICON_SD, COL_AMBER, COL_BG_TOP);
                 }
                 SdStatus::NoCard => {
-                    lcd.draw_bitmap_8x8(54, 3, &ICON_SD, rgb565(50, 60, 75), COL_BG_TOP);
+                    lcd.draw_bitmap_8x8(16, 3, &ICON_SD, rgb565(50, 60, 75), COL_BG_TOP);
                 }
             }
             self.prev_sd_status = Some(sd_status);
         }
 
-        // 1c. Energy Accumulator (X: 65, Y: 3)
+        // 1c. Energy Accumulator (X: 30, Y: 3)
         let mut e_buf = [0u8; 16];
         let mut e_cur = BufferCursor::new(&mut e_buf);
         fmt_energy_auto(&mut e_cur, accum);
         if self.energy_field.update(e_cur.as_str()) {
-            lcd.draw_string(65, 3, e_cur.as_str(), &FONT_5X7, COL_AMBER, COL_BG_TOP);
+            lcd.draw_string(30, 3, e_cur.as_str(), &FONT_5X7, COL_AMBER, COL_BG_TOP);
         }
 
         // 1d. Status Badge (Top-Right)

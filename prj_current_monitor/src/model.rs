@@ -242,3 +242,47 @@ impl SessionStats {
         }
     }
 }
+
+/// 7-bin logarithmic current distribution histogram for sleep/active power profiling.
+pub struct HistogramData {
+    pub bins: [u32; 7],
+    pub total: u32,
+}
+
+impl HistogramData {
+    pub const fn new() -> Self {
+        Self {
+            bins: [0; 7],
+            total: 0,
+        }
+    }
+
+    pub fn clear(&mut self) {
+        self.bins = [0; 7];
+        self.total = 0;
+    }
+
+    pub fn record(&mut self, abs_current_tenth: u32) {
+        let bin_idx = match abs_current_tenth {
+            0..=9 => 0,       // < 1.0 mA
+            10..=49 => 1,     // 1.0 .. 5.0 mA
+            50..=199 => 2,    // 5.0 .. 20.0 mA
+            200..=499 => 3,   // 20.0 .. 50.0 mA
+            500..=1499 => 4,  // 50.0 .. 150.0 mA
+            1500..=4999 => 5, // 150.0 .. 500.0 mA
+            _ => 6,           // >= 500.0 mA
+        };
+        self.bins[bin_idx] = self.bins[bin_idx].saturating_add(1);
+        self.total = self.total.saturating_add(1);
+    }
+
+    /// Returns integer percentage (0..=100) for a given bin.
+    pub fn pct(&self, bin_idx: usize) -> u8 {
+        if self.total == 0 || bin_idx >= 7 {
+            0
+        } else {
+            let pct = (self.bins[bin_idx] as u64 * 100) / (self.total as u64);
+            pct.min(100) as u8
+        }
+    }
+}

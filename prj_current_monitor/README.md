@@ -12,6 +12,7 @@ The firmware is implemented in **100% vendor-free, pure embedded Rust** (`no_std
   - **Hero Screen:** Large 28px TrueType-rasterized current metric, live dynamic load gauge bar with peak-hold transient marker, mint voltage card, amber power card, and live status badges (`[LIVE]`, `[REV]`, `[OVF]`, `[ERR]`).
   - **Oscilloscope Screen:** 10 Hz real-time sweep with an integrated **137-sample circular buffer**. When autoscaling shifts scale tiers, the historical waveform is instantly replotted without erasing previous measurements. Includes shaded area fill, grid dots, and non-overlapping header telemetry.
   - **Stats Dashboard:** Live session run time, estimated load impedance (\(R = V/I\)), voltage min..max range, current min..max range, peak power, MicroSD log counter, and accumulated energy (\(\mu\text{Wh} \to \text{mWh} \to \text{Wh}\)) & charge (\(\mu\text{Ah} \to \text{mAh} \to \text{Ah}\)).
+  - **Histogram Screen:** Current distribution profile in 7 log-spaced bins (`<1mA`, `1-5mA`, `5-20mA`, `20-50mA`, `50-150mA`, `150-500mA`, `>500mA`) with color-coded proportional bar gauges and percentage readouts for embedded sleep vs. active profiling.
 - **Precision Sensor DSP (INA219 @ 400 kHz Fast I2C):**
   - 128-sample hardware shunt ADC averaging (68.1 ms conversion time) covering ~68% of continuous real time.
   - 16-sample hardware bus ADC averaging.
@@ -23,8 +24,8 @@ The firmware is implemented in **100% vendor-free, pure embedded Rust** (`no_std
   - Hot-plug recovery with exponential backoff (2.5s \(\to\) 5s \(\to\) 10s \(\to\) 30s) to guarantee zero UI or USB stutter when no card is inserted.
   - Logs true instantaneous measurements with exact decimal points and signed current.
 - **Interactive Controls (User Button PA8):**
-  - **Short Press (< 1.5s):** Cycle through screens: `Hero` \(\to\) `Graph` \(\to\) `Stats` \(\to\) `Hero`.
-  - **Long Press (\(\ge\) 1.5s):** **Tare Zero Calibration** (stores active reading as zero-offset) + resets session accumulators and stats.
+  - **Short Press (< 1.5s):** Cycle through screens: `Hero` \(\to\) `Graph` \(\to\) `Stats` \(\to\) `Histogram` \(\to\) `Hero`.
+  - **Long Press (\(\ge\) 1.5s):** **Tare Zero Calibration** (stores active reading as zero-offset) + resets session accumulators, histogram, and stats.
 - **High-Frequency USB HID Telemetry Streaming:**
   - Streams 9-byte reports at 10 Hz over custom USB HID (VID: `0x28E9`, PID: `0x1234`).
   - Transmits bus voltage (mV), signed current with 0.1 mA resolution, power (mW), sequence counter, and diagnostic flags (`ONLINE`, `REV`, `OVF`, `SD-REC`).

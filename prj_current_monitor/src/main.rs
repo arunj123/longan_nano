@@ -15,16 +15,16 @@ use riscv_rt::entry;
 use longan_nano_bsp::Board;
 
 use crate::logger::SdDatalogger;
-use crate::model::{Accumulators, InaReading, SessionStats, WaveformHistory};
+use crate::model::{Accumulators, HistogramData, InaReading, SessionStats, WaveformHistory};
 use crate::telemetry::TelemetryStreamer;
-use crate::ui::{GraphScreen, HeroScreen, ScreenMode, SdStatus, StatsScreen};
+use crate::ui::{GraphScreen, HeroScreen, HistogramScreen, ScreenMode, SdStatus, StatsScreen};
 
 #[entry]
 fn main() -> ! {
     let mut board = Board::take_current_monitor().expect("Board initialization failed");
 
     writeln!(board.uart0, "\r\n========================================").ok();
-    writeln!(board.uart0, " Longan Nano INA219 Current Monitor (Rust)").ok();
+    writeln!(board.uart0, " Longan Nano Current Monitor (Rust)").ok();
     writeln!(
         board.uart0,
         " SYSCLK: {} MHz | I2C0: 400 kHz Fast Mode | SPI0: 24 MHz",
@@ -62,6 +62,7 @@ fn main() -> ! {
     let mut hero_screen = HeroScreen::new();
     let mut graph_screen = GraphScreen::new();
     let mut stats_screen = StatsScreen::new();
+    let mut histogram_screen = HistogramScreen::new();
     let mut screen_mode = ScreenMode::Hero;
 
     // Draw initial layout
@@ -70,6 +71,7 @@ fn main() -> ! {
     // Core data containers
     let mut accum = Accumulators::new();
     let mut history = WaveformHistory::new();
+    let mut histogram = HistogramData::new();
     let mut stats = SessionStats::new(board.delay.uptime_ms());
     let mut telemetry = TelemetryStreamer::new();
 
@@ -154,21 +156,24 @@ fn main() -> ! {
                 }
                 accum.reset();
                 history.clear();
+                histogram.clear();
                 stats.reset(now);
-                writeln!(board.uart0, "[SYS] Session Stats & Accumulators Reset!").ok();
+                writeln!(board.uart0, "[SYS] Session Stats, Histogram & Accumulators Reset!").ok();
 
                 // Re-draw active screen layout to clear residual data
                 match screen_mode {
                     ScreenMode::Hero => hero_screen.draw_layout(&mut board.lcd),
                     ScreenMode::Graph => graph_screen.draw_layout(&mut board.lcd),
                     ScreenMode::Stats => stats_screen.draw_layout(&mut board.lcd),
+                    ScreenMode::Histogram => histogram_screen.draw_layout(&mut board.lcd),
                 }
             } else if duration >= 50 {
                 // Short press (50ms..1499ms): Cycle screen mode
                 screen_mode = match screen_mode {
                     ScreenMode::Hero => ScreenMode::Graph,
                     ScreenMode::Graph => ScreenMode::Stats,
-                    ScreenMode::Stats => ScreenMode::Hero,
+                    ScreenMode::Stats => ScreenMode::Histogram,
+                    ScreenMode::Histogram => ScreenMode::Hero,
                 };
 
                 match screen_mode {
@@ -179,6 +184,7 @@ fn main() -> ! {
                         graph_screen.replot_history(&mut board.lcd, &history);
                     }
                     ScreenMode::Stats => stats_screen.draw_layout(&mut board.lcd),
+                    ScreenMode::Histogram => histogram_screen.draw_layout(&mut board.lcd),
                 }
 
                 writeln!(
@@ -188,6 +194,7 @@ fn main() -> ! {
                         ScreenMode::Hero => "HERO (Large Number Cards)",
                         ScreenMode::Graph => "GRAPH (Oscilloscope)",
                         ScreenMode::Stats => "STATS (Dashboard)",
+                        ScreenMode::Histogram => "HISTOGRAM (Current Profile)",
                     }
                 )
                 .ok();
@@ -252,6 +259,9 @@ fn main() -> ! {
             // Update waveform circular history buffer
             history.push(reading.current_tenth_ma);
 
+            // Update current distribution histogram
+            histogram.record(reading.abs_current_tenth());
+
             // Update DSP Session Stats
             stats.update(reading.voltage_mv, reading.current_tenth_ma, reading.power_tenth_mw);
 
@@ -285,6 +295,9 @@ fn main() -> ! {
                         datalogger.total_logged_rows,
                         now,
                     );
+                }
+                ScreenMode::Histogram => {
+                    histogram_screen.update(&mut board.lcd, &histogram);
                 }
             }
 
@@ -337,6 +350,7 @@ fn main() -> ! {
                 ScreenMode::Hero => "HERO",
                 ScreenMode::Graph => "GRAPH",
                 ScreenMode::Stats => "STATS",
+                ScreenMode::Histogram => "HISTO",
             };
 
             writeln!(
