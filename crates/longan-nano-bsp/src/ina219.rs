@@ -83,6 +83,12 @@ impl Ina219 {
         Ok(c_tenth / 10)
     }
 
+    /// Checks if a new conversion has completed (CNVR bit in Bus Voltage register).
+    pub fn is_conversion_ready(&mut self) -> Result<bool, I2cError> {
+        let raw = self.i2c.read_reg16(self.addr, Self::REG_BUSVOLTAGE)?;
+        Ok((raw & 0x02) != 0)
+    }
+
     /// Reads calculated power in milliwatts.
     pub fn read_power_mw(&mut self) -> Result<u16, I2cError> {
         let raw = self.i2c.read_reg16(self.addr, Self::REG_POWER)?;
@@ -90,9 +96,12 @@ impl Ina219 {
     }
 
     /// Reads bus voltage, shunt current and flags into an `Ina219Data` record.
+    /// Also clears the CNVR flag by reading the Power register per the INA219 datasheet.
     pub fn read_all(&mut self) -> Result<Ina219Data, I2cError> {
         let v_raw = self.i2c.read_reg16(self.addr, Self::REG_BUSVOLTAGE)?;
         let c_raw = self.i2c.read_reg16(self.addr, Self::REG_CURRENT)?;
+        // Reading Power register clears CNVR per INA219 specification
+        let _ = self.i2c.read_reg16(self.addr, Self::REG_POWER);
 
         let math_overflow = (v_raw & 0x01) != 0;
         let conversion_ready = (v_raw & 0x02) != 0;

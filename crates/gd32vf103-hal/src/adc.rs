@@ -19,14 +19,14 @@ impl Adc0TempSensor {
         // 2. Enable temperature sensor and Vrefint (TSVREN in CTL1)
         regs.ctl1.set_bits(ctl1::TSVREN);
 
-        // 3. Configure sampling time for Channel 16 to maximum (239.5 cycles >= 17.1 us)
-        // Channel 16 is in SAMPT0: offset = (16 - 10) * 3 = 18 bits, mask = 7 << 18
-        regs.sampt0.modify(|v| (v & !(7 << 18)) | (7 << 18));
+        // 3. Configure sampling time for Channel 16 & 17 to maximum (239.5 cycles >= 17.1 us)
+        // Channel 16: bits 18..20, Channel 17: bits 21..23 in SAMPT0
+        regs.sampt0.modify(|v| (v & !((7 << 18) | (7 << 21))) | (7 << 18) | (7 << 21));
 
         // 4. Configure regular channel sequence: length = 1 conversion
         regs.rsq0.modify(|v| v & !(0xF << 20));
 
-        // 5. Channel 16 as 1st conversion in regular sequence (RSQ2 bits 0..4)
+        // 5. Channel 16 as default 1st conversion in regular sequence (RSQ2 bits 0..4)
         regs.rsq2.modify(|v| (v & !0x1F) | 16);
 
         // 6. External trigger source: None (software trigger only) + enable regular external trigger
@@ -55,26 +55,39 @@ impl Adc0TempSensor {
         Self { adc }
     }
 
-    /// Performs an ADC conversion on Channel 16 and returns the MCU die temperature in tenths of a degree Celsius (e.g. 342 = 34.2 °C).
-    pub fn read_temperature_tenth_c(&mut self) -> i16 {
+    #[inline]
+    fn convert_channel(&self, ch: u8) -> u32 {
         let regs = self.adc.regs();
-
-        // Clear EOC flag
+        regs.rsq2.modify(|v| (v & !0x1F) | (ch as u32));
         regs.stat.clear_bits(stat::EOC);
-
-        // Trigger software conversion
         regs.ctl1.set_bits(ctl1::SWRCST);
-
-        // Wait for End Of Conversion
         let mut timeout = 20_000;
         while (regs.stat.read() & stat::EOC) == 0 && timeout > 0 {
             timeout -= 1;
         }
+        (regs.rdata.read() & 0x0FFF) as u32
+    }
 
-        let raw = (regs.rdata.read() & 0x0FFF) as u32;
+    /// Reads internal Vrefint (Channel 17) to calculate the actual VDDA supply rail voltage in millivolts.
+    pub fn read_vdda_mv(&mut self) -> u16 {
+        let raw_vref = self.convert_channel(17);
+        if raw_vref > 0 {
+            // GD32VF103 typical Vrefint = 1200 mV (1.20 V)
+            let vdda = (1200u32 * 4095) / raw_vref;
+            vdda.clamp(2000, 4000) as u16
+        } else {
+            3300
+        }
+    }
 
-        // Convert 12-bit ADC code to mV assuming Vdda = 3300 mV
-        let v_sense_mv = (raw * 3300) / 4095;
+    /// Performs an ADC conversion on Channel 16 and returns the MCU die temperature in tenths of a degree Celsius (e.g. 342 = 34.2 °C).
+    /// Dynamically calibrates for actual VDDA supply voltage variations using Channel 17 (Vrefint).
+    pub fn read_temperature_tenth_c(&mut self) -> i16 {
+        let vdda_mv = self.read_vdda_mv() as u32;
+        let raw_temp = self.convert_channel(16);
+
+        // Convert 12-bit ADC code to mV using measured VDDA rail
+        let v_sense_mv = (raw_temp * vdda_mv) / 4095;
 
         // GD32VF103 Datasheet formula:
         // Temp (°C) = ((V25 - Vsense) / Avg_Slope) + 25

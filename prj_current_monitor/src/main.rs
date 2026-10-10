@@ -16,7 +16,7 @@ use riscv_rt::entry;
 use longan_nano_bsp::Board;
 
 use crate::logger::SdDatalogger;
-use crate::model::{Accumulators, BatteryProfile, BatteryState, HistogramData, InaReading, SessionStats, WaveformHistory};
+use crate::model::{Accumulators, BatteryProfile, BatteryState, HistogramData, InaReading, SampleAggregator, SessionStats, WaveformHistory};
 use crate::telemetry::{HidCommand, TelemetryStreamer};
 use crate::ui::{BigDigitScreen, GraphScreen, HeroScreen, HistogramScreen, ScreenMode, SdStatus, StatsScreen};
 
@@ -76,7 +76,7 @@ macro_rules! set_screen_mode {
 }
 
 macro_rules! tare_and_reset {
-    ($now:expr, $ina_present:expr, $board:expr, $datalogger:expr, $accum:expr, $hist:expr, $histo:expr, $stats:expr, $screen_mode:expr, $hero:expr, $graph:expr, $stats_s:expr, $histo_s:expr, $big_digit:expr, $battery:expr, $current_limit_ma:expr) => {{
+    ($now:expr, $ina_present:expr, $board:expr, $datalogger:expr, $accum:expr, $hist:expr, $histo:expr, $stats:expr, $screen_mode:expr, $hero:expr, $graph:expr, $stats_s:expr, $histo_s:expr, $big_digit:expr, $battery:expr, $current_limit_ma:expr, $sec_agg:expr) => {{
         if $ina_present {
             let mut sum_raw = 0i32;
             let mut valid_samples = 0i32;
@@ -104,6 +104,7 @@ macro_rules! tare_and_reset {
         $datalogger.flush_buffer();
         $datalogger.rotate_session();
         $accum.reset();
+        $sec_agg.finish_and_reset(&InaReading::default());
         $hist.clear();
         $histo.clear();
         $stats.reset($now);
@@ -143,9 +144,10 @@ macro_rules! dump_session {
         let rtc_epoch = $board.rtc.get_epoch();
         let rtc_dt = $board.rtc.get_datetime();
         let rtc_synced = $board.rtc.is_synced();
+        let vdda_mv = $board.mcu_temp.read_vdda_mv();
 
         writeln!($board.uart0, "\r\n--- SESSION TELEMETRY SUMMARY ---").ok();
-        writeln!($board.uart0, "Uptime: {} s | Mode: {} | MCU Temp: {}.{} C", uptime_s, mode_name, mcu_temp_tenth / 10, mcu_temp_tenth.unsigned_abs() % 10).ok();
+        writeln!($board.uart0, "Uptime: {} s | Mode: {} | MCU Temp: {}.{} C (VDDA: {} mV)", uptime_s, mode_name, mcu_temp_tenth / 10, mcu_temp_tenth.unsigned_abs() % 10, vdda_mv).ok();
         writeln!(
             $board.uart0,
             "Date/Time: {:04}-{:02}-{:02} {:02}:{:02}:{:02} UTC | Epoch: {} | Synced: {}",
@@ -203,7 +205,7 @@ macro_rules! dump_session {
         ).ok();
         writeln!(
             $board.uart0,
-            "[JSON] {{\"uptime_s\":{},\"mode\":\"{}\",\"epoch\":{},\"time\":\"{:04}-{:02}-{:02} {:02}:{:02}:{:02}\",\"rtc_synced\":{},\"v_min\":{},\"v_max\":{},\"c_min\":{},\"c_max\":{},\"c_avg\":{},\"p_peak_mw\":{},\"mwh\":{},\"mah\":{},\"mcu_temp_c\":{}.{},\"bat_soc\":{},\"sd_file\":\"{}\",\"sd_rows\":{},\"limit_ma\":{},\"alert\":{},\"over_current\":{},\"low_voltage\":{}}}",
+            "[JSON] {{\"uptime_s\":{},\"mode\":\"{}\",\"epoch\":{},\"time\":\"{:04}-{:02}-{:02} {:02}:{:02}:{:02}\",\"rtc_synced\":{},\"v_min\":{},\"v_max\":{},\"c_min\":{},\"c_max\":{},\"c_avg\":{},\"p_peak_mw\":{},\"mwh\":{},\"mah\":{},\"mcu_temp_c\":{}.{},\"vdda_mv\":{},\"bat_soc\":{},\"sd_file\":\"{}\",\"sd_rows\":{},\"limit_ma\":{},\"alert\":{},\"over_current\":{},\"low_voltage\":{}}}",
             uptime_s,
             mode_name,
             rtc_epoch,
@@ -219,6 +221,7 @@ macro_rules! dump_session {
             $accum.charge_mah(),
             mcu_temp_tenth / 10,
             mcu_temp_tenth.unsigned_abs() % 10,
+            vdda_mv,
             $battery.soc_pct,
             $datalogger.file_name_str(),
             $datalogger.total_logged_rows,
@@ -316,6 +319,7 @@ fn main() -> ! {
     let mut stats = SessionStats::new(board.delay.uptime_ms());
     let mut battery = BatteryState::new();
     let mut telemetry = TelemetryStreamer::new();
+    let mut sec_agg = SampleAggregator::new();
 
     // Check NVRAM configuration in BKP registers
     if board.rtc.read_backup_reg(BKP_REG_MAGIC) == BKP_MAGIC_KEY {
@@ -488,7 +492,7 @@ fn main() -> ! {
                                 ).ok();
                             }
                         } else if cmd_len == 1 && cmd_buf[0] == b'T' {
-                            tare_and_reset!(now, ina_present, board, datalogger, accum, history, histogram, stats, screen_mode, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, battery, current_limit_ma);
+                            tare_and_reset!(now, ina_present, board, datalogger, accum, history, histogram, stats, screen_mode, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, battery, current_limit_ma, sec_agg);
                         } else if cmd_len >= 2 && cmd_buf[0] == b'L' {
                             let line = &cmd_buf[..cmd_len];
                             let mut idx = 1;
@@ -559,7 +563,7 @@ fn main() -> ! {
                         ).ok();
                     }
                     b't' => {
-                        tare_and_reset!(now, ina_present, board, datalogger, accum, history, histogram, stats, screen_mode, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, battery, current_limit_ma);
+                        tare_and_reset!(now, ina_present, board, datalogger, accum, history, histogram, stats, screen_mode, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, battery, current_limit_ma, sec_agg);
                     }
                     b'c' | b'C' => {
                         let epoch = board.rtc.get_epoch();
@@ -633,7 +637,7 @@ fn main() -> ! {
                         set_screen_mode!(mode, screen_mode, board, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, history, battery, current_limit_ma);
                     }
                 }
-                HidCommand::TareZero => tare_and_reset!(now, ina_present, board, datalogger, accum, history, histogram, stats, screen_mode, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, battery, current_limit_ma),
+                HidCommand::TareZero => tare_and_reset!(now, ina_present, board, datalogger, accum, history, histogram, stats, screen_mode, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, battery, current_limit_ma, sec_agg),
                 HidCommand::FlushSd => {
                     datalogger.flush_buffer();
                     writeln!(board.uart0, "[HID-CMD] Flushed SD buffer to {}", datalogger.file_name_str()).ok();
@@ -685,7 +689,7 @@ fn main() -> ! {
 
             if duration >= 1500 {
                 // Long press (>= 1.5s): Zero Tare Calibration + Reset Session Stats
-                tare_and_reset!(now, ina_present, board, datalogger, accum, history, histogram, stats, screen_mode, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, battery, current_limit_ma);
+                tare_and_reset!(now, ina_present, board, datalogger, accum, history, histogram, stats, screen_mode, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, battery, current_limit_ma, sec_agg);
             } else if duration >= 50 {
                 // Short press (50ms..1499ms): Cycle screen mode
                 let next = match screen_mode {
@@ -711,9 +715,14 @@ fn main() -> ! {
             }
         }
 
-        // 4. 10 Hz Periodic Measurement, Analytics & Display Rendering
+        // 4. CNVR Synchronized Periodic Measurement, Analytics & Display Rendering
         let dt_ms = now.wrapping_sub(last_10hz_ms);
-        if dt_ms >= 100 {
+        let conv_ready = if ina_present && dt_ms >= 75 {
+            board.ina219.is_conversion_ready().unwrap_or(false)
+        } else {
+            false
+        };
+        if conv_ready || dt_ms >= 100 {
             last_10hz_ms = now;
 
             let mut reading = InaReading::default();
@@ -734,6 +743,7 @@ fn main() -> ! {
                             overflow: d.overflow,
                             is_reverse: c_tenth < 0,
                         };
+                        sec_agg.record(&reading);
                         board.led_red.off();
                     }
                     Err(_) => {
@@ -786,8 +796,8 @@ fn main() -> ! {
             last_reading = reading;
 
             // Drift-free millisecond energy & charge integration
-            if ina_present && reading.voltage_mv > 500 && reading.abs_current_tenth() > 2 {
-                accum.update(reading.power_tenth_mw, reading.abs_current_tenth(), dt_ms);
+            if ina_present && reading.voltage_mv > 500 && reading.current_tenth_ma != 0 {
+                accum.update(reading.power_tenth_mw, reading.current_tenth_ma, dt_ms);
             }
 
             // Screen Rendering
@@ -871,14 +881,15 @@ fn main() -> ! {
                 }
             }
 
-            // Log representative row to sector buffer using latest valid reading from 10 Hz loop
+            // Log representative row to sector buffer using true 1s arithmetic average from sample aggregator
             if ina_present {
                 let cur_dt = if board.rtc.is_synced() {
                     Some(board.rtc.get_datetime())
                 } else {
                     None
                 };
-                datalogger.log_sample(now, &last_reading, &accum, cur_dt);
+                let agg_reading = sec_agg.finish_and_reset(&last_reading);
+                datalogger.log_sample(now, &agg_reading, &accum, cur_dt);
             }
 
             // UART0 Heartbeat & Diagnostic Output

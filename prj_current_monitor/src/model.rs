@@ -86,6 +86,9 @@ impl WaveformHistory {
 }
 
 /// Drift-free energy and charge integration using exact millisecond delta math.
+/// Tracks bi-directional flow:
+/// - charge_out: energy/charge delivered to load (discharging)
+/// - charge_in: energy/charge absorbed from source (charging)
 ///
 /// Unit definitions:
 /// - Power in tenths of mW (10^-4 W).
@@ -93,8 +96,10 @@ impl WaveformHistory {
 /// - 1 uWh = 36,000 (tenth_mw * ms).
 /// - 1 uAh = 36,000 (tenth_ma * ms).
 pub struct Accumulators {
-    pub energy_ticks: u64, // (tenth_mw * ms)
-    pub charge_ticks: u64, // (tenth_ma * ms)
+    pub energy_ticks: u64,     // Total energy throughput (tenth_mw * ms)
+    pub charge_ticks: u64,     // Total charge throughput (tenth_ma * ms)
+    pub charge_in_ticks: u64,  // Charging into source/battery (negative current)
+    pub charge_out_ticks: u64, // Discharging from source/battery (positive current)
 }
 
 impl Accumulators {
@@ -102,21 +107,42 @@ impl Accumulators {
         Self {
             energy_ticks: 0,
             charge_ticks: 0,
+            charge_in_ticks: 0,
+            charge_out_ticks: 0,
         }
     }
 
     #[inline]
-    pub fn update(&mut self, p_tenth_mw: u32, abs_c_tenth: u32, dt_ms: u32) {
+    pub fn update(&mut self, p_tenth_mw: u32, c_tenth_signed: i16, dt_ms: u32) {
+        let abs_c = c_tenth_signed.unsigned_abs() as u64;
         let e_inc = (p_tenth_mw as u64) * (dt_ms as u64);
-        let q_inc = (abs_c_tenth as u64) * (dt_ms as u64);
+        let q_inc = abs_c * (dt_ms as u64);
+
         self.energy_ticks = self.energy_ticks.saturating_add(e_inc);
         self.charge_ticks = self.charge_ticks.saturating_add(q_inc);
+
+        if c_tenth_signed >= 0 {
+            self.charge_out_ticks = self.charge_out_ticks.saturating_add(q_inc);
+        } else {
+            self.charge_in_ticks = self.charge_in_ticks.saturating_add(q_inc);
+        }
     }
 
     #[inline]
     pub fn reset(&mut self) {
         self.energy_ticks = 0;
         self.charge_ticks = 0;
+        self.charge_in_ticks = 0;
+        self.charge_out_ticks = 0;
+    }
+
+    /// Net charge consumed in mAh: (discharge - charge).
+    /// Positive = net discharge, Negative = net recharge.
+    #[inline]
+    pub fn net_charge_mah(&self) -> i32 {
+        let out_mah = (self.charge_out_ticks / 36_000_000) as i32;
+        let in_mah = (self.charge_in_ticks / 36_000_000) as i32;
+        out_mah.saturating_sub(in_mah)
     }
 
     /// Total accumulated energy in micro-watt-hours (uWh).
@@ -352,8 +378,14 @@ impl BatteryState {
             return;
         }
 
-        let used_mah = accum.charge_mah();
-        let rem = if used_mah >= cap { 0 } else { cap - used_mah };
+        let net_used_mah = accum.net_charge_mah();
+        let rem = if net_used_mah <= 0 {
+            cap
+        } else if (net_used_mah as u32) >= cap {
+            0
+        } else {
+            cap - (net_used_mah as u32)
+        };
         self.rem_mah = rem;
         self.soc_pct = (((rem as u64) * 100) / (cap as u64)).min(100) as u8;
 
@@ -452,5 +484,74 @@ impl EmaFilter {
         }
         // Round to nearest integer: (acc + 8) >> 4
         ((self.acc + 8) >> 4) as i16
+    }
+}
+
+/// 1-second sample aggregator for calculating true arithmetic mean, min, and max
+/// across high-frequency conversion samples for MicroSD logging.
+#[derive(Copy, Clone, Debug, Default)]
+pub struct SampleAggregator {
+    pub v_sum: u32,
+    pub c_sum: i32,
+    pub p_sum: u32,
+    pub count: u16,
+    pub c_min: i16,
+    pub c_max: i16,
+    pub last_overflow: bool,
+}
+
+impl SampleAggregator {
+    pub const fn new() -> Self {
+        Self {
+            v_sum: 0,
+            c_sum: 0,
+            p_sum: 0,
+            count: 0,
+            c_min: i16::MAX,
+            c_max: i16::MIN,
+            last_overflow: false,
+        }
+    }
+
+    #[inline]
+    pub fn record(&mut self, reading: &InaReading) {
+        self.v_sum = self.v_sum.saturating_add(reading.voltage_mv as u32);
+        self.c_sum = self.c_sum.saturating_add(reading.current_tenth_ma as i32);
+        self.p_sum = self.p_sum.saturating_add(reading.power_tenth_mw);
+        self.count = self.count.saturating_add(1);
+        if reading.current_tenth_ma < self.c_min {
+            self.c_min = reading.current_tenth_ma;
+        }
+        if reading.current_tenth_ma > self.c_max {
+            self.c_max = reading.current_tenth_ma;
+        }
+        self.last_overflow = reading.overflow;
+    }
+
+    pub fn finish_and_reset(&mut self, fallback: &InaReading) -> InaReading {
+        if self.count == 0 {
+            return *fallback;
+        }
+        let avg_v = (self.v_sum / (self.count as u32)) as u16;
+        let avg_c = (self.c_sum / (self.count as i32)) as i16;
+        let avg_p = self.p_sum / (self.count as u32);
+
+        let res = InaReading {
+            voltage_mv: avg_v,
+            current_tenth_ma: avg_c,
+            power_tenth_mw: avg_p,
+            overflow: self.last_overflow,
+            is_reverse: avg_c < 0,
+        };
+
+        self.v_sum = 0;
+        self.c_sum = 0;
+        self.p_sum = 0;
+        self.count = 0;
+        self.c_min = i16::MAX;
+        self.c_max = i16::MIN;
+        self.last_overflow = false;
+
+        res
     }
 }
