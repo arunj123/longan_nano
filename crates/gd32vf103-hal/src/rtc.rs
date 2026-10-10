@@ -60,7 +60,6 @@ pub fn epoch_to_datetime(epoch: u32) -> DateTime {
 
 pub struct Rtc {
     rtc: pac::Rtc,
-    #[allow(dead_code)]
     bkp: pac::Bkp,
     pmu: pac::Pmu,
     synced: bool,
@@ -196,5 +195,44 @@ impl Rtc {
     #[inline(always)]
     pub fn is_synced(&self) -> bool {
         self.synced || self.get_epoch() > 1_700_000_000
+    }
+
+    /// Reads a 16-bit value from Backup Domain Data Register (0..=9).
+    pub fn read_backup_reg(&self, index: usize) -> u16 {
+        let regs = self.bkp.regs();
+        let val = match index {
+            0 => regs.data0.read(),
+            1 => regs.data1.read(),
+            2 => regs.data2.read(),
+            3 => regs.data3.read(),
+            4 => regs.data4.read(),
+            5 => regs.data5.read(),
+            6 => regs.data6.read(),
+            7 => regs.data7.read(),
+            8 => regs.data8.read(),
+            9 => regs.data9.read(),
+            _ => 0,
+        };
+        (val & 0xFFFF) as u16
+    }
+
+    /// Writes a 16-bit value to Backup Domain Data Register (0..=9).
+    pub fn write_backup_reg(&mut self, index: usize, val: u16) {
+        self.pmu.regs().ctl.modify(|r| r | pmu_ctl::BKPWEN);
+        let regs = self.bkp.regs();
+        let val32 = (val as u32) & 0xFFFF;
+        match index {
+            0 => regs.data0.write(val32),
+            1 => regs.data1.write(val32),
+            2 => regs.data2.write(val32),
+            3 => regs.data3.write(val32),
+            4 => regs.data4.write(val32),
+            5 => regs.data5.write(val32),
+            6 => regs.data6.write(val32),
+            7 => regs.data7.write(val32),
+            8 => regs.data8.write(val32),
+            9 => regs.data9.write(val32),
+            _ => {},
+        }
     }
 }

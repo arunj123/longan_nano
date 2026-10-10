@@ -39,10 +39,16 @@ except Exception as e:
     print(json.dumps(results))
     sys.exit(1)
 
-def send_and_expect(cmd_str, expected_substrs, timeout=2.5):
+def send_and_expect(cmd_str, expected_substrs, timeout=2.5, char_delay=0.0):
     ser.reset_input_buffer()
-    ser.write(cmd_str.encode())
-    ser.flush()
+    if char_delay > 0:
+        for ch in cmd_str:
+            ser.write(ch.encode())
+            ser.flush()
+            time.sleep(char_delay)
+    else:
+        ser.write(cmd_str.encode())
+        ser.flush()
     t_start = time.time()
     captured = []
     found_all = False
@@ -189,13 +195,54 @@ except Exception as e:
     results['hid_rtc_error'] = str(e)
 results['test_hid_epoch'] = {'pass': hid_rtc_ok}
 
+# TEST 13: Over-Current Alert Threshold via UART Console ('l' and 'L 1500\n')
+ok_l1, lines_l1 = send_and_expect('l', ['[LIMIT] Over-Current Alert Limit:'], timeout=1.5)
+ok_l2, lines_l2 = send_and_expect('L 1500\n', ['[LIMIT] Set Over-Current Alert Limit to: 1500 mA'], timeout=2.0, char_delay=0.01)
+results['test_limit_uart'] = {'pass': ok_l1 and ok_l2, 'lines': lines_l1 + lines_l2}
+
+# TEST 14: USB HID OUT SetCurrentLimit (Opcode 0x08 -> 2500 mA)
+hid_lim_ok = False
+try:
+    lim_ma = 2500
+    out_pkt = struct.pack('<BBH5s', 0x02, 0x08, lim_ma, b'\x00\x00\x00\x00\x00')
+    ser.reset_input_buffer()
+    with open('/dev/hidraw0', 'wb') as f:
+        f.write(out_pkt)
+        f.flush()
+    t0 = time.time()
+    while time.time() - t0 < 2.0:
+        line = ser.readline().decode('utf-8', errors='replace').strip()
+        if '[HID-CMD] Set Over-Current Alert Limit to: 2500 mA' in line:
+            hid_lim_ok = True
+            break
+except Exception as e:
+    results['hid_lim_error'] = str(e)
+results['test_hid_limit'] = {'pass': hid_lim_ok}
+
+# TEST 15: Telemetry Summary JSON Verification for limit_ma and alert
+ok_s, lines_s = send_and_expect('s', ['--- SESSION TELEMETRY SUMMARY ---', '[JSON]'], timeout=2.5)
+json_has_limit = False
+limit_val = None
+for l in lines_s:
+    if '[JSON]' in l:
+        idx = l.find('[JSON] ')
+        if idx != -1:
+            try:
+                d = json.loads(l[idx+7:])
+                if 'limit_ma' in d and 'alert' in d:
+                    json_has_limit = True
+                    limit_val = d['limit_ma']
+            except:
+                pass
+results['test_json_limit'] = {'pass': ok_s and json_has_limit and (limit_val == 2500), 'limit_ma': limit_val, 'lines': lines_s}
+
 ser.close()
 print("FINAL_RESULTS:" + json.dumps(results))
 """
 
 def main():
     print("=" * 70)
-    print(" Running Build 00C6 Remote Command & Telemetry Validation Test")
+    print(" Running Build 00C7 Remote Command & Telemetry Validation Test")
     print(f" Target Testbed: {USER}@{HOST}")
     print("=" * 70)
 
@@ -244,7 +291,7 @@ def main():
     res = json.loads(raw_results)
 
     print("\n" + "=" * 70)
-    print(" EMPIRICAL TEST RESULTS (BUILD 00C6)")
+    print(" EMPIRICAL TEST RESULTS (BUILD 00C7)")
     print("=" * 70)
 
     all_passed = True
@@ -329,9 +376,27 @@ def main():
     all_passed &= ep
     print(f" [TEST 12] USB HID OUT SetEpoch (Opcode 0x07 -> 1760091240): {'PASS' if ep else 'FAIL'}")
 
+    # Test 13: Over-Current Alert Threshold via UART Console ('l', 'L 1500')
+    lim_u = res.get('test_limit_uart', {})
+    lup = lim_u.get('pass', False)
+    all_passed &= lup
+    print(f" [TEST 13] Over-Current Alert Threshold via UART ('l', 'L 1500'): {'PASS' if lup else 'FAIL'}")
+
+    # Test 14: USB HID OUT SetCurrentLimit (Opcode 0x08 -> 2500 mA)
+    lim_h = res.get('test_hid_limit', {})
+    lhp = lim_h.get('pass', False)
+    all_passed &= lhp
+    print(f" [TEST 14] USB HID OUT SetCurrentLimit (Opcode 0x08 -> 2500 mA): {'PASS' if lhp else 'FAIL'}")
+
+    # Test 15: Telemetry Summary JSON Validation for limit_ma and alert
+    lim_j = res.get('test_json_limit', {})
+    ljp = lim_j.get('pass', False)
+    all_passed &= ljp
+    print(f" [TEST 15] JSON Telemetry Alert & Limit Field Validation: {'PASS' if ljp else 'FAIL'} (Limit: {lim_j.get('limit_ma')} mA)")
+
     print("=" * 70)
     if all_passed:
-        print(" >>> ALL 12 TEST SUITES PASSED CLEANLY ON TARGET HARDWARE <<<")
+        print(" >>> ALL 15 TEST SUITES PASSED CLEANLY ON TARGET HARDWARE <<<")
         print("=" * 70)
         sys.exit(0)
     else:

@@ -19,8 +19,35 @@ use crate::model::{Accumulators, BatteryProfile, BatteryState, HistogramData, In
 use crate::telemetry::{HidCommand, TelemetryStreamer};
 use crate::ui::{BigDigitScreen, GraphScreen, HeroScreen, HistogramScreen, ScreenMode, SdStatus, StatsScreen};
 
+const BKP_MAGIC_KEY: u16 = 0x5A5A;
+const BKP_REG_CONFIG: usize = 1; // [15..8] screen_mode, [7..0] battery_profile
+const BKP_REG_TARE: usize = 2;   // tare_offset_tenth (i16)
+const BKP_REG_LIMIT: usize = 3;  // current_limit_ma (u16)
+const BKP_REG_MAGIC: usize = 4;  // BKP_MAGIC_KEY
+
+fn save_nvram_config(
+    rtc: &mut gd32vf103_hal::Rtc,
+    screen_mode: ScreenMode,
+    battery_profile: BatteryProfile,
+    tare_offset_tenth: i16,
+    limit_ma: u16,
+) {
+    let mode_idx = match screen_mode {
+        ScreenMode::Hero => 0u16,
+        ScreenMode::Graph => 1u16,
+        ScreenMode::Stats => 2u16,
+        ScreenMode::Histogram => 3u16,
+        ScreenMode::BigDigit => 4u16,
+    };
+    let config = (mode_idx << 8) | (battery_profile.id() as u16);
+    rtc.write_backup_reg(BKP_REG_CONFIG, config);
+    rtc.write_backup_reg(BKP_REG_TARE, tare_offset_tenth as u16);
+    rtc.write_backup_reg(BKP_REG_LIMIT, limit_ma);
+    rtc.write_backup_reg(BKP_REG_MAGIC, BKP_MAGIC_KEY);
+}
+
 macro_rules! set_screen_mode {
-    ($new_mode:expr, $screen_mode:expr, $board:expr, $hero:expr, $graph:expr, $stats:expr, $histo:expr, $big_digit:expr, $hist:expr) => {{
+    ($new_mode:expr, $screen_mode:expr, $board:expr, $hero:expr, $graph:expr, $stats:expr, $histo:expr, $big_digit:expr, $hist:expr, $battery:expr, $current_limit_ma:expr) => {{
         $screen_mode = $new_mode;
         match $screen_mode {
             ScreenMode::Hero => $hero.draw_layout(&mut $board.lcd),
@@ -32,6 +59,7 @@ macro_rules! set_screen_mode {
             ScreenMode::Histogram => $histo.draw_layout(&mut $board.lcd),
             ScreenMode::BigDigit => $big_digit.draw_layout(&mut $board.lcd),
         }
+        save_nvram_config(&mut $board.rtc, $screen_mode, $battery.profile, $board.ina219.tare_offset_tenth, $current_limit_ma);
         writeln!(
             $board.uart0,
             "[UI] Screen mode: {}",
@@ -47,11 +75,12 @@ macro_rules! set_screen_mode {
 }
 
 macro_rules! tare_and_reset {
-    ($now:expr, $ina_present:expr, $board:expr, $datalogger:expr, $accum:expr, $hist:expr, $histo:expr, $stats:expr, $screen_mode:expr, $hero:expr, $graph:expr, $stats_s:expr, $histo_s:expr, $big_digit:expr) => {{
+    ($now:expr, $ina_present:expr, $board:expr, $datalogger:expr, $accum:expr, $hist:expr, $histo:expr, $stats:expr, $screen_mode:expr, $hero:expr, $graph:expr, $stats_s:expr, $histo_s:expr, $big_digit:expr, $battery:expr, $current_limit_ma:expr) => {{
         if $ina_present {
             if let Ok(raw_data) = $board.ina219.read_all() {
                 let current_raw = raw_data.current_tenth_ma;
                 $board.ina219.set_tare(current_raw);
+                save_nvram_config(&mut $board.rtc, $screen_mode, $battery.profile, current_raw, $current_limit_ma);
                 writeln!(
                     $board.uart0,
                     "[SYS] Tare Zero Offset Calibrated: {}.{} mA",
@@ -83,7 +112,7 @@ macro_rules! tare_and_reset {
 }
 
 macro_rules! dump_session {
-    ($now:expr, $screen_mode:expr, $board:expr, $datalogger:expr, $stats:expr, $accum:expr, $battery:expr) => {{
+    ($now:expr, $screen_mode:expr, $board:expr, $datalogger:expr, $stats:expr, $accum:expr, $battery:expr, $current_limit_ma:expr, $over_current:expr) => {{
         let uptime_s = $now / 1000;
         let mode_name = match $screen_mode {
             ScreenMode::Hero => "HERO",
@@ -145,6 +174,12 @@ macro_rules! dump_session {
         ).ok();
         writeln!(
             $board.uart0,
+            "Alert Limit: {} mA | Alert Active: {}",
+            $current_limit_ma,
+            if $over_current { "YES (OVERCURRENT)" } else { "NO" }
+        ).ok();
+        writeln!(
+            $board.uart0,
             "SD File: {} (Rows: {}, Status: {:?})",
             $datalogger.file_name_str(),
             $datalogger.total_logged_rows,
@@ -152,7 +187,7 @@ macro_rules! dump_session {
         ).ok();
         writeln!(
             $board.uart0,
-            "[JSON] {{\"uptime_s\":{},\"mode\":\"{}\",\"epoch\":{},\"time\":\"{:04}-{:02}-{:02} {:02}:{:02}:{:02}\",\"rtc_synced\":{},\"v_min\":{},\"v_max\":{},\"c_min\":{},\"c_max\":{},\"c_avg\":{},\"p_peak_mw\":{},\"mwh\":{},\"mah\":{},\"mcu_temp_c\":{}.{},\"bat_soc\":{},\"sd_file\":\"{}\",\"sd_rows\":{}}}",
+            "[JSON] {{\"uptime_s\":{},\"mode\":\"{}\",\"epoch\":{},\"time\":\"{:04}-{:02}-{:02} {:02}:{:02}:{:02}\",\"rtc_synced\":{},\"v_min\":{},\"v_max\":{},\"c_min\":{},\"c_max\":{},\"c_avg\":{},\"p_peak_mw\":{},\"mwh\":{},\"mah\":{},\"mcu_temp_c\":{}.{},\"bat_soc\":{},\"sd_file\":\"{}\",\"sd_rows\":{},\"limit_ma\":{},\"alert\":{}}}",
             uptime_s,
             mode_name,
             rtc_epoch,
@@ -170,7 +205,9 @@ macro_rules! dump_session {
             mcu_temp_tenth.unsigned_abs() % 10,
             $battery.soc_pct,
             $datalogger.file_name_str(),
-            $datalogger.total_logged_rows
+            $datalogger.total_logged_rows,
+            $current_limit_ma,
+            $over_current
         ).ok();
         writeln!($board.uart0, "---------------------------------").ok();
     }};
@@ -185,6 +222,7 @@ macro_rules! print_help {
         writeln!($board.uart0, " 't'      : Zero-Tare calibration & reset session").ok();
         writeln!($board.uart0, " 'c'      : Print current RTC time & sync status").ok();
         writeln!($board.uart0, " 'T <ep>' : Set RTC Unix epoch seconds").ok();
+        writeln!($board.uart0, " 'l' / 'L': Set overcurrent alert limit (0 = disable)").ok();
         writeln!($board.uart0, " 'r' / 'n': Rotate SD log file to next session").ok();
         writeln!($board.uart0, " 'f'      : Force flush MicroSD sector buffer").ok();
         writeln!($board.uart0, " 's'      : Dump full telemetry summary (JSON)").ok();
@@ -250,9 +288,8 @@ fn main() -> ! {
     let mut histogram_screen = HistogramScreen::new();
     let mut big_digit_screen = BigDigitScreen::new();
     let mut screen_mode = ScreenMode::Hero;
-
-    // Draw initial layout
-    hero_screen.draw_layout(&mut board.lcd);
+    let mut current_limit_ma = 0u16;
+    let mut over_current = false;
 
     // Core data containers
     let mut accum = Accumulators::new();
@@ -261,6 +298,46 @@ fn main() -> ! {
     let mut stats = SessionStats::new(board.delay.uptime_ms());
     let mut battery = BatteryState::new();
     let mut telemetry = TelemetryStreamer::new();
+
+    // Check NVRAM configuration in BKP registers
+    if board.rtc.read_backup_reg(BKP_REG_MAGIC) == BKP_MAGIC_KEY {
+        let cfg = board.rtc.read_backup_reg(BKP_REG_CONFIG);
+        let mode_idx = (cfg >> 8) & 0xFF;
+        let bat_idx = (cfg & 0xFF) as u8;
+        let tare_tenth = board.rtc.read_backup_reg(BKP_REG_TARE) as i16;
+        current_limit_ma = board.rtc.read_backup_reg(BKP_REG_LIMIT);
+
+        screen_mode = match mode_idx {
+            1 => ScreenMode::Graph,
+            2 => ScreenMode::Stats,
+            3 => ScreenMode::Histogram,
+            4 => ScreenMode::BigDigit,
+            _ => ScreenMode::Hero,
+        };
+        battery.profile = BatteryProfile::from_id(bat_idx);
+        board.ina219.set_tare(tare_tenth);
+        writeln!(
+            board.uart0,
+            "[NVRAM] Restored config from BKP: Mode {}, Bat {}, Tare {}.{} mA, Limit {} mA",
+            mode_idx + 1,
+            battery.profile.name(),
+            tare_tenth / 10,
+            tare_tenth.unsigned_abs() % 10,
+            current_limit_ma
+        ).ok();
+    } else {
+        save_nvram_config(&mut board.rtc, screen_mode, battery.profile, board.ina219.tare_offset_tenth, current_limit_ma);
+        writeln!(board.uart0, "[NVRAM] Initialized default configuration in BKP registers").ok();
+    }
+
+    // Draw initial layout
+    match screen_mode {
+        ScreenMode::Hero => hero_screen.draw_layout(&mut board.lcd),
+        ScreenMode::Graph => graph_screen.draw_layout(&mut board.lcd),
+        ScreenMode::Stats => stats_screen.draw_layout(&mut board.lcd),
+        ScreenMode::Histogram => histogram_screen.draw_layout(&mut board.lcd),
+        ScreenMode::BigDigit => big_digit_screen.draw_layout(&mut board.lcd),
+    }
 
     // Initial INA219 configuration (0x3E7F: 32V, ±320mV, 128x shunt avg, continuous)
     // Cal = 4096 for 0.1 ohm shunt (0.1 mA LSB, 3.2A max)
@@ -334,7 +411,7 @@ fn main() -> ! {
                 ScreenMode::Histogram => ScreenMode::BigDigit,
                 ScreenMode::BigDigit => ScreenMode::Hero,
             };
-            set_screen_mode!(next, screen_mode, board, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, history);
+            set_screen_mode!(next, screen_mode, board, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, history, battery, current_limit_ma);
         } else if rot < 0 {
             let prev = match screen_mode {
                 ScreenMode::Hero => ScreenMode::BigDigit,
@@ -343,11 +420,12 @@ fn main() -> ! {
                 ScreenMode::Histogram => ScreenMode::Stats,
                 ScreenMode::BigDigit => ScreenMode::Histogram,
             };
-            set_screen_mode!(prev, screen_mode, board, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, history);
+            set_screen_mode!(prev, screen_mode, board, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, history, battery, current_limit_ma);
         }
 
         if enc_pressed {
             battery.profile = battery.profile.next();
+            save_nvram_config(&mut board.rtc, screen_mode, battery.profile, board.ina219.tare_offset_tenth, current_limit_ma);
             writeln!(
                 board.uart0,
                 "[ROTARY] Switched battery profile to: {} (Nominal: {} mAh)",
@@ -358,123 +436,157 @@ fn main() -> ! {
 
         // 2. Remote UART0 Interactive Command Console
         while let Some(ch) = board.uart0.read_byte() {
-            match ch {
-                b'1' => {
-                    cmd_len = 0;
-                    set_screen_mode!(ScreenMode::Hero, screen_mode, board, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, history);
-                }
-                b'2' => {
-                    cmd_len = 0;
-                    set_screen_mode!(ScreenMode::Graph, screen_mode, board, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, history);
-                }
-                b'3' => {
-                    cmd_len = 0;
-                    set_screen_mode!(ScreenMode::Stats, screen_mode, board, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, history);
-                }
-                b'4' => {
-                    cmd_len = 0;
-                    set_screen_mode!(ScreenMode::Histogram, screen_mode, board, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, history);
-                }
-                b'5' => {
-                    cmd_len = 0;
-                    set_screen_mode!(ScreenMode::BigDigit, screen_mode, board, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, history);
-                }
-                b'm' | b'M' => {
-                    cmd_len = 0;
-                    let next = match screen_mode {
-                        ScreenMode::Hero => ScreenMode::Graph,
-                        ScreenMode::Graph => ScreenMode::Stats,
-                        ScreenMode::Stats => ScreenMode::Histogram,
-                        ScreenMode::Histogram => ScreenMode::BigDigit,
-                        ScreenMode::BigDigit => ScreenMode::Hero,
-                    };
-                    set_screen_mode!(next, screen_mode, board, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, history);
-                }
-                b'b' | b'B' => {
-                    cmd_len = 0;
-                    battery.profile = battery.profile.next();
-                    writeln!(
-                        board.uart0,
-                        "[BATT] Switched battery profile to: {} (Nominal: {} mAh)",
-                        battery.profile.name(),
-                        battery.profile.capacity_mah()
-                    ).ok();
-                }
-                b't' => {
-                    cmd_len = 0;
-                    tare_and_reset!(now, ina_present, board, datalogger, accum, history, histogram, stats, screen_mode, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen);
-                }
-                b'c' | b'C' => {
-                    cmd_len = 0;
-                    let epoch = board.rtc.get_epoch();
-                    let dt = board.rtc.get_datetime();
-                    writeln!(
-                        board.uart0,
-                        "[RTC] Current Time: {:04}-{:02}-{:02} {:02}:{:02}:{:02} UTC | Epoch: {} | Synced: {}",
-                        dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second,
-                        epoch,
-                        if board.rtc.is_synced() { "YES" } else { "NO" }
-                    ).ok();
-                }
-                b'r' | b'R' | b'n' | b'N' => {
-                    cmd_len = 0;
-                    datalogger.rotate_session();
-                    writeln!(board.uart0, "[SD] Rotated to new file: {}", datalogger.file_name_str()).ok();
-                }
-                b'f' | b'F' => {
-                    cmd_len = 0;
-                    datalogger.flush_buffer();
-                    writeln!(board.uart0, "[SD] Flushed buffer to {} (Total rows: {})", datalogger.file_name_str(), datalogger.total_logged_rows).ok();
-                }
-                b's' | b'S' => {
-                    cmd_len = 0;
-                    dump_session!(now, screen_mode, board, datalogger, stats, accum, battery);
-                }
-                b'?' | b'h' | b'H' => {
-                    cmd_len = 0;
-                    print_help!(board);
-                }
-                b'T' => {
-                    cmd_buf[0] = b'T';
-                    cmd_len = 1;
-                }
-                b'0'..=b'9' | b' ' | b':' => {
-                    if cmd_len > 0 && cmd_len < cmd_buf.len() {
-                        cmd_buf[cmd_len] = ch;
-                        cmd_len += 1;
+            if cmd_len > 0 {
+                // We are buffering a multi-byte command (started with 'T' or 'L')
+                match ch {
+                    b'0'..=b'9' | b' ' | b':' => {
+                        if cmd_len < cmd_buf.len() {
+                            cmd_buf[cmd_len] = ch;
+                            cmd_len += 1;
+                        }
                     }
-                }
-                b'\r' | b'\n' => {
-                    if cmd_len >= 2 && cmd_buf[0] == b'T' {
-                        let line = &cmd_buf[..cmd_len];
-                        let mut idx = 1;
-                        while idx < cmd_len && (line[idx] == b' ' || line[idx] == b':') {
-                            idx += 1;
-                        }
-                        let mut parsed_epoch = 0u32;
-                        let mut has_digits = false;
-                        while idx < cmd_len && line[idx] >= b'0' && line[idx] <= b'9' {
-                            parsed_epoch = parsed_epoch.saturating_mul(10).saturating_add((line[idx] - b'0') as u32);
-                            has_digits = true;
-                            idx += 1;
-                        }
-                        if has_digits && parsed_epoch > 0 {
-                            board.rtc.set_epoch(parsed_epoch);
-                            let dt = board.rtc.get_datetime();
+                    b'\r' | b'\n' => {
+                        if cmd_len >= 2 && cmd_buf[0] == b'T' {
+                            let line = &cmd_buf[..cmd_len];
+                            let mut idx = 1;
+                            while idx < cmd_len && (line[idx] == b' ' || line[idx] == b':') {
+                                idx += 1;
+                            }
+                            let mut parsed_epoch = 0u32;
+                            let mut has_digits = false;
+                            while idx < cmd_len && line[idx] >= b'0' && line[idx] <= b'9' {
+                                parsed_epoch = parsed_epoch.saturating_mul(10).saturating_add((line[idx] - b'0') as u32);
+                                has_digits = true;
+                                idx += 1;
+                            }
+                            if has_digits && parsed_epoch > 0 {
+                                board.rtc.set_epoch(parsed_epoch);
+                                let dt = board.rtc.get_datetime();
+                                writeln!(
+                                    board.uart0,
+                                    "[RTC] Set Unix epoch to: {} ({:04}-{:02}-{:02} {:02}:{:02}:{:02} UTC)",
+                                    parsed_epoch, dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second
+                                ).ok();
+                            }
+                        } else if cmd_len == 1 && cmd_buf[0] == b'T' {
+                            tare_and_reset!(now, ina_present, board, datalogger, accum, history, histogram, stats, screen_mode, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, battery, current_limit_ma);
+                        } else if cmd_len >= 2 && cmd_buf[0] == b'L' {
+                            let line = &cmd_buf[..cmd_len];
+                            let mut idx = 1;
+                            while idx < cmd_len && (line[idx] == b' ' || line[idx] == b':') {
+                                idx += 1;
+                            }
+                            let mut parsed_limit = 0u16;
+                            let mut has_digits = false;
+                            while idx < cmd_len && line[idx] >= b'0' && line[idx] <= b'9' {
+                                parsed_limit = parsed_limit.saturating_mul(10).saturating_add((line[idx] - b'0') as u16);
+                                has_digits = true;
+                                idx += 1;
+                            }
+                            if has_digits {
+                                current_limit_ma = parsed_limit;
+                                save_nvram_config(&mut board.rtc, screen_mode, battery.profile, board.ina219.tare_offset_tenth, current_limit_ma);
+                                writeln!(board.uart0, "[LIMIT] Set Over-Current Alert Limit to: {} mA", current_limit_ma).ok();
+                            }
+                        } else if cmd_len == 1 && cmd_buf[0] == b'L' {
                             writeln!(
                                 board.uart0,
-                                "[RTC] Set Unix epoch to: {} ({:04}-{:02}-{:02} {:02}:{:02}:{:02} UTC)",
-                                parsed_epoch, dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second
+                                "[LIMIT] Over-Current Alert Limit: {} mA (Alert Active: {})",
+                                current_limit_ma,
+                                if over_current { "YES" } else { "NO" }
                             ).ok();
                         }
-                    } else if cmd_len == 1 && cmd_buf[0] == b'T' {
-                        tare_and_reset!(now, ina_present, board, datalogger, accum, history, histogram, stats, screen_mode, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen);
+                        cmd_len = 0;
                     }
-                    cmd_len = 0;
+                    _ => {
+                        cmd_len = 0;
+                    }
                 }
-                _ => {
-                    writeln!(board.uart0, "[CMD] Unknown key: '{}' (Send '?' for help)", ch as char).ok();
-                    cmd_len = 0;
+            } else {
+                match ch {
+                    b'1' => {
+                        set_screen_mode!(ScreenMode::Hero, screen_mode, board, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, history, battery, current_limit_ma);
+                    }
+                    b'2' => {
+                        set_screen_mode!(ScreenMode::Graph, screen_mode, board, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, history, battery, current_limit_ma);
+                    }
+                    b'3' => {
+                        set_screen_mode!(ScreenMode::Stats, screen_mode, board, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, history, battery, current_limit_ma);
+                    }
+                    b'4' => {
+                        set_screen_mode!(ScreenMode::Histogram, screen_mode, board, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, history, battery, current_limit_ma);
+                    }
+                    b'5' => {
+                        set_screen_mode!(ScreenMode::BigDigit, screen_mode, board, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, history, battery, current_limit_ma);
+                    }
+                    b'm' | b'M' => {
+                        let next = match screen_mode {
+                            ScreenMode::Hero => ScreenMode::Graph,
+                            ScreenMode::Graph => ScreenMode::Stats,
+                            ScreenMode::Stats => ScreenMode::Histogram,
+                            ScreenMode::Histogram => ScreenMode::BigDigit,
+                            ScreenMode::BigDigit => ScreenMode::Hero,
+                        };
+                        set_screen_mode!(next, screen_mode, board, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, history, battery, current_limit_ma);
+                    }
+                    b'b' | b'B' => {
+                        battery.profile = battery.profile.next();
+                        save_nvram_config(&mut board.rtc, screen_mode, battery.profile, board.ina219.tare_offset_tenth, current_limit_ma);
+                        writeln!(
+                            board.uart0,
+                            "[BATT] Switched battery profile to: {} (Nominal: {} mAh)",
+                            battery.profile.name(),
+                            battery.profile.capacity_mah()
+                        ).ok();
+                    }
+                    b't' => {
+                        tare_and_reset!(now, ina_present, board, datalogger, accum, history, histogram, stats, screen_mode, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, battery, current_limit_ma);
+                    }
+                    b'c' | b'C' => {
+                        let epoch = board.rtc.get_epoch();
+                        let dt = board.rtc.get_datetime();
+                        writeln!(
+                            board.uart0,
+                            "[RTC] Current Time: {:04}-{:02}-{:02} {:02}:{:02}:{:02} UTC | Epoch: {} | Synced: {}",
+                            dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second,
+                            epoch,
+                            if board.rtc.is_synced() { "YES" } else { "NO" }
+                        ).ok();
+                    }
+                    b'l' => {
+                        writeln!(
+                            board.uart0,
+                            "[LIMIT] Over-Current Alert Limit: {} mA (Alert Active: {})",
+                            current_limit_ma,
+                            if over_current { "YES" } else { "NO" }
+                        ).ok();
+                    }
+                    b'L' => {
+                        cmd_buf[0] = b'L';
+                        cmd_len = 1;
+                    }
+                    b'T' => {
+                        cmd_buf[0] = b'T';
+                        cmd_len = 1;
+                    }
+                    b'r' | b'R' | b'n' | b'N' => {
+                        datalogger.rotate_session();
+                        writeln!(board.uart0, "[SD] Rotated to new file: {}", datalogger.file_name_str()).ok();
+                    }
+                    b'f' | b'F' => {
+                        datalogger.flush_buffer();
+                        writeln!(board.uart0, "[SD] Flushed buffer to {} (Total rows: {})", datalogger.file_name_str(), datalogger.total_logged_rows).ok();
+                    }
+                    b's' | b'S' => {
+                        dump_session!(now, screen_mode, board, datalogger, stats, accum, battery, current_limit_ma, over_current);
+                    }
+                    b'?' | b'h' | b'H' => {
+                        print_help!(board);
+                    }
+                    b'\r' | b'\n' => {}
+                    _ => {
+                        writeln!(board.uart0, "[CMD] Unknown key: '{}' (Send '?' for help)", ch as char).ok();
+                    }
                 }
             }
         }
@@ -499,10 +611,10 @@ fn main() -> ! {
                         _ => None,
                     };
                     if let Some(mode) = next {
-                        set_screen_mode!(mode, screen_mode, board, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, history);
+                        set_screen_mode!(mode, screen_mode, board, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, history, battery, current_limit_ma);
                     }
                 }
-                HidCommand::TareZero => tare_and_reset!(now, ina_present, board, datalogger, accum, history, histogram, stats, screen_mode, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen),
+                HidCommand::TareZero => tare_and_reset!(now, ina_present, board, datalogger, accum, history, histogram, stats, screen_mode, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, battery, current_limit_ma),
                 HidCommand::FlushSd => {
                     datalogger.flush_buffer();
                     writeln!(board.uart0, "[HID-CMD] Flushed SD buffer to {}", datalogger.file_name_str()).ok();
@@ -511,7 +623,7 @@ fn main() -> ! {
                     datalogger.rotate_session();
                     writeln!(board.uart0, "[HID-CMD] Rotated log file to {}", datalogger.file_name_str()).ok();
                 }
-                HidCommand::RequestSummary => dump_session!(now, screen_mode, board, datalogger, stats, accum, battery),
+                HidCommand::RequestSummary => dump_session!(now, screen_mode, board, datalogger, stats, accum, battery, current_limit_ma, over_current),
                 HidCommand::SetBatteryProfile(p) => {
                     battery.profile = match p {
                         1 => BatteryProfile::Lipo500,
@@ -520,6 +632,7 @@ fn main() -> ! {
                         4 => BatteryProfile::Alkaline1000,
                         _ => BatteryProfile::None,
                     };
+                    save_nvram_config(&mut board.rtc, screen_mode, battery.profile, board.ina219.tare_offset_tenth, current_limit_ma);
                     writeln!(board.uart0, "[HID-CMD] Battery profile set to: {}", battery.profile.name()).ok();
                 }
                 HidCommand::SetEpoch(epoch) => {
@@ -530,6 +643,11 @@ fn main() -> ! {
                         "[HID-CMD] Synchronized RTC epoch to: {} ({:04}-{:02}-{:02} {:02}:{:02}:{:02} UTC)",
                         epoch, dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second
                     ).ok();
+                }
+                HidCommand::SetCurrentLimit(limit) => {
+                    current_limit_ma = limit;
+                    save_nvram_config(&mut board.rtc, screen_mode, battery.profile, board.ina219.tare_offset_tenth, current_limit_ma);
+                    writeln!(board.uart0, "[HID-CMD] Set Over-Current Alert Limit to: {} mA", limit).ok();
                 }
                 HidCommand::Unknown(c) => {
                     writeln!(board.uart0, "[HID-CMD] Unknown command opcode: 0x{:02X}", c).ok();
@@ -548,7 +666,7 @@ fn main() -> ! {
 
             if duration >= 1500 {
                 // Long press (>= 1.5s): Zero Tare Calibration + Reset Session Stats
-                tare_and_reset!(now, ina_present, board, datalogger, accum, history, histogram, stats, screen_mode, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen);
+                tare_and_reset!(now, ina_present, board, datalogger, accum, history, histogram, stats, screen_mode, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, battery, current_limit_ma);
             } else if duration >= 50 {
                 // Short press (50ms..1499ms): Cycle screen mode
                 let next = match screen_mode {
@@ -558,7 +676,7 @@ fn main() -> ! {
                     ScreenMode::Histogram => ScreenMode::BigDigit,
                     ScreenMode::BigDigit => ScreenMode::Hero,
                 };
-                set_screen_mode!(next, screen_mode, board, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, history);
+                set_screen_mode!(next, screen_mode, board, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, history, battery, current_limit_ma);
             }
         }
         prev_button_pressed = button_pressed;
@@ -635,6 +753,17 @@ fn main() -> ! {
             // Update Battery Fuel Gauge
             battery.update(reading.voltage_mv, &accum, stats.avg_current_tenth_ma());
 
+            // Check Over-Current and Low-Voltage Alert
+            let is_alert = (current_limit_ma > 0 && reading.current_tenth_ma > (current_limit_ma as i16 * 10)) || battery.is_low_voltage;
+            over_current = is_alert;
+            if is_alert {
+                board.led_red.on();
+            } else if !ina_present {
+                board.led_red.on();
+            } else {
+                board.led_red.off();
+            }
+
             // Drift-free millisecond energy & charge integration
             if ina_present && reading.voltage_mv > 500 && reading.abs_current_tenth() > 2 {
                 accum.update(reading.power_tenth_mw, reading.abs_current_tenth(), dt_ms);
@@ -699,7 +828,7 @@ fn main() -> ! {
             }
 
             // USB HID Telemetry Streaming (9 bytes @ 10 Hz)
-            telemetry.send_reading(&mut board.usb_hid, &reading, ina_present, datalogger.status);
+            telemetry.send_reading(&mut board.usb_hid, &reading, ina_present, datalogger.status, over_current);
         }
 
         // 5. 1 Hz MicroSD CSV Datalogger & Heartbeat Logging

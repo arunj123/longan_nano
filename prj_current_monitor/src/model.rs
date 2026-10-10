@@ -299,6 +299,26 @@ impl BatteryProfile {
             BatteryProfile::Alkaline1000 => BatteryProfile::None,
         }
     }
+
+    pub fn id(&self) -> u8 {
+        match self {
+            BatteryProfile::None => 0,
+            BatteryProfile::Lipo500 => 1,
+            BatteryProfile::Lipo1200 => 2,
+            BatteryProfile::LiIon2500 => 3,
+            BatteryProfile::Alkaline1000 => 4,
+        }
+    }
+
+    pub fn from_id(id: u8) -> Self {
+        match id {
+            1 => BatteryProfile::Lipo500,
+            2 => BatteryProfile::Lipo1200,
+            3 => BatteryProfile::LiIon2500,
+            4 => BatteryProfile::Alkaline1000,
+            _ => BatteryProfile::None,
+        }
+    }
 }
 
 /// Dynamic battery fuel gauge and state-of-charge estimator.

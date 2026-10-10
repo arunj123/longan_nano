@@ -58,9 +58,13 @@ impl Uart0 {
     /// Reads a received byte if available.
     #[inline]
     pub fn read_byte(&mut self) -> Option<u8> {
-        if self.has_rx() {
+        let stat = self.usart.regs().stat.read();
+        if (stat & stat::RBNE) != 0 {
             Some((self.usart.regs().data.read() & 0xFF) as u8)
         } else {
+            if (stat & (stat::ORERR | stat::FERR | stat::NERR)) != 0 {
+                let _ = self.usart.regs().data.read();
+            }
             None
         }
     }

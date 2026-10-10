@@ -18,7 +18,7 @@ impl TelemetryStreamer {
     /// [1..2]: Bus Voltage in mV (u16 LE)
     /// [3..4]: Current in 0.1 mA signed (i16 LE) - preserves sub-mA accuracy
     /// [5..6]: Power in mW (u16 LE)
-    /// [7]: Flags (bit 0: sensor online, bit 1: reverse, bit 2: overflow, bit 3: SD logging)
+    /// [7]: Flags (bit 0: sensor online, bit 1: reverse, bit 2: overflow, bit 3: SD logging, bit 4: overcurrent alert)
     /// [8]: Sequence counter (0..=255)
     pub fn send_reading(
         &mut self,
@@ -26,6 +26,7 @@ impl TelemetryStreamer {
         reading: &InaReading,
         ina_present: bool,
         sd_status: SdStatus,
+        alert: bool,
     ) -> bool {
         let mut flags = 0u8;
         if ina_present {
@@ -39,6 +40,9 @@ impl TelemetryStreamer {
         }
         if sd_status == SdStatus::Logging {
             flags |= 1 << 3;
+        }
+        if alert {
+            flags |= 1 << 4;
         }
 
         let report: [u8; 9] = [
@@ -98,6 +102,22 @@ impl TelemetryStreamer {
                         };
                         Some(HidCommand::SetEpoch(epoch))
                     }
+                    0x08 => {
+                        let limit = if buf[0] == 0x02 {
+                            if len >= 4 {
+                                u16::from_le_bytes([buf[2], buf[3]])
+                            } else {
+                                0
+                            }
+                        } else {
+                            if len >= 3 {
+                                u16::from_le_bytes([buf[1], buf[2]])
+                            } else {
+                                0
+                            }
+                        };
+                        Some(HidCommand::SetCurrentLimit(limit))
+                    }
                     other => Some(HidCommand::Unknown(other)),
                 }
             } else {
@@ -118,6 +138,7 @@ pub enum HidCommand {
     RequestSummary,
     SetBatteryProfile(u8),
     SetEpoch(u32),
+    SetCurrentLimit(u16),
     Unknown(u8),
 }
 
