@@ -5,6 +5,7 @@ use longan_nano_bsp::{
 use crate::fmt::{fmt_charge_auto, fmt_energy_auto, BufferCursor, DirtyField};
 use crate::model::{Accumulators, CURRENT_TIERS, InaReading, WaveformHistory};
 use crate::ui::theme::*;
+use crate::ui::SdStatus;
 
 pub const GRAPH_X_MIN: u16 = 22;
 pub const GRAPH_X_MAX: u16 = 158;
@@ -23,6 +24,8 @@ pub struct GraphScreen {
     e_field: DirtyField<16>,
     q_field: DirtyField<16>,
     scale_field: DirtyField<8>,
+    prev_usb_cfg: Option<bool>,
+    prev_sd_status: Option<SdStatus>,
 }
 
 impl GraphScreen {
@@ -38,6 +41,8 @@ impl GraphScreen {
             e_field: DirtyField::new(),
             q_field: DirtyField::new(),
             scale_field: DirtyField::new(),
+            prev_usb_cfg: None,
+            prev_sd_status: None,
         }
     }
 
@@ -57,6 +62,8 @@ impl GraphScreen {
         self.e_field.invalidate();
         self.q_field.invalidate();
         self.scale_field.invalidate();
+        self.prev_usb_cfg = None;
+        self.prev_sd_status = None;
     }
 
     pub fn redraw_grid(&mut self, lcd: &mut Lcd) {
@@ -93,7 +100,9 @@ impl GraphScreen {
             if x > GRAPH_X_MAX {
                 break;
             }
-            let sample_abs = history.get_chronological(i).unsigned_abs() as i32;
+            let raw_sample = history.get_chronological(i);
+            let is_sample_rev = raw_sample < 0;
+            let sample_abs = raw_sample.unsigned_abs() as i32;
             let y_calc = (GRAPH_Y_BASE as i32) - ((sample_abs * GRAPH_HEIGHT as i32) / scale_max);
             let y_curr = if y_calc < GRAPH_Y_TOP as i32 {
                 GRAPH_Y_TOP
@@ -106,14 +115,26 @@ impl GraphScreen {
             let mut col_buf = [0u16; 55];
             let y_min = core::cmp::min(prev, y_curr);
             let y_max = core::cmp::max(prev, y_curr);
+            let trace_col = if is_sample_rev { COL_RED } else { COL_CYAN };
+            let fill_h = core::cmp::max(1, (GRAPH_Y_BASE - y_max) as i32);
 
             for y in GRAPH_Y_TOP..=GRAPH_Y_BASE {
                 let idx = (y - GRAPH_Y_TOP) as usize;
                 if idx < col_buf.len() {
                     if y >= y_min && y <= y_max {
-                        col_buf[idx] = COL_CYAN;
+                        col_buf[idx] = trace_col;
                     } else if y > y_max && y < GRAPH_Y_BASE {
-                        col_buf[idx] = COL_FILL_CYAN;
+                        let dist = (y - y_max) as i32;
+                        if is_sample_rev {
+                            let r = 20 - (14 * dist / fill_h);
+                            let g = 4 - (3 * dist / fill_h);
+                            let b = 4 - (3 * dist / fill_h);
+                            col_buf[idx] = ((r as u16 & 0x1F) << 11) | ((g as u16 & 0x3F) << 5) | (b as u16 & 0x1F);
+                        } else {
+                            let g = 46 - (36 * dist / fill_h);
+                            let b = 14 - (11 * dist / fill_h);
+                            col_buf[idx] = ((g as u16 & 0x3F) << 5) | (b as u16 & 0x1F);
+                        }
                     } else if y == GRAPH_Y_BASE {
                         col_buf[idx] = COL_AXIS;
                     } else if (y == 36 || y == 49 || y == 63) && (x % 4 == 0) {
@@ -141,6 +162,8 @@ impl GraphScreen {
         accum: &Accumulators,
         history: &WaveformHistory,
         ina_present: bool,
+        sd_status: SdStatus,
+        usb_configured: bool,
     ) {
         use core::fmt::Write;
 
@@ -175,18 +198,18 @@ impl GraphScreen {
             lcd.draw_string(84, 1, p_cur.as_str(), &FONT_5X7, COL_AMBER, COL_BG_TOP);
         }
 
-        // Status badge strictly placed at x=130..158 without overlap
+        // Status badge strictly placed at x=124..158 without overlap
         if !ina_present {
-            lcd.draw_string(130, 1, "[ERR] ", &FONT_5X7, COL_RED, COL_BG_TOP);
+            lcd.draw_string(124, 1, "[ERR] ", &FONT_5X7, COL_RED, COL_BG_TOP);
         } else if reading.overflow {
-            lcd.draw_string(130, 1, "[OVF] ", &FONT_5X7, COL_AMBER, COL_BG_TOP);
+            lcd.draw_string(124, 1, "[OVF] ", &FONT_5X7, COL_AMBER, COL_BG_TOP);
         } else if reading.is_reverse {
-            lcd.draw_string(130, 1, "[REV] ", &FONT_5X7, COL_RED, COL_BG_TOP);
+            lcd.draw_string(124, 1, "[REV] ", &FONT_5X7, COL_RED, COL_BG_TOP);
         } else {
-            lcd.draw_string(130, 1, "[LIVE]", &FONT_5X7, COL_MINT, COL_BG_TOP);
+            lcd.draw_string(124, 1, "[LIVE]", &FONT_5X7, COL_MINT, COL_BG_TOP);
         }
 
-        // --- 2. Top Header Line 2: Energy, Charge, Tier Badge ---
+        // --- 2. Top Header Line 2: Energy, Charge, Tier Badge, USB/SD Status Icons ---
         let mut e_buf = [0u8; 16];
         let mut e_cur = BufferCursor::new(&mut e_buf);
         fmt_energy_auto(&mut e_cur, accum);
@@ -198,12 +221,36 @@ impl GraphScreen {
         let mut q_cur = BufferCursor::new(&mut q_buf);
         fmt_charge_auto(&mut q_cur, accum);
         if self.q_field.update(q_cur.as_str()) {
-            lcd.draw_string(64, 10, q_cur.as_str(), &FONT_5X7, COL_MINT, COL_BG_TOP);
+            lcd.draw_string(52, 10, q_cur.as_str(), &FONT_5X7, COL_MINT, COL_BG_TOP);
         }
 
         let badge = CURRENT_TIERS[self.scale_tier].badge;
         if self.scale_field.update(badge) {
-            lcd.draw_string(126, 10, badge, &FONT_5X7, COL_WHITE, COL_BG_TOP);
+            lcd.draw_string(96, 10, badge, &FONT_5X7, COL_WHITE, COL_BG_TOP);
+        }
+
+        if self.prev_usb_cfg != Some(usb_configured) {
+            let usb_col = if usb_configured { COL_CYAN } else { rgb565(50, 60, 75) };
+            lcd.draw_bitmap_8x8(136, 10, &ICON_USB, usb_col, COL_BG_TOP);
+            self.prev_usb_cfg = Some(usb_configured);
+        }
+
+        if self.prev_sd_status != Some(sd_status) {
+            match sd_status {
+                SdStatus::Logging => {
+                    lcd.draw_bitmap_8x8(148, 10, &ICON_REC, COL_RED, COL_BG_TOP);
+                }
+                SdStatus::Ready => {
+                    lcd.draw_bitmap_8x8(148, 10, &ICON_SD, COL_MINT, COL_BG_TOP);
+                }
+                SdStatus::WriteError => {
+                    lcd.draw_bitmap_8x8(148, 10, &ICON_SD, COL_AMBER, COL_BG_TOP);
+                }
+                SdStatus::NoCard => {
+                    lcd.draw_bitmap_8x8(148, 10, &ICON_SD, rgb565(50, 60, 75), COL_BG_TOP);
+                }
+            }
+            self.prev_sd_status = Some(sd_status);
         }
 
         // --- 3. Oscilloscope Waveform & Autoscale ---
@@ -274,14 +321,26 @@ impl GraphScreen {
         let mut col_buf = [0u16; 55];
         let y_min = core::cmp::min(self.prev_y, y_curr);
         let y_max = core::cmp::max(self.prev_y, y_curr);
+        let trace_col = if reading.is_reverse { COL_RED } else { COL_CYAN };
+        let fill_h = core::cmp::max(1, (GRAPH_Y_BASE - y_max) as i32);
 
         for y in GRAPH_Y_TOP..=GRAPH_Y_BASE {
             let idx = (y - GRAPH_Y_TOP) as usize;
             if idx < col_buf.len() {
                 if y >= y_min && y <= y_max {
-                    col_buf[idx] = COL_CYAN;
+                    col_buf[idx] = trace_col;
                 } else if y > y_max && y < GRAPH_Y_BASE {
-                    col_buf[idx] = COL_FILL_CYAN;
+                    let dist = (y - y_max) as i32;
+                    if reading.is_reverse {
+                        let r = 20 - (14 * dist / fill_h);
+                        let g = 4 - (3 * dist / fill_h);
+                        let b = 4 - (3 * dist / fill_h);
+                        col_buf[idx] = ((r as u16 & 0x1F) << 11) | ((g as u16 & 0x3F) << 5) | (b as u16 & 0x1F);
+                    } else {
+                        let g = 46 - (36 * dist / fill_h);
+                        let b = 14 - (11 * dist / fill_h);
+                        col_buf[idx] = ((g as u16 & 0x3F) << 5) | (b as u16 & 0x1F);
+                    }
                 } else if y == GRAPH_Y_BASE {
                     col_buf[idx] = COL_AXIS;
                 } else if (y == 36 || y == 49 || y == 63) && (self.sweep_x % 4 == 0) {

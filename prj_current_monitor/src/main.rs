@@ -154,6 +154,7 @@ fn main() -> ! {
                         .ok();
                     }
                 }
+                datalogger.flush_buffer();
                 accum.reset();
                 history.clear();
                 histogram.clear();
@@ -283,7 +284,15 @@ fn main() -> ! {
                     );
                 }
                 ScreenMode::Graph => {
-                    graph_screen.update(&mut board.lcd, &reading, &accum, &history, ina_present);
+                    graph_screen.update(
+                        &mut board.lcd,
+                        &reading,
+                        &accum,
+                        &history,
+                        ina_present,
+                        datalogger.status,
+                        board.usb_hid.is_configured(),
+                    );
                 }
                 ScreenMode::Stats => {
                     stats_screen.update(
@@ -294,6 +303,7 @@ fn main() -> ! {
                         datalogger.status,
                         datalogger.total_logged_rows,
                         now,
+                        board.usb_hid.is_configured(),
                     );
                 }
                 ScreenMode::Histogram => {

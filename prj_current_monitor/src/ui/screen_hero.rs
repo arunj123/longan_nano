@@ -7,14 +7,6 @@ use crate::model::{Accumulators, InaReading};
 use crate::ui::theme::*;
 use crate::ui::SdStatus;
 
-// 8x8 USB Plug Icon
-const ICON_USB: [u8; 8] = [0x3C, 0x5A, 0x42, 0xFF, 0xFF, 0x7E, 0x3C, 0x18];
-
-// 8x8 MicroSD Card Icon
-const ICON_SD: [u8; 8] = [0x7E, 0x7E, 0x3E, 0x3E, 0x7E, 0x7E, 0x54, 0x00];
-
-// 8x8 Recording Dot Icon
-const ICON_REC: [u8; 8] = [0x00, 0x18, 0x3C, 0x7E, 0x7E, 0x3C, 0x18, 0x00];
 
 pub struct HeroScreen {
     cur_field: DirtyField<16>,
