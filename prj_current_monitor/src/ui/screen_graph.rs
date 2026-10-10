@@ -24,6 +24,7 @@ pub struct GraphScreen {
     e_field: DirtyField<16>,
     q_field: DirtyField<16>,
     scale_field: DirtyField<8>,
+    badge_field: DirtyField<8>,
     prev_usb_cfg: Option<bool>,
     prev_sd_status: Option<SdStatus>,
 }
@@ -41,6 +42,7 @@ impl GraphScreen {
             e_field: DirtyField::new(),
             q_field: DirtyField::new(),
             scale_field: DirtyField::new(),
+            badge_field: DirtyField::new(),
             prev_usb_cfg: None,
             prev_sd_status: None,
         }
@@ -62,6 +64,7 @@ impl GraphScreen {
         self.e_field.invalidate();
         self.q_field.invalidate();
         self.scale_field.invalidate();
+        self.badge_field.invalidate();
         self.prev_usb_cfg = None;
         self.prev_sd_status = None;
     }
@@ -199,14 +202,17 @@ impl GraphScreen {
         }
 
         // Status badge strictly placed at x=124..158 without overlap
-        if !ina_present {
-            lcd.draw_string(124, 1, "[ERR] ", &FONT_5X7, COL_RED, COL_BG_TOP);
+        let (badge_str, badge_col) = if !ina_present {
+            ("[ERR] ", COL_RED)
         } else if reading.overflow {
-            lcd.draw_string(124, 1, "[OVF] ", &FONT_5X7, COL_AMBER, COL_BG_TOP);
+            ("[OVF] ", COL_AMBER)
         } else if reading.is_reverse {
-            lcd.draw_string(124, 1, "[REV] ", &FONT_5X7, COL_RED, COL_BG_TOP);
+            ("[REV] ", COL_RED)
         } else {
-            lcd.draw_string(124, 1, "[LIVE]", &FONT_5X7, COL_MINT, COL_BG_TOP);
+            ("[LIVE]", COL_MINT)
+        };
+        if self.badge_field.update(badge_str) {
+            lcd.draw_string(124, 1, badge_str, &FONT_5X7, badge_col, COL_BG_TOP);
         }
 
         // --- 2. Top Header Line 2: Energy, Charge, Tier Badge, USB/SD Status Icons ---

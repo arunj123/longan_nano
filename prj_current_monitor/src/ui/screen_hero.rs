@@ -19,6 +19,7 @@ pub struct HeroScreen {
     ema: EmaFilter,
     prev_usb_cfg: Option<bool>,
     prev_sd_status: Option<SdStatus>,
+    prev_badge: Option<u8>,
 }
 
 impl HeroScreen {
@@ -34,6 +35,7 @@ impl HeroScreen {
             ema: EmaFilter::new(),
             prev_usb_cfg: None,
             prev_sd_status: None,
+            prev_badge: None,
         }
     }
 
@@ -64,6 +66,7 @@ impl HeroScreen {
         self.ema.reset();
         self.prev_usb_cfg = None;
         self.prev_sd_status = None;
+        self.prev_badge = None;
     }
 
     pub fn update(
@@ -111,22 +114,40 @@ impl HeroScreen {
         }
 
         // 1d. Status Badge (Top-Right)
-        if !ina_present {
-            lcd.fill_rect(122, 2, 35, 10, rgb565(60, 0, 0));
-            lcd.rect(122, 2, 35, 10, COL_RED);
-            lcd.draw_string(126, 3, "ERR ", &FONT_5X7, COL_RED, rgb565(60, 0, 0));
+        let cur_badge = if !ina_present {
+            0u8
         } else if reading.overflow {
-            lcd.fill_rect(122, 2, 35, 10, rgb565(60, 40, 0));
-            lcd.rect(122, 2, 35, 10, COL_AMBER);
-            lcd.draw_string(126, 3, "OVF ", &FONT_5X7, COL_AMBER, rgb565(60, 40, 0));
+            1u8
         } else if reading.is_reverse {
-            lcd.fill_rect(122, 2, 35, 10, rgb565(60, 0, 0));
-            lcd.rect(122, 2, 35, 10, COL_RED);
-            lcd.draw_string(126, 3, "REV ", &FONT_5X7, COL_RED, rgb565(60, 0, 0));
+            2u8
         } else {
-            lcd.fill_rect(122, 2, 35, 10, 0x0162);
-            lcd.rect(122, 2, 35, 10, 0x05E2);
-            lcd.draw_string(126, 3, "LIVE", &FONT_5X7, COL_MINT, 0x0162);
+            3u8
+        };
+
+        if self.prev_badge != Some(cur_badge) {
+            match cur_badge {
+                0 => {
+                    lcd.fill_rect(122, 2, 35, 10, rgb565(60, 0, 0));
+                    lcd.rect(122, 2, 35, 10, COL_RED);
+                    lcd.draw_string(126, 3, "ERR ", &FONT_5X7, COL_RED, rgb565(60, 0, 0));
+                }
+                1 => {
+                    lcd.fill_rect(122, 2, 35, 10, rgb565(60, 40, 0));
+                    lcd.rect(122, 2, 35, 10, COL_AMBER);
+                    lcd.draw_string(126, 3, "OVF ", &FONT_5X7, COL_AMBER, rgb565(60, 40, 0));
+                }
+                2 => {
+                    lcd.fill_rect(122, 2, 35, 10, rgb565(60, 0, 0));
+                    lcd.rect(122, 2, 35, 10, COL_RED);
+                    lcd.draw_string(126, 3, "REV ", &FONT_5X7, COL_RED, rgb565(60, 0, 0));
+                }
+                _ => {
+                    lcd.fill_rect(122, 2, 35, 10, 0x0162);
+                    lcd.rect(122, 2, 35, 10, 0x05E2);
+                    lcd.draw_string(126, 3, "LIVE", &FONT_5X7, COL_MINT, 0x0162);
+                }
+            }
+            self.prev_badge = Some(cur_badge);
         }
 
         // --- 2. Hero Current Display with EMA Smoothing ---

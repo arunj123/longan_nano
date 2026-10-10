@@ -76,12 +76,6 @@ impl Lcd {
         self.spi.send_u8(data);
     }
 
-    fn write_data_u16(&mut self, data: u16) {
-        self.spi.wait_idle();
-        self.spi.set_16bit();
-        self.mode_data();
-        self.spi.send_u16(data);
-    }
 
     /// Initializes the ST7735 controller for 160x80 landscape display.
     pub fn init(&mut self, delay: &mut Delay) {
@@ -135,6 +129,8 @@ impl Lcd {
     }
 
     /// Set address window with Longan Nano ST7735 panel offsets (X+1, Y+26).
+    /// Keeps SPI in 8-bit mode throughout command and address parameter streaming,
+    /// avoiding repeated 8-bit/16-bit register reconfiguration and wait-idle stalls.
     pub fn set_address_window(&mut self, x: u16, y: u16, w: u16, h: u16) {
         let x_start = x + 1;
         let x_end = x + w;
@@ -142,12 +138,18 @@ impl Lcd {
         let y_end = y + h + 25;
 
         self.write_cmd(0x2a); // CASET
-        self.write_data_u16(x_start);
-        self.spi.send_u16(x_end);
+        self.mode_data();
+        self.spi.send_u8((x_start >> 8) as u8);
+        self.spi.send_u8(x_start as u8);
+        self.spi.send_u8((x_end >> 8) as u8);
+        self.spi.send_u8(x_end as u8);
 
         self.write_cmd(0x2b); // RASET
-        self.write_data_u16(y_start);
-        self.spi.send_u16(y_end);
+        self.mode_data();
+        self.spi.send_u8((y_start >> 8) as u8);
+        self.spi.send_u8(y_start as u8);
+        self.spi.send_u8((y_end >> 8) as u8);
+        self.spi.send_u8(y_end as u8);
 
         self.write_cmd(0x2c); // RAMWR
     }
