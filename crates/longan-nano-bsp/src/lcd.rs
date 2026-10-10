@@ -66,6 +66,7 @@ impl Lcd {
         self.spi.set_8bit();
         self.mode_cmd();
         self.spi.send_u8(cmd);
+        self.spi.wait_idle();
     }
 
     #[allow(dead_code)]
@@ -143,6 +144,7 @@ impl Lcd {
         self.spi.send_u8(x_start as u8);
         self.spi.send_u8((x_end >> 8) as u8);
         self.spi.send_u8(x_end as u8);
+        self.spi.wait_idle();
 
         self.write_cmd(0x2b); // RASET
         self.mode_data();
@@ -150,6 +152,7 @@ impl Lcd {
         self.spi.send_u8(y_start as u8);
         self.spi.send_u8((y_end >> 8) as u8);
         self.spi.send_u8(y_end as u8);
+        self.spi.wait_idle();
 
         self.write_cmd(0x2c); // RAMWR
     }
