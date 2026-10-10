@@ -1,0 +1,13 @@
+[package]
+name = "current_monitor_gui"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+
+[dependencies]
+eframe = { version = "0.27", default-features = false, features = ["default_fonts", "glow"] }
+egui = "0.27"
+egui_plot = "0.27"
+hidapi = "2.6"
+chrono = "0.4"
