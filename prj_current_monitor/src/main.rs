@@ -18,7 +18,7 @@ use longan_nano_bsp::Board;
 use crate::logger::SdDatalogger;
 use crate::model::{Accumulators, BatteryProfile, BatteryState, HistogramData, InaReading, SampleAggregator, SessionStats, WaveformHistory};
 use crate::telemetry::{HidCommand, TelemetryStreamer};
-use crate::ui::{BigDigitScreen, GraphScreen, HeroScreen, HistogramScreen, ScreenMode, SdStatus, StatsScreen};
+use crate::ui::{BigDigitScreen, GraphScreen, HeroScreen, HistogramScreen, ScreenMode, SdStatus, StatsScreen, TriggerMode, TriggerState};
 
 const BKP_MAGIC_KEY: u16 = 0x5A5A;
 const BKP_REG_CONFIG: usize = 1; // [15..8] screen_mode, [7..0] battery_profile
@@ -239,6 +239,7 @@ macro_rules! print_help {
         writeln!($board.uart0, "\r\n=== REMOTE COMMAND CONSOLE ===").ok();
         writeln!($board.uart0, " '1'..'5' : Set Screen (1:Hero, 2:Graph, 3:Stats, 4:Histo, 5:BigDigit)").ok();
         writeln!($board.uart0, " 'm'      : Cycle next screen mode").ok();
+        writeln!($board.uart0, " 'g'      : Cycle Scope Trigger (AUTO/NORM/SINGLE) / Rearm").ok();
         writeln!($board.uart0, " 'b'      : Cycle battery capacity profile").ok();
         writeln!($board.uart0, " 't'      : Zero-Tare calibration & reset session").ok();
         writeln!($board.uart0, " 'c'      : Print current RTC time & sync status").ok();
@@ -426,35 +427,66 @@ fn main() -> ! {
 
         // 1.5 Rotary Encoder Polling (PB10/PB11/PB5)
         let (rot, enc_pressed) = board.encoder.poll();
-        if rot > 0 {
-            let next = match screen_mode {
-                ScreenMode::Hero => ScreenMode::Graph,
-                ScreenMode::Graph => ScreenMode::Stats,
-                ScreenMode::Stats => ScreenMode::Histogram,
-                ScreenMode::Histogram => ScreenMode::BigDigit,
-                ScreenMode::BigDigit => ScreenMode::Hero,
-            };
-            set_screen_mode!(next, screen_mode, board, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, history, battery, current_limit_ma);
-        } else if rot < 0 {
-            let prev = match screen_mode {
-                ScreenMode::Hero => ScreenMode::BigDigit,
-                ScreenMode::Graph => ScreenMode::Hero,
-                ScreenMode::Stats => ScreenMode::Graph,
-                ScreenMode::Histogram => ScreenMode::Stats,
-                ScreenMode::BigDigit => ScreenMode::Histogram,
-            };
-            set_screen_mode!(prev, screen_mode, board, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, history, battery, current_limit_ma);
+        if rot != 0 {
+            if screen_mode == ScreenMode::Graph {
+                // In Graph mode: adjust oscilloscope trigger level (+-10.0 mA per click)
+                let delta = if rot > 0 { 100 } else { -100 };
+                graph_screen.adjust_trigger_level(delta);
+                writeln!(
+                    board.uart0,
+                    "[TRIG] Level: {}.{} mA | Mode: {} | State: {}",
+                    graph_screen.trigger_level_tenth / 10,
+                    graph_screen.trigger_level_tenth % 10,
+                    graph_screen.trigger_mode.name(),
+                    graph_screen.trigger_state_name(),
+                ).ok();
+            } else if rot > 0 {
+                let next = match screen_mode {
+                    ScreenMode::Hero => ScreenMode::Graph,
+                    ScreenMode::Graph => ScreenMode::Stats,
+                    ScreenMode::Stats => ScreenMode::Histogram,
+                    ScreenMode::Histogram => ScreenMode::BigDigit,
+                    ScreenMode::BigDigit => ScreenMode::Hero,
+                };
+                set_screen_mode!(next, screen_mode, board, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, history, battery, current_limit_ma);
+            } else if rot < 0 {
+                let prev = match screen_mode {
+                    ScreenMode::Hero => ScreenMode::BigDigit,
+                    ScreenMode::Graph => ScreenMode::Hero,
+                    ScreenMode::Stats => ScreenMode::Graph,
+                    ScreenMode::Histogram => ScreenMode::Stats,
+                    ScreenMode::BigDigit => ScreenMode::Histogram,
+                };
+                set_screen_mode!(prev, screen_mode, board, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, history, battery, current_limit_ma);
+            }
         }
 
         if enc_pressed {
-            battery.profile = battery.profile.next();
-            save_nvram_config(&mut board.rtc, screen_mode, battery.profile, board.ina219.tare_offset_tenth, current_limit_ma);
-            writeln!(
-                board.uart0,
-                "[ROTARY] Switched battery profile to: {} (Nominal: {} mAh)",
-                battery.profile.name(),
-                battery.profile.capacity_mah()
-            ).ok();
+            if screen_mode == ScreenMode::Graph {
+                // In Graph mode: Cycle trigger mode (AUTO -> NORM -> SINGLE) or Rearm if halted
+                if graph_screen.trigger_mode == TriggerMode::Single && graph_screen.trigger_state == TriggerState::Halted {
+                    graph_screen.rearm();
+                    writeln!(board.uart0, "[TRIG] Single sweep rearmed! Waiting for trigger...").ok();
+                } else {
+                    graph_screen.cycle_trigger_mode();
+                    writeln!(
+                        board.uart0,
+                        "[TRIG] Switched trigger mode to: {} | Level: {}.{} mA",
+                        graph_screen.trigger_mode.name(),
+                        graph_screen.trigger_level_tenth / 10,
+                        graph_screen.trigger_level_tenth % 10,
+                    ).ok();
+                }
+            } else {
+                battery.profile = battery.profile.next();
+                save_nvram_config(&mut board.rtc, screen_mode, battery.profile, board.ina219.tare_offset_tenth, current_limit_ma);
+                writeln!(
+                    board.uart0,
+                    "[ROTARY] Switched battery profile to: {} (Nominal: {} mAh)",
+                    battery.profile.name(),
+                    battery.profile.capacity_mah()
+                ).ok();
+            }
         }
 
         // 2. Remote UART0 Interactive Command Console
@@ -551,6 +583,22 @@ fn main() -> ! {
                             ScreenMode::BigDigit => ScreenMode::Hero,
                         };
                         set_screen_mode!(next, screen_mode, board, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, history, battery, current_limit_ma);
+                    }
+                    b'g' | b'G' => {
+                        if graph_screen.trigger_mode == TriggerMode::Single && graph_screen.trigger_state == TriggerState::Halted {
+                            graph_screen.rearm();
+                            writeln!(board.uart0, "[TRIG] Single sweep rearmed! Waiting for trigger...").ok();
+                        } else {
+                            graph_screen.cycle_trigger_mode();
+                            writeln!(
+                                board.uart0,
+                                "[TRIG] Trigger Mode: {} | State: {} | Level: {}.{} mA",
+                                graph_screen.trigger_mode.name(),
+                                graph_screen.trigger_state_name(),
+                                graph_screen.trigger_level_tenth / 10,
+                                graph_screen.trigger_level_tenth % 10,
+                            ).ok();
+                        }
                     }
                     b'b' | b'B' => {
                         battery.profile = battery.profile.next();
@@ -691,15 +739,21 @@ fn main() -> ! {
                 // Long press (>= 1.5s): Zero Tare Calibration + Reset Session Stats
                 tare_and_reset!(now, ina_present, board, datalogger, accum, history, histogram, stats, screen_mode, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, battery, current_limit_ma, sec_agg);
             } else if duration >= 50 {
-                // Short press (50ms..1499ms): Cycle screen mode
-                let next = match screen_mode {
-                    ScreenMode::Hero => ScreenMode::Graph,
-                    ScreenMode::Graph => ScreenMode::Stats,
-                    ScreenMode::Stats => ScreenMode::Histogram,
-                    ScreenMode::Histogram => ScreenMode::BigDigit,
-                    ScreenMode::BigDigit => ScreenMode::Hero,
-                };
-                set_screen_mode!(next, screen_mode, board, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, history, battery, current_limit_ma);
+                // Short press (50ms..1499ms):
+                if screen_mode == ScreenMode::Graph && graph_screen.trigger_mode == TriggerMode::Single && graph_screen.trigger_state == TriggerState::Halted {
+                    graph_screen.rearm();
+                    writeln!(board.uart0, "[TRIG] Single sweep rearmed! Waiting for trigger...").ok();
+                } else {
+                    // Cycle screen mode
+                    let next = match screen_mode {
+                        ScreenMode::Hero => ScreenMode::Graph,
+                        ScreenMode::Graph => ScreenMode::Stats,
+                        ScreenMode::Stats => ScreenMode::Histogram,
+                        ScreenMode::Histogram => ScreenMode::BigDigit,
+                        ScreenMode::BigDigit => ScreenMode::Hero,
+                    };
+                    set_screen_mode!(next, screen_mode, board, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, history, battery, current_limit_ma);
+                }
             }
         }
         prev_button_pressed = button_pressed;

@@ -133,6 +133,7 @@ pub fn fmt_energy_auto(cur: &mut BufferCursor, accum: &Accumulators) {
 }
 
 /// Formats accumulated charge with auto uAh -> mAh -> Ah rollover.
+#[allow(dead_code)]
 pub fn fmt_charge_auto(cur: &mut BufferCursor, accum: &Accumulators) {
     let mah = accum.charge_mah();
     if mah == 0 {

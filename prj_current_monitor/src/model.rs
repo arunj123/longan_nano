@@ -165,6 +165,7 @@ impl Accumulators {
 
     /// Total accumulated charge in micro-amp-hours (uAh).
     #[inline]
+    #[allow(dead_code)]
     pub fn charge_uah(&self) -> u64 {
         self.charge_ticks / 36_000
     }

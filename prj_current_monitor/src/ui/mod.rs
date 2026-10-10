@@ -6,7 +6,7 @@ pub mod screen_histogram;
 pub mod screen_big_digit;
 
 pub use screen_hero::HeroScreen;
-pub use screen_graph::GraphScreen;
+pub use screen_graph::{GraphScreen, TriggerMode, TriggerState};
 pub use screen_stats::{SdStatus, StatsScreen};
 pub use screen_histogram::HistogramScreen;
 pub use screen_big_digit::BigDigitScreen;
