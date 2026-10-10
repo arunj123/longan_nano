@@ -15,7 +15,7 @@ import subprocess
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
-EXE_PATH = os.path.join(
+_path_target_msvc = os.path.join(
     PROJECT_ROOT,
     "tools",
     "current_monitor_gui",
@@ -24,6 +24,15 @@ EXE_PATH = os.path.join(
     "release",
     "current_monitor_gui.exe"
 )
+_path_target_default = os.path.join(
+    PROJECT_ROOT,
+    "tools",
+    "current_monitor_gui",
+    "target",
+    "release",
+    "current_monitor_gui.exe"
+)
+EXE_PATH = _path_target_msvc if os.path.exists(_path_target_msvc) else _path_target_default
 
 BRIDGE_SCRIPT = os.path.join(SCRIPT_DIR, "hid_tcp_bridge.py")
 

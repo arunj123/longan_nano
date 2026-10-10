@@ -173,9 +173,9 @@ impl eframe::App for CurrentMonitorApp {
 
             // View Mode Tab Bar + Side Panel Toggle
             ui.horizontal(|ui| {
-                ui.selectable_value(&mut self.active_tab, MainViewTab::SplitView, "🎛️ Split View (2D + 3D)");
+                ui.selectable_value(&mut self.active_tab, MainViewTab::SplitView, "🎛️ Split View (Scope + 3D Phase Space)");
                 ui.selectable_value(&mut self.active_tab, MainViewTab::Dashboard2D, "📊 Oscilloscope Fullscreen");
-                ui.selectable_value(&mut self.active_tab, MainViewTab::Viewport3D, "📦 3D Viewport Fullscreen");
+                ui.selectable_value(&mut self.active_tab, MainViewTab::Viewport3D, "📈 3D Phase Space Fullscreen");
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let side_btn_text = if self.show_side_panel { "⚙️ Hide Controls" } else { "⚙️ Show Controls" };
