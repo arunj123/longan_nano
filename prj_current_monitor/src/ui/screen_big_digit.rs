@@ -1,40 +1,130 @@
 use longan_nano_bsp::{
-    lcd::{FONT_28, FONT_5X7, FONT_8X16},
+    lcd::{Font, FONT_28, FONT_5X7, FONT_8X16},
     Lcd,
 };
-use crate::fmt::{fmt_hero_current, fmt_voltage, BufferCursor, DirtyField};
+use crate::fmt::{fmt_voltage, BufferCursor, DirtyField};
 use crate::model::{Accumulators, BatteryState, EmaFilter, InaReading};
 use crate::ui::theme::*;
 use crate::ui::SdStatus;
 
+#[derive(Copy, Clone)]
+struct SlotConfig {
+    x: u16,
+    w: u16,
+}
+
+// 5 pre-allocated, fixed-width character slots for mA mode:
+// Total width: 36 + 36 + 36 + 16 + 36 = 160 pixels (X: 0..159).
+// Slot 0: [0..36) (Hundreds / '-' / ' ')
+// Slot 1: [36..72) (Tens / ' ')
+// Slot 2: [72..108) (Ones)
+// Slot 3: [108..124) (Decimal point '.')
+// Slot 4: [124..160) (Tenths)
+const SLOTS_MA: [SlotConfig; 5] = [
+    SlotConfig { x: 0, w: 36 },
+    SlotConfig { x: 36, w: 36 },
+    SlotConfig { x: 72, w: 36 },
+    SlotConfig { x: 108, w: 16 },
+    SlotConfig { x: 124, w: 36 },
+];
+
+// 5 pre-allocated, fixed-width character slots for Amps mode:
+// Total width: 36 + 16 + 36 + 36 + 36 = 160 pixels (X: 0..159).
+// Slot 0: [0..36) (Ones / '-')
+// Slot 1: [36..52) (Decimal point '.')
+// Slot 2: [52..88) (Tenths)
+// Slot 3: [88..124) (Hundredths)
+// Slot 4: [124..160) (Thousandths)
+const SLOTS_A: [SlotConfig; 5] = [
+    SlotConfig { x: 0, w: 36 },
+    SlotConfig { x: 36, w: 16 },
+    SlotConfig { x: 52, w: 36 },
+    SlotConfig { x: 88, w: 36 },
+    SlotConfig { x: 124, w: 36 },
+];
+
+/// Formats current into exactly 5 fixed-slot ASCII characters:
+/// - mA mode: `{:>3}.{:01}` (e.g. `"  0.0"`, `" 99.8"`, `"100.1"`, `"999.9"`, `"-99.8"`)
+/// - A mode: `{:>1}.{:03}` (e.g. `"1.000"`, `"2.450"`, `"3.200"`)
+/// Returns `(slot_bytes, unit_str, is_amps)`.
+fn fmt_big_digits(c_tenth: i16) -> ([u8; 5], &'static str, bool) {
+    let is_rev = c_tenth < 0;
+    let abs_c = c_tenth.unsigned_abs() as u32;
+
+    if abs_c >= 10_000 {
+        // >= 1.000 A: format as "{:>1}.{:03} A"
+        let whole_a = (abs_c / 10_000) as u8;
+        let frac_a = (abs_c % 10_000) / 10; // 3 decimal digits (0..999)
+        let d0 = if is_rev { b'-' } else { b'0' + whole_a };
+        let d1 = b'.';
+        let d2 = b'0' + ((frac_a / 100) as u8);
+        let d3 = b'0' + (((frac_a / 10) % 10) as u8);
+        let d4 = b'0' + ((frac_a % 10) as u8);
+        ([d0, d1, d2, d3, d4], " A", true)
+    } else {
+        // < 1000.0 mA: format as "{:>3}.{:01} mA"
+        let whole_ma = (abs_c / 10) as u16;
+        let frac_ma = (abs_c % 10) as u8;
+
+        let (d0, d1, d2) = if !is_rev {
+            let d0 = if whole_ma >= 100 { b'0' + ((whole_ma / 100) as u8) } else { b' ' };
+            let d1 = if whole_ma >= 10 { b'0' + (((whole_ma / 10) % 10) as u8) } else { b' ' };
+            let d2 = b'0' + ((whole_ma % 10) as u8);
+            (d0, d1, d2)
+        } else {
+            // Negative current
+            if whole_ma >= 100 {
+                (b'-', b'0' + (((whole_ma / 10) % 10) as u8), b'0' + ((whole_ma % 10) as u8))
+            } else if whole_ma >= 10 {
+                (b'-', b'0' + ((whole_ma / 10) as u8), b'0' + ((whole_ma % 10) as u8))
+            } else {
+                (b' ', b'-', b'0' + (whole_ma as u8))
+            }
+        };
+
+        let d3 = b'.';
+        let d4 = b'0' + frac_ma;
+        ([d0, d1, d2, d3, d4], "mA", false)
+    }
+}
+
 pub struct BigDigitScreen {
-    cur_field: DirtyField<16>,
+    slot_chars: [u8; 5],
+    slot_colors: [u16; 5],
+    prev_is_amps: bool,
     unit_field: DirtyField<4>,
     volt_field: DirtyField<16>,
     batt_field: DirtyField<16>,
-    prev_x: u16,
-    prev_w: u16,
-    prev_scale: u8,
     ema: EmaFilter,
     prev_usb_cfg: Option<bool>,
     prev_sd_status: Option<SdStatus>,
     prev_over_current: Option<bool>,
+    prev_ina_present: Option<bool>,
+    // Analog Segmented Bar Meter
+    prev_lit_segments: u8,
+    peak_bar_seg: u8,
+    peak_decay_counter: u8,
+    prev_is_reverse: bool,
 }
 
 impl BigDigitScreen {
     pub const fn new() -> Self {
         Self {
-            cur_field: DirtyField::new(),
+            slot_chars: [0; 5],
+            slot_colors: [0; 5],
+            prev_is_amps: false,
             unit_field: DirtyField::new(),
             volt_field: DirtyField::new(),
             batt_field: DirtyField::new(),
-            prev_x: 0,
-            prev_w: 0,
-            prev_scale: 0,
             ema: EmaFilter::new(),
             prev_usb_cfg: None,
             prev_sd_status: None,
             prev_over_current: None,
+            prev_ina_present: None,
+            prev_lit_segments: 255,
+            peak_bar_seg: 0,
+            peak_decay_counter: 0,
+            prev_is_reverse: false,
         }
     }
 
@@ -45,17 +135,25 @@ impl BigDigitScreen {
         lcd.fill_rect(0, 0, 160, 12, COL_BG_TOP);
         lcd.fill_rect(0, 12, 160, 1, COL_DIVIDER);
 
-        self.cur_field.invalidate();
+        // 2. Bottom Segmented Bar Meter Divider (Y: 71)
+        lcd.fill_rect(0, 71, 160, 1, COL_DIVIDER);
+
+        // Invalidate all cached field states
+        self.slot_chars = [0; 5];
+        self.slot_colors = [0; 5];
+        self.prev_is_amps = false;
         self.unit_field.invalidate();
         self.volt_field.invalidate();
         self.batt_field.invalidate();
-        self.prev_x = 0;
-        self.prev_w = 0;
-        self.prev_scale = 0;
         self.ema.reset();
         self.prev_usb_cfg = None;
         self.prev_sd_status = None;
         self.prev_over_current = None;
+        self.prev_ina_present = None;
+        self.prev_lit_segments = 255;
+        self.peak_bar_seg = 0;
+        self.peak_decay_counter = 0;
+        self.prev_is_reverse = false;
     }
 
     pub fn update(
@@ -131,27 +229,30 @@ impl BigDigitScreen {
             lcd.draw_string(138, 2, "BIG", &FONT_5X7, COL_TEXT_MUTED, COL_BG_TOP);
         }
 
-        // --- 2. Giant Scaled Current Display (Y: 13..79) ---
-        let current = if ina_present {
-            self.ema.update(reading.current_tenth_ma)
-        } else {
-            0
-        };
+        // --- 2. Sensor Disconnection Handling ---
+        if !ina_present {
+            if self.prev_ina_present != Some(false) {
+                lcd.fill_rect(0, 14, 160, 57, COL_BLACK);
+                lcd.fill_rect(0, 72, 160, 8, COL_BLACK);
+                lcd.draw_string(32, 38, "DISCONNECTED", &FONT_8X16, COL_RED, COL_BLACK);
+                self.slot_chars = [0; 5];
+                self.slot_colors = [0; 5];
+                self.prev_ina_present = Some(false);
+            }
+            return;
+        }
 
-        let mut cur_buf = [0u8; 16];
-        let mut cur_cur = BufferCursor::new(&mut cur_buf);
-        let (num_str, raw_unit) = if ina_present {
-            fmt_hero_current(&mut cur_cur, current)
-        } else {
-            use core::fmt::Write;
-            write!(cur_cur, "DISCONNECTED").ok();
-            (cur_cur.as_str(), "")
-        };
-        let unit_str = raw_unit.trim();
+        if self.prev_ina_present == Some(false) {
+            lcd.fill_rect(0, 14, 160, 57, COL_BLACK);
+            self.slot_chars = [0; 5];
+            self.slot_colors = [0; 5];
+        }
+        self.prev_ina_present = Some(true);
 
-        let curr_col = if !ina_present {
-            COL_RED
-        } else if over_current {
+        // --- 3. Bench-Meter Fixed-Width Big Digits (Y: 15..70) ---
+        let current = self.ema.update(reading.current_tenth_ma);
+
+        let curr_col = if over_current {
             COL_AMBER
         } else if reading.is_reverse {
             COL_RED
@@ -161,74 +262,98 @@ impl BigDigitScreen {
             COL_CYAN
         };
 
-        let color_changed = self.prev_over_current != Some(over_current);
         self.prev_over_current = Some(over_current);
 
-        if !ina_present {
-            if self.cur_field.update(num_str) || color_changed {
-                lcd.fill_rect(0, 14, 160, 66, COL_BLACK);
-                let text_w = (num_str.len() as u16) * 8;
-                let x = if text_w < 160 { (160 - text_w) / 2 } else { 0 };
-                lcd.draw_string(x, 38, num_str, &FONT_8X16, COL_RED, COL_BLACK);
-                self.unit_field.invalidate();
-                self.prev_x = 0;
-                self.prev_w = 0;
-                self.prev_scale = 0;
-            }
-            return;
+        let (chars, unit_str, is_amps) = fmt_big_digits(current);
+
+        // If unit mode transitioned between mA and A, invalidate all slots and clear digit area
+        if is_amps != self.prev_is_amps {
+            lcd.fill_rect(0, 14, 160, 57, COL_BLACK);
+            self.slot_chars = [0; 5];
+            self.slot_colors = [0; 5];
+            self.prev_is_amps = is_amps;
         }
 
-        let unscaled_w = FONT_28.string_width(num_str);
-        let scale2_w = unscaled_w * 2;
-        let cur_changed = self.cur_field.update(num_str);
+        let slot_cfgs = if is_amps { &SLOTS_A } else { &SLOTS_MA };
 
-        if cur_changed || color_changed {
-            let scale: u8 = if scale2_w <= 158 { 2 } else { 1 };
-            let (x, y, w) = if scale == 2 {
-                let x = if scale2_w <= 138 {
-                    if scale2_w < 136 { (136 - scale2_w) / 2 } else { 1 }
+        // Render only slots whose character or color has changed
+        for i in 0..5 {
+            let ch = chars[i];
+            let dirty = ch != self.slot_chars[i] || curr_col != self.slot_colors[i];
+            if dirty {
+                let cfg = slot_cfgs[i];
+                if ch == b' ' {
+                    lcd.fill_rect(cfg.x, 15, cfg.w, 56, COL_BLACK);
                 } else {
-                    (160 - scale2_w) / 2
-                };
-                (x, 18u16, scale2_w)
-            } else {
-                let x = if unscaled_w < 134 { (134 - unscaled_w) / 2 } else { 4 };
-                (x, 30u16, unscaled_w)
-            };
+                    let glyph_w = (FONT_28.char_width(ch as char) as u16) * 2;
+                    let char_x = cfg.x + (cfg.w.saturating_sub(glyph_w)) / 2;
 
-            // If bounding box or scale changed, clear old digit area cleanly
-            if x != self.prev_x || w != self.prev_w || scale != self.prev_scale {
-                lcd.fill_rect(0, 14, 160, 66, COL_BLACK);
-                self.prev_x = x;
-                self.prev_w = w;
-                self.prev_scale = scale;
-                self.unit_field.invalidate();
-            }
-
-            if scale == 2 {
-                lcd.draw_string_scaled(x, y, num_str, &FONT_28, curr_col, COL_BLACK, 2);
-            } else {
-                lcd.draw_string(x, y, num_str, &FONT_28, curr_col, COL_BLACK);
-            }
-        }
-
-        // Render unit indicator in dedicated corner position
-        if self.unit_field.update(unit_str) || cur_changed || color_changed {
-            if !unit_str.is_empty() {
-                if scale2_w <= 138 {
-                    // Ample space: place unit in lower-right corner at scale 1
-                    lcd.fill_rect(138, 50, 22, 28, COL_BLACK);
-                    lcd.draw_string(140, 56, unit_str, &FONT_8X16, curr_col, COL_BLACK);
-                } else if scale2_w <= 158 {
-                    // Wide 5-digit number filling width: place unit in upper-right corner
-                    lcd.fill_rect(138, 14, 22, 16, COL_BLACK);
-                    lcd.draw_string(144, 16, unit_str, &FONT_5X7, curr_col, COL_BLACK);
-                } else {
-                    // Fallback scale 1: place unit next to centered digits
-                    lcd.fill_rect(138, 30, 22, 24, COL_BLACK);
-                    lcd.draw_string(140, 36, unit_str, &FONT_8X16, curr_col, COL_BLACK);
+                    // Clear left padding within slot if any
+                    if char_x > cfg.x {
+                        lcd.fill_rect(cfg.x, 15, char_x - cfg.x, 56, COL_BLACK);
+                    }
+                    // Clear right padding within slot if any
+                    let right = char_x + glyph_w;
+                    if right < cfg.x + cfg.w {
+                        lcd.fill_rect(right, 15, (cfg.x + cfg.w) - right, 56, COL_BLACK);
+                    }
+                    // Draw anti-aliased 56px character
+                    lcd.draw_char_scaled(char_x, 15, ch as char, &FONT_28, curr_col, COL_BLACK, 2);
                 }
+                self.slot_chars[i] = ch;
+                self.slot_colors[i] = curr_col;
             }
+        }
+
+        // --- 4. Analog-Style Segmented Bar Meter & Unit (Y: 72..78) ---
+        // Right unit badge (X: 138, Y: 72 in FONT_5X7)
+        if self.unit_field.update(unit_str) {
+            lcd.fill_rect(134, 72, 26, 7, COL_BLACK);
+            lcd.draw_string(138, 72, unit_str, &FONT_5X7, curr_col, COL_BLACK);
+        }
+
+        // 25-segment bargraph (X: 4..128)
+        let bar_max: u32 = if is_amps { 32_000 } else { 10_000 };
+        let abs_c = reading.abs_current_tenth();
+        let lit_count = core::cmp::min(25, (abs_c * 25) / bar_max) as u8;
+
+        // Peak-hold transient marker logic
+        let prev_peak_seg = self.peak_bar_seg;
+        if lit_count > self.peak_bar_seg {
+            self.peak_bar_seg = lit_count;
+            self.peak_decay_counter = 20; // 2.0s hold @ 10Hz
+        } else if self.peak_decay_counter > 0 {
+            self.peak_decay_counter -= 1;
+        } else if self.peak_bar_seg > lit_count {
+            self.peak_bar_seg -= 1;
+        }
+
+        let bar_dirty = lit_count != self.prev_lit_segments
+            || self.peak_bar_seg != prev_peak_seg
+            || reading.is_reverse != self.prev_is_reverse;
+
+        if bar_dirty {
+            for i in 0..25u8 {
+                let seg_x = 4 + (i as u16) * 5;
+                let seg_col = if reading.is_reverse && i < lit_count {
+                    COL_RED
+                } else if i < lit_count {
+                    if i < 16 {
+                        COL_MINT
+                    } else if i < 21 {
+                        COL_AMBER
+                    } else {
+                        COL_RED
+                    }
+                } else if i + 1 == self.peak_bar_seg && self.peak_bar_seg > 0 {
+                    COL_WHITE
+                } else {
+                    rgb565(25, 30, 40) // Unlit dark segment background
+                };
+                lcd.fill_rect(seg_x, 73, 4, 5, seg_col);
+            }
+            self.prev_lit_segments = lit_count;
+            self.prev_is_reverse = reading.is_reverse;
         }
     }
 }
