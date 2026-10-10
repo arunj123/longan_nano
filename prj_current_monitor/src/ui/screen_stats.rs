@@ -7,7 +7,7 @@ use crate::fmt::{fmt_energy_auto, fmt_power, fmt_resistance, fmt_time, BufferCur
 use crate::model::{Accumulators, InaReading, SessionStats};
 use crate::ui::theme::*;
 
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum SdStatus {
     NoCard,
     Ready,

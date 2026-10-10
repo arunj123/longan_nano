@@ -9,7 +9,7 @@ pub use screen_graph::GraphScreen;
 pub use screen_stats::{SdStatus, StatsScreen};
 pub use screen_histogram::HistogramScreen;
 
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum ScreenMode {
     Hero,      // Large 28px numeric display with load gauge bar and metric tiles
     Graph,     // Real-time oscilloscope with 137-sample history replotting

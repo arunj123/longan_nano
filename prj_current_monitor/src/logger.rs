@@ -69,6 +69,9 @@ pub struct SdDatalogger<'a> {
     buf_len: usize,
     pub status: SdStatus,
     pub total_logged_rows: u32,
+    pub session_file_num: u16,
+    pub file_name: [u8; 13],
+    file_name_len: usize,
     last_flush_ms: u32,
     last_probe_ms: u32,
     probe_fail_count: u8,
@@ -82,10 +85,80 @@ impl<'a> SdDatalogger<'a> {
             buf_len: 0,
             status: SdStatus::NoCard,
             total_logged_rows: 0,
+            session_file_num: 1,
+            file_name: *b"LOG_0001.CSV\0",
+            file_name_len: 12,
             last_flush_ms: now_ms,
             last_probe_ms: now_ms,
             probe_fail_count: 0,
         }
+    }
+
+    /// Sets active sequential file name based on session number (e.g. LOG_0001.CSV).
+    pub fn set_session_num(&mut self, num: u16) {
+        self.session_file_num = num;
+        let d0 = (num / 1000 % 10) as u8 + b'0';
+        let d1 = (num / 100 % 10) as u8 + b'0';
+        let d2 = (num / 10 % 10) as u8 + b'0';
+        let d3 = (num % 10) as u8 + b'0';
+        self.file_name = [
+            b'L', b'O', b'G', b'_',
+            d0, d1, d2, d3,
+            b'.', b'C', b'S', b'V',
+            0,
+        ];
+        self.file_name_len = 12;
+    }
+
+    /// Returns the active session filename as a string slice.
+    pub fn file_name_str(&self) -> &str {
+        core::str::from_utf8(&self.file_name[..self.file_name_len]).unwrap_or("MONITOR.CSV")
+    }
+
+    /// Scans the root directory on the SD card to discover existing LOG_XXXX.CSV
+    /// files and selects the next sequential file number.
+    pub fn scan_and_set_next_session(&mut self) {
+        let dev = SdCardDevice(self.sdcard);
+        let vol_mgr = VolumeManager::new(dev, StaticTimeSource);
+        let mut max_num = 0u16;
+
+        let _ = (|| -> Result<(), ()> {
+            let vol = vol_mgr.open_volume(VolumeIdx(0)).map_err(|_| ())?;
+            let root = vol.open_root_dir().map_err(|_| ())?;
+            let _ = root.iterate_dir(|entry| {
+                let name = &entry.name;
+                if name.extension() == b"CSV" {
+                    let base = name.base_name();
+                    if base.len() == 8 && &base[0..4] == b"LOG_" {
+                        let mut num = 0u16;
+                        let mut valid = true;
+                        for &b in &base[4..8] {
+                            if b.is_ascii_digit() {
+                                num = num * 10 + (b - b'0') as u16;
+                            } else {
+                                valid = false;
+                                break;
+                            }
+                        }
+                        if valid && num > max_num {
+                            max_num = num;
+                        }
+                    }
+                }
+            });
+            Ok(())
+        })();
+
+        let next_num = max_num.saturating_add(1);
+        self.set_session_num(next_num);
+    }
+
+    /// Flushes current sector buffer and rotates to the next sequential log file.
+    pub fn rotate_session(&mut self) {
+        self.flush_buffer();
+        let next_num = self.session_file_num.saturating_add(1);
+        self.set_session_num(next_num);
+        self.total_logged_rows = 0;
     }
 
     /// Performs hot-plug probing with exponential backoff to avoid freezing
@@ -108,6 +181,7 @@ impl<'a> SdDatalogger<'a> {
         if res.is_ok() {
             self.status = SdStatus::Ready;
             self.probe_fail_count = 0;
+            self.scan_and_set_next_session();
             true
         } else {
             self.status = SdStatus::NoCard;
@@ -197,8 +271,9 @@ impl<'a> SdDatalogger<'a> {
         let res: Result<(), ()> = (|| {
             let vol = vol_mgr.open_volume(VolumeIdx(0)).map_err(|_| ())?;
             let root = vol.open_root_dir().map_err(|_| ())?;
+            let filename = self.file_name_str();
             let file = root
-                .open_file_in_dir("MONITOR.CSV", Mode::ReadWriteCreateOrAppend)
+                .open_file_in_dir(filename, Mode::ReadWriteCreateOrAppend)
                 .map_err(|_| ())?;
 
             if file.length() == 0 {

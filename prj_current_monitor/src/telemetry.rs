@@ -59,4 +59,45 @@ impl TelemetryStreamer {
         }
         sent
     }
+
+    /// Polls for incoming host command packets via USB HID OUT report.
+    pub fn poll_command(&mut self, usb_hid: &mut UsbHid) -> Option<HidCommand> {
+        let mut buf = [0u8; 64];
+        if let Some(len) = usb_hid.read_report(&mut buf) {
+            if len >= 1 {
+                let (cmd_byte, arg_byte) = if buf[0] == 0x02 {
+                    if len >= 2 {
+                        (buf[1], if len >= 3 { buf[2] } else { 0 })
+                    } else {
+                        return None;
+                    }
+                } else {
+                    (buf[0], if len >= 2 { buf[1] } else { 0 })
+                };
+
+                match cmd_byte {
+                    0x01 => Some(HidCommand::SetMode(arg_byte)),
+                    0x02 => Some(HidCommand::TareZero),
+                    0x03 => Some(HidCommand::FlushSd),
+                    0x04 => Some(HidCommand::RotateLog),
+                    0x05 => Some(HidCommand::RequestSummary),
+                    other => Some(HidCommand::Unknown(other)),
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HidCommand {
+    SetMode(u8),
+    TareZero,
+    FlushSd,
+    RotateLog,
+    RequestSummary,
+    Unknown(u8),
 }

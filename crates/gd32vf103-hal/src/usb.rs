@@ -982,7 +982,7 @@ const HID_CONFIG_DESC: [u8; 41] = [
     0x00,       // bCountryCode = 0
     1,          // bNumDescriptors = 1
     0x22,       // bDescriptorType = Report
-    23, 0,      // wDescriptorLength = 23
+    38, 0,      // wDescriptorLength = 38
 
     // Endpoint 1 IN: Interrupt IN (7 bytes)
     7,          // bLength
@@ -1001,10 +1001,11 @@ const HID_CONFIG_DESC: [u8; 41] = [
     1,          // bInterval = 1ms
 ];
 
-const CUSTOM_HID_REPORT_DESC: [u8; 23] = [
+const CUSTOM_HID_REPORT_DESC: [u8; 38] = [
     0x06, 0x00, 0xFF,  // Usage Page (Vendor-Defined 0xFF00)
     0x09, 0x01,        // Usage (Vendor-Defined 1)
     0xA1, 0x01,        // Collection (Application)
+    // Report ID 1: Telemetry IN (8 bytes)
     0x85, 0x01,        //   Report ID (1)
     0x09, 0x03,        //   Usage (Vendor-Defined 3)
     0x15, 0x00,        //   Logical Minimum (0)
@@ -1012,6 +1013,14 @@ const CUSTOM_HID_REPORT_DESC: [u8; 23] = [
     0x75, 0x08,        //   Report Size (8 bits)
     0x95, 0x08,        //   Report Count (8 bytes)
     0x81, 0x02,        //   Input (Data, Var, Abs)
+    // Report ID 2: Command OUT (8 bytes)
+    0x85, 0x02,        //   Report ID (2)
+    0x09, 0x04,        //   Usage (Vendor-Defined 4)
+    0x15, 0x00,        //   Logical Minimum (0)
+    0x26, 0xFF, 0x00,  //   Logical Maximum (255)
+    0x75, 0x08,        //   Report Size (8 bits)
+    0x95, 0x08,        //   Report Count (8 bytes)
+    0x91, 0x02,        //   Output (Data, Var, Abs)
     0xC0,              // End Collection
 ];
 
@@ -1031,6 +1040,9 @@ pub struct UsbHid {
     ep0_in_len: usize,
     ep0_in_offset: usize,
     ep0_out_buf: [u8; 64],
+    ep1_out_buf: [u8; 64],
+    ep1_out_len: usize,
+    ep1_rx_ready: bool,
     pending_addr: u8,
     configured: bool,
     tx_busy: bool,
@@ -1131,6 +1143,9 @@ impl UsbHid {
             ep0_in_len: 0,
             ep0_in_offset: 0,
             ep0_out_buf: [0u8; 64],
+            ep1_out_buf: [0u8; 64],
+            ep1_out_len: 0,
+            ep1_rx_ready: false,
             pending_addr: 0,
             configured: false,
             tx_busy: false,
@@ -1265,6 +1280,8 @@ impl UsbHid {
         self.pending_addr = 0;
         self.configured = false;
         self.tx_busy = false;
+        self.ep1_rx_ready = false;
+        self.ep1_out_len = 0;
         self.ctl_state = ControlState::Idle;
         self.usbfs.device().dcfg.clear_bits(dcfg::DAR_MASK);
 
@@ -1322,10 +1339,15 @@ impl UsbHid {
                                 let byte = ((w >> (b * 8)) & 0xFF) as u8;
                                 if ep_num == 0 && byte_idx < self.ep0_out_buf.len() {
                                     self.ep0_out_buf[byte_idx] = byte;
+                                } else if ep_num == 1 && byte_idx < self.ep1_out_buf.len() {
+                                    self.ep1_out_buf[byte_idx] = byte;
                                 }
                                 byte_idx += 1;
                             }
                         }
+                    }
+                    if ep_num == 1 {
+                        self.ep1_out_len = core::cmp::min(bcount, self.ep1_out_buf.len());
                     }
                 }
             }
@@ -1355,6 +1377,10 @@ impl UsbHid {
                     }
                     ControlState::DataOut => {
                         self.ep0_send_status_in();
+                        let len = core::cmp::min(self.setup_pkt.w_length as usize, self.ep1_out_buf.len());
+                        self.ep1_out_buf[..len].copy_from_slice(&self.ep0_out_buf[..len]);
+                        self.ep1_out_len = len;
+                        self.ep1_rx_ready = true;
                     }
                     _ => {}
                 }
@@ -1371,6 +1397,7 @@ impl UsbHid {
             let oepintr = self.usbfs.out_ep(1).doepintf.read();
             if (oepintr & doepintf::TF) != 0 {
                 self.usbfs.out_ep(1).doepintf.write(doepintf::TF);
+                self.ep1_rx_ready = true;
                 // Re-arm EP1 OUT for next packet
                 self.usbfs.out_ep(1).doeplen.write((1 << 19) | 64);
                 let ctl = self.usbfs.out_ep(1).doepctl.read();
@@ -1618,6 +1645,21 @@ impl UsbHid {
                     }
                     self.ep0_start_in(&default_report[..len]);
                 }
+                // SET_REPORT (0x09)
+                0x09 => {
+                    if req.w_length > 0 {
+                        self.ctl_state = ControlState::DataOut;
+                        self.usbfs.out_ep(0).doeplen.write((1 << 19) | (req.w_length as u32));
+                        let ctl = self.usbfs.out_ep(0).doepctl.read();
+                        self.usbfs.out_ep(0).doepctl.write(
+                            (ctl & !(depctl::SD0PID | depctl::SD1PID | depctl::SNAK))
+                                | depctl::EPEN
+                                | depctl::CNAK,
+                        );
+                    } else {
+                        self.ep0_send_status_in();
+                    }
+                }
                 _ => {
                     self.stall_ep0();
                 }
@@ -1738,6 +1780,25 @@ impl UsbHid {
         self.tx_busy = true;
 
         true
+    }
+
+    /// Checks if a custom HID OUT report has been received.
+    #[inline(always)]
+    pub fn has_report(&self) -> bool {
+        self.ep1_rx_ready
+    }
+
+    /// Reads a received custom HID OUT report into `buf`.
+    /// Returns Some(bytes_read) if a report was pending, None otherwise.
+    pub fn read_report(&mut self, buf: &mut [u8]) -> Option<usize> {
+        if self.ep1_rx_ready {
+            self.ep1_rx_ready = false;
+            let len = core::cmp::min(self.ep1_out_len, buf.len());
+            buf[..len].copy_from_slice(&self.ep1_out_buf[..len]);
+            Some(len)
+        } else {
+            None
+        }
     }
 }
 
