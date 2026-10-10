@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Remote UI Cycling & Command Console Test for Longan Nano Current Monitor (Build 00C6)
+Remote UI Cycling & Command Console Test for Longan Nano Current Monitor (Build 00C8)
 Connects to Linux testbed (192.168.0.63) and exercises:
 1. UART0 Remote Command Console ('?', '1'..'4', 'm', 's', 'f', 'r', 't')
 2. MicroSD Sequential File Rotation (LOG_XXXX.CSV)
@@ -242,7 +242,7 @@ print("FINAL_RESULTS:" + json.dumps(results))
 
 def main():
     print("=" * 70)
-    print(" Running Build 00C7 Remote Command & Telemetry Validation Test")
+    print(" Running Build 00C8 Remote Command & Telemetry Validation Test")
     print(f" Target Testbed: {USER}@{HOST}")
     print("=" * 70)
 
@@ -291,7 +291,7 @@ def main():
     res = json.loads(raw_results)
 
     print("\n" + "=" * 70)
-    print(" EMPIRICAL TEST RESULTS (BUILD 00C7)")
+    print(" EMPIRICAL TEST RESULTS (BUILD 00C8)")
     print("=" * 70)
 
     all_passed = True

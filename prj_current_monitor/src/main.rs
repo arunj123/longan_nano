@@ -823,6 +823,7 @@ fn main() -> ! {
                         ina_present,
                         board.usb_hid.is_configured(),
                         datalogger.status,
+                        over_current,
                     );
                 }
             }
