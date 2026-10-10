@@ -59,6 +59,11 @@ impl Ina219 {
         Ok(())
     }
 
+    /// Performs I2C 9-cycle bus recovery to clear bus lockup before reinitializing.
+    pub fn recover_bus(&mut self, delay: &mut gd32vf103_hal::delay::Delay) {
+        self.i2c.recover_bus(delay);
+    }
+
     /// Sets the tare (zero-offset) current in tenths of mA.
     #[inline]
     pub fn set_tare(&mut self, offset_tenth_ma: i16) {

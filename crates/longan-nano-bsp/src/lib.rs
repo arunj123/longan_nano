@@ -77,7 +77,7 @@ pub use ina219::{Ina219, Ina219Data};
 pub mod rotary_encoder;
 pub use rotary_encoder::RotaryEncoder;
 
-pub use hal::{MscBlockDevice, MscStats, UsbCdcAcm, UsbComposite, UsbHid, UsbMsc};
+pub use hal::{Adc0TempSensor, Fwdgt, MscBlockDevice, MscStats, UsbCdcAcm, UsbComposite, UsbHid, UsbMsc};
 pub use hal::i2c::{I2c, I2cError};
 use hal::spi::{Prescaler, Spi0, Spi1};
 
@@ -114,6 +114,8 @@ pub struct CurrentMonitorBoard {
     pub sdcard: SdCard,
     pub delay: Delay,
     pub clocks: Clocks,
+    pub mcu_temp: Adc0TempSensor,
+    pub fwdgt: Fwdgt,
 }
 
 /// Board container specialized for USB Composite device application
@@ -301,6 +303,9 @@ impl Board {
         let spi1 = Spi1::new_master(dp.spi1, sd_sck, sd_miso, sd_mosi, Prescaler::Div256, &rcu);
         let sdcard = SdCard::new(spi1, sd_cs);
 
+        let mcu_temp = Adc0TempSensor::init(dp.adc0, &rcu, &mut delay);
+        let fwdgt = Fwdgt::start(dp.fwdgt, 2000);
+
         Some(CurrentMonitorBoard {
             led_red,
             led_green,
@@ -313,6 +318,8 @@ impl Board {
             sdcard,
             delay,
             clocks,
+            mcu_temp,
+            fwdgt,
         })
     }
 

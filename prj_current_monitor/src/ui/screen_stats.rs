@@ -4,7 +4,7 @@ use longan_nano_bsp::{
     Lcd,
 };
 use crate::fmt::{fmt_energy_auto, fmt_power, fmt_resistance, fmt_time, BufferCursor, DirtyField};
-use crate::model::{Accumulators, InaReading, SessionStats};
+use crate::model::{Accumulators, BatteryState, InaReading, SessionStats};
 use crate::ui::theme::*;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -24,6 +24,7 @@ pub struct StatsScreen {
     iavg_field: DirtyField<16>,
     e_field: DirtyField<16>,
     bat_field: DirtyField<16>,
+    mcu_temp_field: DirtyField<12>,
     logs_field: DirtyField<12>,
     prev_usb_cfg: Option<bool>,
     prev_sd_status: Option<SdStatus>,
@@ -40,6 +41,7 @@ impl StatsScreen {
             iavg_field: DirtyField::new(),
             e_field: DirtyField::new(),
             bat_field: DirtyField::new(),
+            mcu_temp_field: DirtyField::new(),
             logs_field: DirtyField::new(),
             prev_usb_cfg: None,
             prev_sd_status: None,
@@ -52,7 +54,7 @@ impl StatsScreen {
         // Header Bar (Y: 0..12)
         lcd.fill_rect(0, 0, 160, 12, COL_BG_TOP);
         lcd.fill_rect(0, 12, 160, 1, COL_DIVIDER);
-        lcd.draw_string(4, 2, "SESSION STATS", &FONT_5X7, COL_WHITE, COL_BG_TOP);
+        lcd.draw_string(4, 2, "STATS", &FONT_5X7, COL_WHITE, COL_BG_TOP);
 
         // Row Labels (Y = 16, 29, 42, 55, 68)
         lcd.draw_string(4, 16, "TIME:", &FONT_5X7, COL_TEXT_MUTED, COL_BLACK);
@@ -75,6 +77,7 @@ impl StatsScreen {
         self.iavg_field.invalidate();
         self.e_field.invalidate();
         self.bat_field.invalidate();
+        self.mcu_temp_field.invalidate();
         self.logs_field.invalidate();
         self.prev_usb_cfg = None;
         self.prev_sd_status = None;
@@ -86,12 +89,20 @@ impl StatsScreen {
         reading: &InaReading,
         stats: &SessionStats,
         accum: &Accumulators,
+        battery: &BatteryState,
         sd_status: SdStatus,
         sd_log_count: u32,
         now_ms: u32,
         usb_configured: bool,
     ) {
-        // --- 1. Header Bar: Log Counter & Status Icons ---
+        // --- 1. Header Bar: Log Counter, MCU Temp & Status Icons ---
+        let mut t_buf = [0u8; 12];
+        let mut t_cur = BufferCursor::new(&mut t_buf);
+        write!(t_cur, "T:{}.{}C", stats.mcu_temp_tenth_c / 10, stats.mcu_temp_tenth_c.unsigned_abs() % 10).ok();
+        if self.mcu_temp_field.update(t_cur.as_str()) {
+            lcd.draw_string(42, 2, t_cur.as_str(), &FONT_5X7, COL_CYAN, COL_BG_TOP);
+        }
+
         let mut lg_buf = [0u8; 12];
         let mut lg_cur = BufferCursor::new(&mut lg_buf);
         write!(lg_cur, "#{:04}", sd_log_count % 10000).ok();
@@ -221,7 +232,15 @@ impl StatsScreen {
 
         let mut bat_buf = [0u8; 16];
         let mut bat_cur = BufferCursor::new(&mut bat_buf);
-        if avg_c > 0 {
+        if battery.profile.capacity_mah() > 0 {
+            if battery.time_rem_mins < 60 {
+                write!(bat_cur, "{}% ~{}m", battery.soc_pct, battery.time_rem_mins).ok();
+            } else if battery.time_rem_mins < 6000 {
+                write!(bat_cur, "{}% ~{}h", battery.soc_pct, battery.time_rem_mins / 60).ok();
+            } else {
+                write!(bat_cur, "{}% >99h", battery.soc_pct).ok();
+            }
+        } else if avg_c > 0 {
             // Projected runtime for nominal 500 mAh battery (5000 in 0.1 mA-hours)
             let total_mins = (5000u64 * 60) / (avg_c as u64);
             if total_mins < 60 {
@@ -237,7 +256,8 @@ impl StatsScreen {
             write!(bat_cur, " --- ").ok();
         }
         if self.bat_field.update(bat_cur.as_str()) {
-            lcd.draw_string(114, 68, bat_cur.as_str(), &FONT_5X7, COL_MINT, COL_BLACK);
+            let col = if battery.is_low_voltage { COL_RED } else { COL_MINT };
+            lcd.draw_string(114, 68, bat_cur.as_str(), &FONT_5X7, col, COL_BLACK);
         }
     }
 }

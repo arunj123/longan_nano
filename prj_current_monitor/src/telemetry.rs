@@ -81,6 +81,7 @@ impl TelemetryStreamer {
                     0x03 => Some(HidCommand::FlushSd),
                     0x04 => Some(HidCommand::RotateLog),
                     0x05 => Some(HidCommand::RequestSummary),
+                    0x06 => Some(HidCommand::SetBatteryProfile(arg_byte)),
                     other => Some(HidCommand::Unknown(other)),
                 }
             } else {
@@ -99,5 +100,6 @@ pub enum HidCommand {
     FlushSd,
     RotateLog,
     RequestSummary,
+    SetBatteryProfile(u8),
     Unknown(u8),
 }

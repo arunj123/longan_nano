@@ -10,6 +10,8 @@ pub mod usart;
 pub mod spi;
 pub mod usbfs;
 pub mod i2c;
+pub mod fwdgt;
+pub mod adc;
 
 pub use rcu::Rcu;
 pub use gpio::{Gpio, GpioPort};
@@ -18,6 +20,8 @@ pub use usart::Usart;
 pub use spi::Spi;
 pub use usbfs::Usbfs;
 pub use i2c::I2c;
+pub use fwdgt::Fwdgt;
+pub use adc::Adc;
 
 /// GD32VF103 Peripherals singleton
 pub struct Peripherals {
@@ -32,6 +36,8 @@ pub struct Peripherals {
     pub usbfs: Usbfs,
     pub i2c0: I2c,
     pub i2c1: I2c,
+    pub fwdgt: Fwdgt,
+    pub adc0: Adc,
 }
 
 static TAKEN: AtomicBool = AtomicBool::new(false);
@@ -65,6 +71,8 @@ impl Peripherals {
             usbfs: Usbfs::steal(),
             i2c0: I2c::steal(i2c::I2C0_BASE),
             i2c1: I2c::steal(i2c::I2C1_BASE),
+            fwdgt: Fwdgt::steal(fwdgt::FWDGT_BASE),
+            adc0: Adc::steal(adc::ADC0_BASE),
         }
     }
 }

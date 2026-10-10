@@ -15,12 +15,12 @@ use riscv_rt::entry;
 use longan_nano_bsp::Board;
 
 use crate::logger::SdDatalogger;
-use crate::model::{Accumulators, HistogramData, InaReading, SessionStats, WaveformHistory};
+use crate::model::{Accumulators, BatteryProfile, BatteryState, HistogramData, InaReading, SessionStats, WaveformHistory};
 use crate::telemetry::{HidCommand, TelemetryStreamer};
-use crate::ui::{GraphScreen, HeroScreen, HistogramScreen, ScreenMode, SdStatus, StatsScreen};
+use crate::ui::{BigDigitScreen, GraphScreen, HeroScreen, HistogramScreen, ScreenMode, SdStatus, StatsScreen};
 
 macro_rules! set_screen_mode {
-    ($new_mode:expr, $screen_mode:expr, $board:expr, $hero:expr, $graph:expr, $stats:expr, $histo:expr, $hist:expr) => {{
+    ($new_mode:expr, $screen_mode:expr, $board:expr, $hero:expr, $graph:expr, $stats:expr, $histo:expr, $big_digit:expr, $hist:expr) => {{
         $screen_mode = $new_mode;
         match $screen_mode {
             ScreenMode::Hero => $hero.draw_layout(&mut $board.lcd),
@@ -30,6 +30,7 @@ macro_rules! set_screen_mode {
             }
             ScreenMode::Stats => $stats.draw_layout(&mut $board.lcd),
             ScreenMode::Histogram => $histo.draw_layout(&mut $board.lcd),
+            ScreenMode::BigDigit => $big_digit.draw_layout(&mut $board.lcd),
         }
         writeln!(
             $board.uart0,
@@ -39,13 +40,14 @@ macro_rules! set_screen_mode {
                 ScreenMode::Graph => "2: GRAPH (Oscilloscope)",
                 ScreenMode::Stats => "3: STATS (Dashboard)",
                 ScreenMode::Histogram => "4: HISTOGRAM",
+                ScreenMode::BigDigit => "5: BIG DIGIT",
             }
         ).ok();
     }};
 }
 
 macro_rules! tare_and_reset {
-    ($now:expr, $ina_present:expr, $board:expr, $datalogger:expr, $accum:expr, $hist:expr, $histo:expr, $stats:expr, $screen_mode:expr, $hero:expr, $graph:expr, $stats_s:expr, $histo_s:expr) => {{
+    ($now:expr, $ina_present:expr, $board:expr, $datalogger:expr, $accum:expr, $hist:expr, $histo:expr, $stats:expr, $screen_mode:expr, $hero:expr, $graph:expr, $stats_s:expr, $histo_s:expr, $big_digit:expr) => {{
         if $ina_present {
             if let Ok(raw_data) = $board.ina219.read_all() {
                 let current_raw = raw_data.current_tenth_ma;
@@ -75,18 +77,20 @@ macro_rules! tare_and_reset {
             ScreenMode::Graph => $graph.draw_layout(&mut $board.lcd),
             ScreenMode::Stats => $stats_s.draw_layout(&mut $board.lcd),
             ScreenMode::Histogram => $histo_s.draw_layout(&mut $board.lcd),
+            ScreenMode::BigDigit => $big_digit.draw_layout(&mut $board.lcd),
         }
     }};
 }
 
 macro_rules! dump_session {
-    ($now:expr, $screen_mode:expr, $board:expr, $datalogger:expr, $stats:expr, $accum:expr) => {{
+    ($now:expr, $screen_mode:expr, $board:expr, $datalogger:expr, $stats:expr, $accum:expr, $battery:expr) => {{
         let uptime_s = $now / 1000;
         let mode_name = match $screen_mode {
             ScreenMode::Hero => "HERO",
             ScreenMode::Graph => "GRAPH",
             ScreenMode::Stats => "STATS",
             ScreenMode::Histogram => "HISTO",
+            ScreenMode::BigDigit => "BIG",
         };
         let c_min = if $stats.has_samples { $stats.c_min } else { 0 };
         let c_max = if $stats.has_samples { $stats.c_max } else { 0 };
@@ -94,9 +98,10 @@ macro_rules! dump_session {
         let v_max = if $stats.has_samples { $stats.v_max } else { 0 };
         let p_peak_mw = $stats.p_max / 10;
         let avg_c = $stats.avg_current_tenth_ma();
+        let mcu_temp_tenth = $stats.mcu_temp_tenth_c;
 
         writeln!($board.uart0, "\r\n--- SESSION TELEMETRY SUMMARY ---").ok();
-        writeln!($board.uart0, "Uptime: {} s | Mode: {}", uptime_s, mode_name).ok();
+        writeln!($board.uart0, "Uptime: {} s | Mode: {} | MCU Temp: {}.{} C", uptime_s, mode_name, mcu_temp_tenth / 10, mcu_temp_tenth.unsigned_abs() % 10).ok();
         writeln!(
             $board.uart0,
             "Voltage: Min {} mV, Max {} mV",
@@ -125,6 +130,11 @@ macro_rules! dump_session {
         ).ok();
         writeln!(
             $board.uart0,
+            "Battery: Profile {} | SoC: {}% | Rem: {} mAh ({} mins)",
+            $battery.profile.name(), $battery.soc_pct, $battery.rem_mah, $battery.time_rem_mins
+        ).ok();
+        writeln!(
+            $board.uart0,
             "SD File: {} (Rows: {}, Status: {:?})",
             $datalogger.file_name_str(),
             $datalogger.total_logged_rows,
@@ -132,7 +142,7 @@ macro_rules! dump_session {
         ).ok();
         writeln!(
             $board.uart0,
-            "[JSON] {{\"uptime_s\":{},\"mode\":\"{}\",\"v_min\":{},\"v_max\":{},\"c_min\":{},\"c_max\":{},\"c_avg\":{},\"p_peak_mw\":{},\"mwh\":{},\"mah\":{},\"sd_file\":\"{}\",\"sd_rows\":{}}}",
+            "[JSON] {{\"uptime_s\":{},\"mode\":\"{}\",\"v_min\":{},\"v_max\":{},\"c_min\":{},\"c_max\":{},\"c_avg\":{},\"p_peak_mw\":{},\"mwh\":{},\"mah\":{},\"mcu_temp_c\":{}.{},\"bat_soc\":{},\"sd_file\":\"{}\",\"sd_rows\":{}}}",
             uptime_s,
             mode_name,
             v_min,
@@ -143,6 +153,9 @@ macro_rules! dump_session {
             p_peak_mw,
             $accum.energy_mwh(),
             $accum.charge_mah(),
+            mcu_temp_tenth / 10,
+            mcu_temp_tenth.unsigned_abs() % 10,
+            $battery.soc_pct,
             $datalogger.file_name_str(),
             $datalogger.total_logged_rows
         ).ok();
@@ -153,8 +166,9 @@ macro_rules! dump_session {
 macro_rules! print_help {
     ($board:expr) => {{
         writeln!($board.uart0, "\r\n=== REMOTE COMMAND CONSOLE ===").ok();
-        writeln!($board.uart0, " '1'..'4' : Set Screen (1:Hero, 2:Graph, 3:Stats, 4:Histo)").ok();
+        writeln!($board.uart0, " '1'..'5' : Set Screen (1:Hero, 2:Graph, 3:Stats, 4:Histo, 5:BigDigit)").ok();
         writeln!($board.uart0, " 'm'      : Cycle next screen mode").ok();
+        writeln!($board.uart0, " 'b'      : Cycle battery capacity profile").ok();
         writeln!($board.uart0, " 't'      : Zero-Tare calibration & reset session").ok();
         writeln!($board.uart0, " 'r' / 'n': Rotate SD log file to next session").ok();
         writeln!($board.uart0, " 'f'      : Force flush MicroSD sector buffer").ok();
@@ -210,6 +224,7 @@ fn main() -> ! {
     let mut graph_screen = GraphScreen::new();
     let mut stats_screen = StatsScreen::new();
     let mut histogram_screen = HistogramScreen::new();
+    let mut big_digit_screen = BigDigitScreen::new();
     let mut screen_mode = ScreenMode::Hero;
 
     // Draw initial layout
@@ -220,6 +235,7 @@ fn main() -> ! {
     let mut history = WaveformHistory::new();
     let mut histogram = HistogramData::new();
     let mut stats = SessionStats::new(board.delay.uptime_ms());
+    let mut battery = BatteryState::new();
     let mut telemetry = TelemetryStreamer::new();
 
     // Initial INA219 configuration (0x3E7F: 32V, ±320mV, 128x shunt avg, continuous)
@@ -259,6 +275,9 @@ fn main() -> ! {
     loop {
         let now = board.delay.uptime_ms();
 
+        // 0. Feed Free Watchdog Timer (FWDGT)
+        board.fwdgt.feed();
+
         // 1. High-frequency non-blocking USB polling (every loop iteration)
         board.usb_hid.poll();
 
@@ -280,20 +299,31 @@ fn main() -> ! {
         // 2. Remote UART0 Interactive Command Console
         while let Some(ch) = board.uart0.read_byte() {
             match ch {
-                b'1' => set_screen_mode!(ScreenMode::Hero, screen_mode, board, hero_screen, graph_screen, stats_screen, histogram_screen, history),
-                b'2' => set_screen_mode!(ScreenMode::Graph, screen_mode, board, hero_screen, graph_screen, stats_screen, histogram_screen, history),
-                b'3' => set_screen_mode!(ScreenMode::Stats, screen_mode, board, hero_screen, graph_screen, stats_screen, histogram_screen, history),
-                b'4' => set_screen_mode!(ScreenMode::Histogram, screen_mode, board, hero_screen, graph_screen, stats_screen, histogram_screen, history),
+                b'1' => set_screen_mode!(ScreenMode::Hero, screen_mode, board, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, history),
+                b'2' => set_screen_mode!(ScreenMode::Graph, screen_mode, board, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, history),
+                b'3' => set_screen_mode!(ScreenMode::Stats, screen_mode, board, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, history),
+                b'4' => set_screen_mode!(ScreenMode::Histogram, screen_mode, board, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, history),
+                b'5' => set_screen_mode!(ScreenMode::BigDigit, screen_mode, board, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, history),
                 b'm' | b'M' => {
                     let next = match screen_mode {
                         ScreenMode::Hero => ScreenMode::Graph,
                         ScreenMode::Graph => ScreenMode::Stats,
                         ScreenMode::Stats => ScreenMode::Histogram,
-                        ScreenMode::Histogram => ScreenMode::Hero,
+                        ScreenMode::Histogram => ScreenMode::BigDigit,
+                        ScreenMode::BigDigit => ScreenMode::Hero,
                     };
-                    set_screen_mode!(next, screen_mode, board, hero_screen, graph_screen, stats_screen, histogram_screen, history);
+                    set_screen_mode!(next, screen_mode, board, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, history);
                 }
-                b't' | b'T' => tare_and_reset!(now, ina_present, board, datalogger, accum, history, histogram, stats, screen_mode, hero_screen, graph_screen, stats_screen, histogram_screen),
+                b'b' | b'B' => {
+                    battery.profile = battery.profile.next();
+                    writeln!(
+                        board.uart0,
+                        "[BATT] Switched battery profile to: {} (Nominal: {} mAh)",
+                        battery.profile.name(),
+                        battery.profile.capacity_mah()
+                    ).ok();
+                }
+                b't' | b'T' => tare_and_reset!(now, ina_present, board, datalogger, accum, history, histogram, stats, screen_mode, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen),
                 b'r' | b'R' | b'n' | b'N' => {
                     datalogger.rotate_session();
                     writeln!(board.uart0, "[SD] Rotated to new file: {}", datalogger.file_name_str()).ok();
@@ -302,7 +332,7 @@ fn main() -> ! {
                     datalogger.flush_buffer();
                     writeln!(board.uart0, "[SD] Flushed buffer to {} (Total rows: {})", datalogger.file_name_str(), datalogger.total_logged_rows).ok();
                 }
-                b's' | b'S' => dump_session!(now, screen_mode, board, datalogger, stats, accum),
+                b's' | b'S' => dump_session!(now, screen_mode, board, datalogger, stats, accum, battery),
                 b'?' | b'h' | b'H' => print_help!(board),
                 b'\r' | b'\n' => {}
                 _ => {
@@ -320,19 +350,21 @@ fn main() -> ! {
                         1 => Some(ScreenMode::Graph),
                         2 => Some(ScreenMode::Stats),
                         3 => Some(ScreenMode::Histogram),
+                        4 => Some(ScreenMode::BigDigit),
                         0xFF => Some(match screen_mode {
                             ScreenMode::Hero => ScreenMode::Graph,
                             ScreenMode::Graph => ScreenMode::Stats,
                             ScreenMode::Stats => ScreenMode::Histogram,
-                            ScreenMode::Histogram => ScreenMode::Hero,
+                            ScreenMode::Histogram => ScreenMode::BigDigit,
+                            ScreenMode::BigDigit => ScreenMode::Hero,
                         }),
                         _ => None,
                     };
                     if let Some(mode) = next {
-                        set_screen_mode!(mode, screen_mode, board, hero_screen, graph_screen, stats_screen, histogram_screen, history);
+                        set_screen_mode!(mode, screen_mode, board, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, history);
                     }
                 }
-                HidCommand::TareZero => tare_and_reset!(now, ina_present, board, datalogger, accum, history, histogram, stats, screen_mode, hero_screen, graph_screen, stats_screen, histogram_screen),
+                HidCommand::TareZero => tare_and_reset!(now, ina_present, board, datalogger, accum, history, histogram, stats, screen_mode, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen),
                 HidCommand::FlushSd => {
                     datalogger.flush_buffer();
                     writeln!(board.uart0, "[HID-CMD] Flushed SD buffer to {}", datalogger.file_name_str()).ok();
@@ -341,7 +373,17 @@ fn main() -> ! {
                     datalogger.rotate_session();
                     writeln!(board.uart0, "[HID-CMD] Rotated log file to {}", datalogger.file_name_str()).ok();
                 }
-                HidCommand::RequestSummary => dump_session!(now, screen_mode, board, datalogger, stats, accum),
+                HidCommand::RequestSummary => dump_session!(now, screen_mode, board, datalogger, stats, accum, battery),
+                HidCommand::SetBatteryProfile(p) => {
+                    battery.profile = match p {
+                        1 => BatteryProfile::Lipo500,
+                        2 => BatteryProfile::Lipo1200,
+                        3 => BatteryProfile::LiIon2500,
+                        4 => BatteryProfile::Alkaline1000,
+                        _ => BatteryProfile::None,
+                    };
+                    writeln!(board.uart0, "[HID-CMD] Battery profile set to: {}", battery.profile.name()).ok();
+                }
                 HidCommand::Unknown(c) => {
                     writeln!(board.uart0, "[HID-CMD] Unknown command opcode: 0x{:02X}", c).ok();
                 }
@@ -359,16 +401,17 @@ fn main() -> ! {
 
             if duration >= 1500 {
                 // Long press (>= 1.5s): Zero Tare Calibration + Reset Session Stats
-                tare_and_reset!(now, ina_present, board, datalogger, accum, history, histogram, stats, screen_mode, hero_screen, graph_screen, stats_screen, histogram_screen);
+                tare_and_reset!(now, ina_present, board, datalogger, accum, history, histogram, stats, screen_mode, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen);
             } else if duration >= 50 {
                 // Short press (50ms..1499ms): Cycle screen mode
                 let next = match screen_mode {
                     ScreenMode::Hero => ScreenMode::Graph,
                     ScreenMode::Graph => ScreenMode::Stats,
                     ScreenMode::Stats => ScreenMode::Histogram,
-                    ScreenMode::Histogram => ScreenMode::Hero,
+                    ScreenMode::Histogram => ScreenMode::BigDigit,
+                    ScreenMode::BigDigit => ScreenMode::Hero,
                 };
-                set_screen_mode!(next, screen_mode, board, hero_screen, graph_screen, stats_screen, histogram_screen, history);
+                set_screen_mode!(next, screen_mode, board, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, history);
             }
         }
         prev_button_pressed = button_pressed;
@@ -412,13 +455,15 @@ fn main() -> ! {
                     Err(_) => {
                         ina_present = false;
                         board.led_red.on();
-                        writeln!(board.uart0, "[I2C] INA219 read error - lost connection").ok();
+                        board.ina219.recover_bus(&mut board.delay);
+                        writeln!(board.uart0, "[I2C] INA219 read error - bus recovered").ok();
                     }
                 }
             } else {
                 // Hot-unplug recovery retry every 1.5 seconds
                 if now.wrapping_sub(last_reinit_attempt_ms) >= 1500 {
                     last_reinit_attempt_ms = now;
+                    board.ina219.recover_bus(&mut board.delay);
                     if board.ina219.init(4096).is_ok() {
                         ina_present = true;
                         board.led_red.off();
@@ -433,8 +478,15 @@ fn main() -> ! {
             // Update current distribution histogram
             histogram.record(reading.abs_current_tenth());
 
+            // Sample internal MCU die temperature
+            let mcu_temp_tenth = board.mcu_temp.read_temperature_tenth_c();
+            stats.update_temp(mcu_temp_tenth);
+
             // Update DSP Session Stats
             stats.update(reading.voltage_mv, reading.current_tenth_ma, reading.power_tenth_mw);
+
+            // Update Battery Fuel Gauge
+            battery.update(reading.voltage_mv, &accum, stats.avg_current_tenth_ma());
 
             // Drift-free millisecond energy & charge integration
             if ina_present && reading.voltage_mv > 500 && reading.abs_current_tenth() > 2 {
@@ -470,6 +522,7 @@ fn main() -> ! {
                         &reading,
                         &stats,
                         &accum,
+                        &battery,
                         datalogger.status,
                         datalogger.total_logged_rows,
                         now,
@@ -478,6 +531,17 @@ fn main() -> ! {
                 }
                 ScreenMode::Histogram => {
                     histogram_screen.update(&mut board.lcd, &histogram);
+                }
+                ScreenMode::BigDigit => {
+                    big_digit_screen.update(
+                        &mut board.lcd,
+                        &reading,
+                        &accum,
+                        &battery,
+                        ina_present,
+                        board.usb_hid.is_configured(),
+                        datalogger.status,
+                    );
                 }
             }
 
@@ -532,12 +596,15 @@ fn main() -> ! {
                 ScreenMode::Graph => "GRAPH",
                 ScreenMode::Stats => "STATS",
                 ScreenMode::Histogram => "HISTO",
+                ScreenMode::BigDigit => "BIG",
             };
+            let temp_tenth = stats.mcu_temp_tenth_c;
 
             writeln!(
                 board.uart0,
-                "[HEARTBEAT] T+{}s | Mode: {} | Sensor: {} | USB: {} | SD: {} ({} : {} rows)",
-                sec, mode_str, sensor_str, cfg_str, sd_str,
+                "[HEARTBEAT] T+{}s | Mode: {} | Sensor: {} | MCU: {}.{}C | BATT: {}% | USB: {} | SD: {} ({} : {} rows)",
+                sec, mode_str, sensor_str, temp_tenth / 10, temp_tenth.unsigned_abs() % 10,
+                battery.soc_pct, cfg_str, sd_str,
                 datalogger.file_name_str(), datalogger.total_logged_rows
             )
             .ok();

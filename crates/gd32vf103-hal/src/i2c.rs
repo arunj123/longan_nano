@@ -1,6 +1,7 @@
 use gd32vf103_pac::i2c::{ckcfg, ctl0, ctl1, stat0, stat1, I2c as PacI2c};
 use gd32vf103_pac::rcu::{apb1en, Rcu};
 use crate::rcu::Clocks;
+use embedded_hal::delay::DelayNs;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum I2cError {
@@ -23,6 +24,9 @@ const DEFAULT_TIMEOUT: u32 = 50_000;
 
 pub struct I2c {
     i2c: PacI2c,
+    freq: u32,
+    risetime: u32,
+    ckcfg: u32,
 }
 
 impl I2c {
@@ -62,33 +66,37 @@ impl I2c {
         // Configure peripheral clock in CTL1
         regs.ctl1.modify(|curr| (curr & !ctl1::I2CCLK_MASK) | (freq & ctl1::I2CCLK_MASK));
 
-        if clkspeed <= 100_000 {
+        let (risetime, ckcfg_val) = if clkspeed <= 100_000 {
             // Standard mode: maximum rise time is 1000ns
-            let mut risetime = (pclk1 / 1_000_000) + 1;
-            if risetime > 54 {
-                risetime = 54;
+            let mut rt = (pclk1 / 1_000_000) + 1;
+            if rt > 54 {
+                rt = 54;
             }
-            if risetime < 2 {
-                risetime = 2;
+            if rt < 2 {
+                rt = 2;
             }
-            regs.rt.write(risetime);
+            regs.rt.write(rt);
 
             let mut clkc = pclk1 / (clkspeed * 2);
             if clkc < 4 {
                 clkc = 4;
             }
-            regs.ckcfg.write(clkc & ckcfg::CLKC_MASK);
+            let cfg = clkc & ckcfg::CLKC_MASK;
+            regs.ckcfg.write(cfg);
+            (rt, cfg)
         } else {
             // Fast mode: maximum rise time is 300ns
-            let risetime = ((freq * 300) / 1000) + 1;
-            regs.rt.write(risetime);
+            let rt = ((freq * 300) / 1000) + 1;
+            regs.rt.write(rt);
 
             let mut clkc = pclk1 / (clkspeed * 3);
             if clkc < 1 {
                 clkc = 1;
             }
-            regs.ckcfg.write(ckcfg::FAST | (clkc & ckcfg::CLKC_MASK));
-        }
+            let cfg = ckcfg::FAST | (clkc & ckcfg::CLKC_MASK);
+            regs.ckcfg.write(cfg);
+            (rt, cfg)
+        };
 
         // Configure 7-bit addressing, slave address 0
         regs.ctl0.clear_bits(ctl0::SMBEN);
@@ -97,7 +105,91 @@ impl I2c {
         // Enable peripheral and ACK
         regs.ctl0.set_bits(ctl0::I2CEN | ctl0::ACKEN);
 
-        Self { i2c }
+        Self {
+            i2c,
+            freq,
+            risetime,
+            ckcfg: ckcfg_val,
+        }
+    }
+
+    /// Performs 9-cycle SCL bus recovery to clear stuck slave holding SDA low,
+    /// emits a manual STOP condition, and resets the peripheral.
+    pub fn recover_bus(&mut self, delay: &mut crate::delay::Delay) {
+        use gd32vf103_pac::gpio::{GpioPort, Port};
+        use gd32vf103_pac::rcu::{apb1rst, Rcu};
+
+        let base_addr = self.i2c.regs() as *const _ as usize;
+
+        // 1. Disable I2C peripheral
+        self.i2c.regs().ctl0.clear_bits(ctl0::I2CEN);
+
+        // 2. Configure PB6 (SCL) and PB7 (SDA) as GPIO Open-Drain 50 MHz (bits: 0b0111 = 0x7)
+        let gpiob = unsafe { GpioPort::steal(Port::B) };
+        let regs_b = gpiob.regs();
+
+        // Pin 6: bits 24..27, Pin 7: bits 28..31 in CTL0
+        regs_b.ctl0.modify(|curr| {
+            let mask = (0xF << 24) | (0xF << 28);
+            let val = (0x7 << 24) | (0x7 << 28);
+            (curr & !mask) | val
+        });
+
+        // Set SCL and SDA HIGH initially
+        regs_b.bop.write((1 << 6) | (1 << 7));
+        delay.delay_us(5);
+
+        // 3. Up to 9 SCL clock pulses to free SDA
+        for _ in 0..9 {
+            if (regs_b.istat.read() & (1 << 7)) != 0 {
+                break;
+            }
+            // SCL LOW
+            regs_b.bc.write(1 << 6);
+            delay.delay_us(5);
+            // SCL HIGH
+            regs_b.bop.write(1 << 6);
+            delay.delay_us(5);
+        }
+
+        // 4. Generate manual STOP condition (SCL LOW -> SDA LOW -> SCL HIGH -> SDA HIGH)
+        regs_b.bc.write(1 << 6);
+        delay.delay_us(5);
+        regs_b.bc.write(1 << 7);
+        delay.delay_us(5);
+        regs_b.bop.write(1 << 6);
+        delay.delay_us(5);
+        regs_b.bop.write(1 << 7);
+        delay.delay_us(5);
+
+        // 5. Restore PB6 and PB7 to Alternate Function Open-Drain 50 MHz (0b1111 = 0xF)
+        regs_b.ctl0.modify(|curr| {
+            let mask = (0xF << 24) | (0xF << 28);
+            let val = (0xF << 24) | (0xF << 28);
+            (curr & !mask) | val
+        });
+
+        // 6. Reset I2C peripheral via RCU APB1RST
+        let rcu = unsafe { Rcu::steal() };
+        if base_addr == gd32vf103_pac::i2c::I2C0_BASE {
+            rcu.regs().apb1rst.set_bits(apb1rst::I2C0RST);
+            delay.delay_us(2);
+            rcu.regs().apb1rst.clear_bits(apb1rst::I2C0RST);
+        } else {
+            rcu.regs().apb1rst.set_bits(apb1rst::I2C1RST);
+            delay.delay_us(2);
+            rcu.regs().apb1rst.clear_bits(apb1rst::I2C1RST);
+        }
+
+        // 7. Restore I2C peripheral configuration registers
+        let regs = self.i2c.regs();
+        regs.ctl0.clear_bits(ctl0::I2CEN);
+        regs.ctl1.modify(|curr| (curr & !ctl1::I2CCLK_MASK) | (self.freq & ctl1::I2CCLK_MASK));
+        regs.rt.write(self.risetime);
+        regs.ckcfg.write(self.ckcfg);
+        regs.ctl0.clear_bits(ctl0::SMBEN);
+        regs.saddr0.write(0);
+        regs.ctl0.set_bits(ctl0::I2CEN | ctl0::ACKEN);
     }
 
     #[inline(always)]

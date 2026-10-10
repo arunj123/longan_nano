@@ -168,6 +168,7 @@ pub struct SessionStats {
     pub samples: u32,
     pub start_time_ms: u32,
     pub has_samples: bool,
+    pub mcu_temp_tenth_c: i16,
 }
 
 impl SessionStats {
@@ -183,6 +184,7 @@ impl SessionStats {
             samples: 0,
             start_time_ms: now_ms,
             has_samples: false,
+            mcu_temp_tenth_c: 250,
         }
     }
 
@@ -199,6 +201,10 @@ impl SessionStats {
             self.c_max = max(self.c_max, c_tenth);
             self.p_max = max(self.p_max, p_tenth);
         }
+    }
+
+    pub fn update_temp(&mut self, temp_tenth: i16) {
+        self.mcu_temp_tenth_c = temp_tenth;
     }
 
     pub fn reset(&mut self, now_ms: u32) {
@@ -240,6 +246,104 @@ impl SessionStats {
         } else {
             None
         }
+    }
+}
+
+/// Selectable battery chemistry and capacity profiles for fuel gauge tracking.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum BatteryProfile {
+    None,
+    Lipo500,      // 500 mAh, nominal 3.7V, cutoff 3.2V
+    Lipo1200,     // 1200 mAh, nominal 3.7V, cutoff 3.2V
+    LiIon2500,    // 2500 mAh, nominal 3.7V, cutoff 3.0V
+    Alkaline1000, // 1000 mAh, nominal 1.5V, cutoff 1.0V
+}
+
+impl BatteryProfile {
+    pub fn capacity_mah(&self) -> u32 {
+        match self {
+            BatteryProfile::None => 0,
+            BatteryProfile::Lipo500 => 500,
+            BatteryProfile::Lipo1200 => 1200,
+            BatteryProfile::LiIon2500 => 2500,
+            BatteryProfile::Alkaline1000 => 1000,
+        }
+    }
+
+    pub fn cutoff_mv(&self) -> u16 {
+        match self {
+            BatteryProfile::None => 0,
+            BatteryProfile::Lipo500 => 3200,
+            BatteryProfile::Lipo1200 => 3200,
+            BatteryProfile::LiIon2500 => 3000,
+            BatteryProfile::Alkaline1000 => 1000,
+        }
+    }
+
+    pub fn name(&self) -> &'static str {
+        match self {
+            BatteryProfile::None => "NONE",
+            BatteryProfile::Lipo500 => "500mAh",
+            BatteryProfile::Lipo1200 => "1200mAh",
+            BatteryProfile::LiIon2500 => "2500mAh",
+            BatteryProfile::Alkaline1000 => "1000mAh",
+        }
+    }
+
+    pub fn next(&self) -> Self {
+        match self {
+            BatteryProfile::None => BatteryProfile::Lipo500,
+            BatteryProfile::Lipo500 => BatteryProfile::Lipo1200,
+            BatteryProfile::Lipo1200 => BatteryProfile::LiIon2500,
+            BatteryProfile::LiIon2500 => BatteryProfile::Alkaline1000,
+            BatteryProfile::Alkaline1000 => BatteryProfile::None,
+        }
+    }
+}
+
+/// Dynamic battery fuel gauge and state-of-charge estimator.
+#[derive(Copy, Clone, Debug)]
+pub struct BatteryState {
+    pub profile: BatteryProfile,
+    pub soc_pct: u8,
+    pub rem_mah: u32,
+    pub time_rem_mins: u32,
+    pub is_low_voltage: bool,
+}
+
+impl BatteryState {
+    pub const fn new() -> Self {
+        Self {
+            profile: BatteryProfile::None,
+            soc_pct: 100,
+            rem_mah: 0,
+            time_rem_mins: 0,
+            is_low_voltage: false,
+        }
+    }
+
+    pub fn update(&mut self, v_mv: u16, accum: &Accumulators, avg_c_tenth: u16) {
+        let cap = self.profile.capacity_mah();
+        if cap == 0 {
+            self.soc_pct = 100;
+            self.rem_mah = 0;
+            self.time_rem_mins = 0;
+            self.is_low_voltage = false;
+            return;
+        }
+
+        let used_mah = accum.charge_mah();
+        let rem = if used_mah >= cap { 0 } else { cap - used_mah };
+        self.rem_mah = rem;
+        self.soc_pct = (((rem as u64) * 100) / (cap as u64)).min(100) as u8;
+
+        if avg_c_tenth > 10 {
+            self.time_rem_mins = ((rem as u64 * 600) / (avg_c_tenth as u64)).min(9999) as u32;
+        } else {
+            self.time_rem_mins = 9999;
+        }
+
+        self.is_low_voltage = v_mv > 500 && v_mv <= self.profile.cutoff_mv();
     }
 }
 

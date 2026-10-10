@@ -93,6 +93,12 @@ pub mod apb2en {
     pub const SPI0EN: u32 = 1 << 12;
 }
 
+// Bit definitions for RCU_APB1RST
+pub mod apb1rst {
+    pub const I2C0RST: u32 = 1 << 21;
+    pub const I2C1RST: u32 = 1 << 22;
+}
+
 // Bit definitions for RCU_APB1EN
 pub mod apb1en {
     pub const TIMER1EN: u32 = 1 << 0;
