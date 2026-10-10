@@ -1,6 +1,7 @@
 use core::fmt::Write;
 use longan_nano_bsp::{
     lcd::FONT_5X7,
+    DateTime,
     Lcd,
 };
 use crate::fmt::{fmt_energy_auto, fmt_power, fmt_resistance, fmt_time, BufferCursor, DirtyField};
@@ -94,6 +95,7 @@ impl StatsScreen {
         sd_log_count: u32,
         now_ms: u32,
         usb_configured: bool,
+        dt: Option<DateTime>,
     ) {
         // --- 1. Header Bar: Log Counter, MCU Temp & Status Icons ---
         let mut t_buf = [0u8; 12];
@@ -135,10 +137,14 @@ impl StatsScreen {
         }
 
         // --- 2. Row 1: Session Elapsed Time & Load Resistance ---
-        let elapsed_sec = (now_ms.wrapping_sub(stats.start_time_ms)) / 1000;
         let mut t_buf = [0u8; 12];
         let mut t_cur = BufferCursor::new(&mut t_buf);
-        fmt_time(&mut t_cur, elapsed_sec);
+        if let Some(d) = dt {
+            write!(t_cur, "{:02}:{:02}:{:02}", d.hour, d.minute, d.second).ok();
+        } else {
+            let elapsed_sec = (now_ms.wrapping_sub(stats.start_time_ms)) / 1000;
+            fmt_time(&mut t_cur, elapsed_sec);
+        }
         if self.time_field.update(t_cur.as_str()) {
             lcd.draw_string(36, 16, t_cur.as_str(), &FONT_5X7, COL_WHITE, COL_BLACK);
         }

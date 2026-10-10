@@ -99,9 +99,19 @@ macro_rules! dump_session {
         let p_peak_mw = $stats.p_max / 10;
         let avg_c = $stats.avg_current_tenth_ma();
         let mcu_temp_tenth = $stats.mcu_temp_tenth_c;
+        let rtc_epoch = $board.rtc.get_epoch();
+        let rtc_dt = $board.rtc.get_datetime();
+        let rtc_synced = $board.rtc.is_synced();
 
         writeln!($board.uart0, "\r\n--- SESSION TELEMETRY SUMMARY ---").ok();
         writeln!($board.uart0, "Uptime: {} s | Mode: {} | MCU Temp: {}.{} C", uptime_s, mode_name, mcu_temp_tenth / 10, mcu_temp_tenth.unsigned_abs() % 10).ok();
+        writeln!(
+            $board.uart0,
+            "Date/Time: {:04}-{:02}-{:02} {:02}:{:02}:{:02} UTC | Epoch: {} | Synced: {}",
+            rtc_dt.year, rtc_dt.month, rtc_dt.day, rtc_dt.hour, rtc_dt.minute, rtc_dt.second,
+            rtc_epoch,
+            if rtc_synced { "YES" } else { "NO" }
+        ).ok();
         writeln!(
             $board.uart0,
             "Voltage: Min {} mV, Max {} mV",
@@ -142,9 +152,12 @@ macro_rules! dump_session {
         ).ok();
         writeln!(
             $board.uart0,
-            "[JSON] {{\"uptime_s\":{},\"mode\":\"{}\",\"v_min\":{},\"v_max\":{},\"c_min\":{},\"c_max\":{},\"c_avg\":{},\"p_peak_mw\":{},\"mwh\":{},\"mah\":{},\"mcu_temp_c\":{}.{},\"bat_soc\":{},\"sd_file\":\"{}\",\"sd_rows\":{}}}",
+            "[JSON] {{\"uptime_s\":{},\"mode\":\"{}\",\"epoch\":{},\"time\":\"{:04}-{:02}-{:02} {:02}:{:02}:{:02}\",\"rtc_synced\":{},\"v_min\":{},\"v_max\":{},\"c_min\":{},\"c_max\":{},\"c_avg\":{},\"p_peak_mw\":{},\"mwh\":{},\"mah\":{},\"mcu_temp_c\":{}.{},\"bat_soc\":{},\"sd_file\":\"{}\",\"sd_rows\":{}}}",
             uptime_s,
             mode_name,
+            rtc_epoch,
+            rtc_dt.year, rtc_dt.month, rtc_dt.day, rtc_dt.hour, rtc_dt.minute, rtc_dt.second,
+            rtc_synced,
             v_min,
             v_max,
             c_min,
@@ -170,6 +183,8 @@ macro_rules! print_help {
         writeln!($board.uart0, " 'm'      : Cycle next screen mode").ok();
         writeln!($board.uart0, " 'b'      : Cycle battery capacity profile").ok();
         writeln!($board.uart0, " 't'      : Zero-Tare calibration & reset session").ok();
+        writeln!($board.uart0, " 'c'      : Print current RTC time & sync status").ok();
+        writeln!($board.uart0, " 'T <ep>' : Set RTC Unix epoch seconds").ok();
         writeln!($board.uart0, " 'r' / 'n': Rotate SD log file to next session").ok();
         writeln!($board.uart0, " 'f'      : Force flush MicroSD sector buffer").ok();
         writeln!($board.uart0, " 's'      : Dump full telemetry summary (JSON)").ok();
@@ -191,7 +206,16 @@ fn main() -> ! {
     )
     .ok();
     writeln!(board.uart0, " MicroSD: SPI1 | USB HID: VID 0x28E9, PID 0x1234").ok();
-    writeln!(board.uart0, " Commands: '1'..'4' Mode, 'm' Cycle, 't' Tare, 'r' Rotate, 's' Dump, '?' Help").ok();
+    let init_epoch = board.rtc.get_epoch();
+    let init_dt = board.rtc.get_datetime();
+    writeln!(
+        board.uart0,
+        " RTC: {:04}-{:02}-{:02} {:02}:{:02}:{:02} UTC (Epoch: {}, Synced: {})",
+        init_dt.year, init_dt.month, init_dt.day, init_dt.hour, init_dt.minute, init_dt.second,
+        init_epoch,
+        if board.rtc.is_synced() { "YES" } else { "NO" }
+    ).ok();
+    writeln!(board.uart0, " Commands: '1'..'5' Mode, 'm' Cycle, 'b' Bat, 't' Tare, 'c' Clock, 'r' Rotate, 's' Dump, '?' Help").ok();
     writeln!(board.uart0, "========================================").ok();
 
     // Initialize ST7735 160x80 LCD
@@ -272,6 +296,10 @@ fn main() -> ! {
     let mut button_press_start_ms = 0u32;
     let mut prev_button_pressed = false;
 
+    // Line buffer for multi-byte UART commands (e.g. "T 1760091240")
+    let mut cmd_buf = [0u8; 32];
+    let mut cmd_len = 0usize;
+
     loop {
         let now = board.delay.uptime_ms();
 
@@ -296,15 +324,63 @@ fn main() -> ! {
             prev_usb_configured = false;
         }
 
+        // 1.5 Rotary Encoder Polling (PB10/PB11/PB5)
+        let (rot, enc_pressed) = board.encoder.poll();
+        if rot > 0 {
+            let next = match screen_mode {
+                ScreenMode::Hero => ScreenMode::Graph,
+                ScreenMode::Graph => ScreenMode::Stats,
+                ScreenMode::Stats => ScreenMode::Histogram,
+                ScreenMode::Histogram => ScreenMode::BigDigit,
+                ScreenMode::BigDigit => ScreenMode::Hero,
+            };
+            set_screen_mode!(next, screen_mode, board, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, history);
+        } else if rot < 0 {
+            let prev = match screen_mode {
+                ScreenMode::Hero => ScreenMode::BigDigit,
+                ScreenMode::Graph => ScreenMode::Hero,
+                ScreenMode::Stats => ScreenMode::Graph,
+                ScreenMode::Histogram => ScreenMode::Stats,
+                ScreenMode::BigDigit => ScreenMode::Histogram,
+            };
+            set_screen_mode!(prev, screen_mode, board, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, history);
+        }
+
+        if enc_pressed {
+            battery.profile = battery.profile.next();
+            writeln!(
+                board.uart0,
+                "[ROTARY] Switched battery profile to: {} (Nominal: {} mAh)",
+                battery.profile.name(),
+                battery.profile.capacity_mah()
+            ).ok();
+        }
+
         // 2. Remote UART0 Interactive Command Console
         while let Some(ch) = board.uart0.read_byte() {
             match ch {
-                b'1' => set_screen_mode!(ScreenMode::Hero, screen_mode, board, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, history),
-                b'2' => set_screen_mode!(ScreenMode::Graph, screen_mode, board, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, history),
-                b'3' => set_screen_mode!(ScreenMode::Stats, screen_mode, board, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, history),
-                b'4' => set_screen_mode!(ScreenMode::Histogram, screen_mode, board, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, history),
-                b'5' => set_screen_mode!(ScreenMode::BigDigit, screen_mode, board, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, history),
+                b'1' => {
+                    cmd_len = 0;
+                    set_screen_mode!(ScreenMode::Hero, screen_mode, board, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, history);
+                }
+                b'2' => {
+                    cmd_len = 0;
+                    set_screen_mode!(ScreenMode::Graph, screen_mode, board, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, history);
+                }
+                b'3' => {
+                    cmd_len = 0;
+                    set_screen_mode!(ScreenMode::Stats, screen_mode, board, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, history);
+                }
+                b'4' => {
+                    cmd_len = 0;
+                    set_screen_mode!(ScreenMode::Histogram, screen_mode, board, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, history);
+                }
+                b'5' => {
+                    cmd_len = 0;
+                    set_screen_mode!(ScreenMode::BigDigit, screen_mode, board, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, history);
+                }
                 b'm' | b'M' => {
+                    cmd_len = 0;
                     let next = match screen_mode {
                         ScreenMode::Hero => ScreenMode::Graph,
                         ScreenMode::Graph => ScreenMode::Stats,
@@ -315,6 +391,7 @@ fn main() -> ! {
                     set_screen_mode!(next, screen_mode, board, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, history);
                 }
                 b'b' | b'B' => {
+                    cmd_len = 0;
                     battery.profile = battery.profile.next();
                     writeln!(
                         board.uart0,
@@ -323,20 +400,81 @@ fn main() -> ! {
                         battery.profile.capacity_mah()
                     ).ok();
                 }
-                b't' | b'T' => tare_and_reset!(now, ina_present, board, datalogger, accum, history, histogram, stats, screen_mode, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen),
+                b't' => {
+                    cmd_len = 0;
+                    tare_and_reset!(now, ina_present, board, datalogger, accum, history, histogram, stats, screen_mode, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen);
+                }
+                b'c' | b'C' => {
+                    cmd_len = 0;
+                    let epoch = board.rtc.get_epoch();
+                    let dt = board.rtc.get_datetime();
+                    writeln!(
+                        board.uart0,
+                        "[RTC] Current Time: {:04}-{:02}-{:02} {:02}:{:02}:{:02} UTC | Epoch: {} | Synced: {}",
+                        dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second,
+                        epoch,
+                        if board.rtc.is_synced() { "YES" } else { "NO" }
+                    ).ok();
+                }
                 b'r' | b'R' | b'n' | b'N' => {
+                    cmd_len = 0;
                     datalogger.rotate_session();
                     writeln!(board.uart0, "[SD] Rotated to new file: {}", datalogger.file_name_str()).ok();
                 }
                 b'f' | b'F' => {
+                    cmd_len = 0;
                     datalogger.flush_buffer();
                     writeln!(board.uart0, "[SD] Flushed buffer to {} (Total rows: {})", datalogger.file_name_str(), datalogger.total_logged_rows).ok();
                 }
-                b's' | b'S' => dump_session!(now, screen_mode, board, datalogger, stats, accum, battery),
-                b'?' | b'h' | b'H' => print_help!(board),
-                b'\r' | b'\n' => {}
+                b's' | b'S' => {
+                    cmd_len = 0;
+                    dump_session!(now, screen_mode, board, datalogger, stats, accum, battery);
+                }
+                b'?' | b'h' | b'H' => {
+                    cmd_len = 0;
+                    print_help!(board);
+                }
+                b'T' => {
+                    cmd_buf[0] = b'T';
+                    cmd_len = 1;
+                }
+                b'0'..=b'9' | b' ' | b':' => {
+                    if cmd_len > 0 && cmd_len < cmd_buf.len() {
+                        cmd_buf[cmd_len] = ch;
+                        cmd_len += 1;
+                    }
+                }
+                b'\r' | b'\n' => {
+                    if cmd_len >= 2 && cmd_buf[0] == b'T' {
+                        let line = &cmd_buf[..cmd_len];
+                        let mut idx = 1;
+                        while idx < cmd_len && (line[idx] == b' ' || line[idx] == b':') {
+                            idx += 1;
+                        }
+                        let mut parsed_epoch = 0u32;
+                        let mut has_digits = false;
+                        while idx < cmd_len && line[idx] >= b'0' && line[idx] <= b'9' {
+                            parsed_epoch = parsed_epoch.saturating_mul(10).saturating_add((line[idx] - b'0') as u32);
+                            has_digits = true;
+                            idx += 1;
+                        }
+                        if has_digits && parsed_epoch > 0 {
+                            board.rtc.set_epoch(parsed_epoch);
+                            let dt = board.rtc.get_datetime();
+                            writeln!(
+                                board.uart0,
+                                "[RTC] Set Unix epoch to: {} ({:04}-{:02}-{:02} {:02}:{:02}:{:02} UTC)",
+                                parsed_epoch, dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second
+                            ).ok();
+                        }
+                    } else if cmd_len == 1 && cmd_buf[0] == b'T' {
+                        tare_and_reset!(now, ina_present, board, datalogger, accum, history, histogram, stats, screen_mode, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen);
+                    }
+                    cmd_len = 0;
+                }
                 _ => {
                     writeln!(board.uart0, "[CMD] Unknown key: '{}' (Send '?' for help)", ch as char).ok();
+                    cmd_len = 0;
                 }
             }
         }
@@ -383,6 +521,15 @@ fn main() -> ! {
                         _ => BatteryProfile::None,
                     };
                     writeln!(board.uart0, "[HID-CMD] Battery profile set to: {}", battery.profile.name()).ok();
+                }
+                HidCommand::SetEpoch(epoch) => {
+                    board.rtc.set_epoch(epoch);
+                    let dt = board.rtc.get_datetime();
+                    writeln!(
+                        board.uart0,
+                        "[HID-CMD] Synchronized RTC epoch to: {} ({:04}-{:02}-{:02} {:02}:{:02}:{:02} UTC)",
+                        epoch, dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second
+                    ).ok();
                 }
                 HidCommand::Unknown(c) => {
                     writeln!(board.uart0, "[HID-CMD] Unknown command opcode: 0x{:02X}", c).ok();
@@ -517,6 +664,11 @@ fn main() -> ! {
                     );
                 }
                 ScreenMode::Stats => {
+                    let cur_dt = if board.rtc.is_synced() {
+                        Some(board.rtc.get_datetime())
+                    } else {
+                        None
+                    };
                     stats_screen.update(
                         &mut board.lcd,
                         &reading,
@@ -527,6 +679,7 @@ fn main() -> ! {
                         datalogger.total_logged_rows,
                         now,
                         board.usb_hid.is_configured(),
+                        cur_dt,
                     );
                 }
                 ScreenMode::Histogram => {
@@ -577,7 +730,12 @@ fn main() -> ! {
                         overflow: d.overflow,
                         is_reverse: d.current_tenth_ma < 0,
                     };
-                    datalogger.log_sample(now, &reading, &accum);
+                    let cur_dt = if board.rtc.is_synced() {
+                        Some(board.rtc.get_datetime())
+                    } else {
+                        None
+                    };
+                    datalogger.log_sample(now, &reading, &accum, cur_dt);
                 }
             }
 
@@ -600,14 +758,27 @@ fn main() -> ! {
             };
             let temp_tenth = stats.mcu_temp_tenth_c;
 
-            writeln!(
-                board.uart0,
-                "[HEARTBEAT] T+{}s | Mode: {} | Sensor: {} | MCU: {}.{}C | BATT: {}% | USB: {} | SD: {} ({} : {} rows)",
-                sec, mode_str, sensor_str, temp_tenth / 10, temp_tenth.unsigned_abs() % 10,
-                battery.soc_pct, cfg_str, sd_str,
-                datalogger.file_name_str(), datalogger.total_logged_rows
-            )
-            .ok();
+            if board.rtc.is_synced() {
+                let dt = board.rtc.get_datetime();
+                writeln!(
+                    board.uart0,
+                    "[HEARTBEAT] {:04}-{:02}-{:02} {:02}:{:02}:{:02} UTC (T+{}s) | Mode: {} | Sensor: {} | MCU: {}.{}C | BATT: {}% | USB: {} | SD: {} ({} : {} rows)",
+                    dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second,
+                    sec, mode_str, sensor_str, temp_tenth / 10, temp_tenth.unsigned_abs() % 10,
+                    battery.soc_pct, cfg_str, sd_str,
+                    datalogger.file_name_str(), datalogger.total_logged_rows
+                )
+                .ok();
+            } else {
+                writeln!(
+                    board.uart0,
+                    "[HEARTBEAT] T+{}s | Mode: {} | Sensor: {} | MCU: {}.{}C | BATT: {}% | USB: {} | SD: {} ({} : {} rows)",
+                    sec, mode_str, sensor_str, temp_tenth / 10, temp_tenth.unsigned_abs() % 10,
+                    battery.soc_pct, cfg_str, sd_str,
+                    datalogger.file_name_str(), datalogger.total_logged_rows
+                )
+                .ok();
+            }
         }
     }
 }

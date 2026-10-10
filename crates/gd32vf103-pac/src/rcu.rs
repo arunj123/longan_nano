@@ -123,6 +123,26 @@ pub mod apb1en {
     pub const DACEN: u32 = 1 << 29;
 }
 
+// Bit definitions for RCU_BDCTL
+pub mod bdctl {
+    pub const LXTALEN: u32 = 1 << 0;
+    pub const LXTALSTB: u32 = 1 << 1;
+    pub const LXTALBPS: u32 = 1 << 2;
+    pub const RTCSRC_MASK: u32 = 3 << 8;
+    pub const RTCSRC_NONE: u32 = 0 << 8;
+    pub const RTCSRC_LXTAL: u32 = 1 << 8;
+    pub const RTCSRC_IRC40K: u32 = 2 << 8;
+    pub const RTCSRC_HXTAL_DIV128: u32 = 3 << 8;
+    pub const RTCEN: u32 = 1 << 15;
+    pub const BKPRST: u32 = 1 << 16;
+}
+
+// Bit definitions for RCU_RSTSCK
+pub mod rstsck {
+    pub const IRC40KEN: u32 = 1 << 0;
+    pub const IRC40KSTB: u32 = 1 << 1;
+}
+
 pub struct Rcu {
     ptr: *mut RcuRegisterBlock,
 }

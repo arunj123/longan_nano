@@ -77,7 +77,7 @@ pub use ina219::{Ina219, Ina219Data};
 pub mod rotary_encoder;
 pub use rotary_encoder::RotaryEncoder;
 
-pub use hal::{Adc0TempSensor, Fwdgt, MscBlockDevice, MscStats, UsbCdcAcm, UsbComposite, UsbHid, UsbMsc};
+pub use hal::{Adc0TempSensor, DateTime, Fwdgt, MscBlockDevice, MscStats, Rtc, UsbCdcAcm, UsbComposite, UsbHid, UsbMsc};
 pub use hal::i2c::{I2c, I2cError};
 use hal::spi::{Prescaler, Spi0, Spi1};
 
@@ -116,6 +116,8 @@ pub struct CurrentMonitorBoard {
     pub clocks: Clocks,
     pub mcu_temp: Adc0TempSensor,
     pub fwdgt: Fwdgt,
+    pub rtc: Rtc,
+    pub encoder: BoardRotaryEncoder,
 }
 
 /// Board container specialized for USB Composite device application
@@ -306,6 +308,14 @@ impl Board {
         let mcu_temp = Adc0TempSensor::init(dp.adc0, &rcu, &mut delay);
         let fwdgt = Fwdgt::start(dp.fwdgt, 2000);
 
+        // Rotary encoder on PB10 (CLK), PB11 (DT), PB5 (SW)
+        let clk = gpiob.pb10.into_pull_up_input();
+        let dt = gpiob.pb11.into_pull_up_input();
+        let sw = gpiob.pb5.into_pull_up_input();
+        let encoder = RotaryEncoder::new(clk, dt, sw);
+
+        let rtc = Rtc::init(dp.rtc, dp.bkp, dp.pmu, &rcu);
+
         Some(CurrentMonitorBoard {
             led_red,
             led_green,
@@ -320,6 +330,8 @@ impl Board {
             clocks,
             mcu_temp,
             fwdgt,
+            rtc,
+            encoder,
         })
     }
 

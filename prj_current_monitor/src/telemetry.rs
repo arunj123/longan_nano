@@ -82,6 +82,22 @@ impl TelemetryStreamer {
                     0x04 => Some(HidCommand::RotateLog),
                     0x05 => Some(HidCommand::RequestSummary),
                     0x06 => Some(HidCommand::SetBatteryProfile(arg_byte)),
+                    0x07 => {
+                        let epoch = if buf[0] == 0x02 {
+                            if len >= 6 {
+                                u32::from_le_bytes([buf[2], buf[3], buf[4], buf[5]])
+                            } else {
+                                0
+                            }
+                        } else {
+                            if len >= 5 {
+                                u32::from_le_bytes([buf[1], buf[2], buf[3], buf[4]])
+                            } else {
+                                0
+                            }
+                        };
+                        Some(HidCommand::SetEpoch(epoch))
+                    }
                     other => Some(HidCommand::Unknown(other)),
                 }
             } else {
@@ -101,5 +117,7 @@ pub enum HidCommand {
     RotateLog,
     RequestSummary,
     SetBatteryProfile(u8),
+    SetEpoch(u32),
     Unknown(u8),
 }
+

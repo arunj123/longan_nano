@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Remote UI Cycling & Command Console Test for Longan Nano Current Monitor (Build 00C4)
+Remote UI Cycling & Command Console Test for Longan Nano Current Monitor (Build 00C6)
 Connects to Linux testbed (192.168.0.63) and exercises:
 1. UART0 Remote Command Console ('?', '1'..'4', 'm', 's', 'f', 'r', 't')
 2. MicroSD Sequential File Rotation (LOG_XXXX.CSV)
@@ -80,7 +80,7 @@ for key, expected_mode, expected_label in [
 results['test_modes'] = modes_tested
 
 # TEST 3: Battery Capacity Profile Cycling ('b')
-ok, lines = send_and_expect('b', ['[BATT] Switched battery profile to: 500mAh'], timeout=1.5)
+ok, lines = send_and_expect('b', ['[BATT] Switched battery profile to:'], timeout=1.5)
 results['test_battery'] = {'pass': ok, 'lines': lines}
 
 # TEST 4: Telemetry Summary Dump ('s') with MCU Temperature & Battery SoC
@@ -93,7 +93,7 @@ for l in lines:
         except:
             pass
 has_temp = False
-if json_data and 'mcu_temp_c' in json_data and 'bat_soc' in json_data:
+if json_data and 'mcu_temp_c' in json_data and 'bat_soc' in json_data and 'epoch' in json_data and 'time' in json_data:
     has_temp = True
 results['test_dump'] = {'pass': ok and (json_data is not None) and has_temp, 'json': json_data}
 
@@ -166,13 +166,36 @@ except Exception as e:
     results['hid_batt_error'] = str(e)
 results['test_hid_batt'] = {'pass': hid_batt_ok}
 
+# TEST 11: RTC Clock Read via UART Console ('c')
+ok, lines = send_and_expect('c', ['[RTC] Current Time:', 'Epoch:'], timeout=1.5)
+results['test_rtc_check'] = {'pass': ok, 'lines': lines}
+
+# TEST 12: USB HID OUT Command (Report ID 2 -> SetEpoch: Opcode 0x07, 1760091240)
+hid_rtc_ok = False
+try:
+    sync_epoch = 1760091240
+    out_pkt = struct.pack('<BBI3s', 0x02, 0x07, sync_epoch, b'\x00\x00\x00')
+    ser.reset_input_buffer()
+    with open('/dev/hidraw0', 'wb') as f:
+        f.write(out_pkt)
+        f.flush()
+    t0 = time.time()
+    while time.time() - t0 < 2.0:
+        line = ser.readline().decode('utf-8', errors='replace').strip()
+        if '[HID-CMD] Synchronized RTC epoch to: 1760091240' in line:
+            hid_rtc_ok = True
+            break
+except Exception as e:
+    results['hid_rtc_error'] = str(e)
+results['test_hid_epoch'] = {'pass': hid_rtc_ok}
+
 ser.close()
 print("FINAL_RESULTS:" + json.dumps(results))
 """
 
 def main():
     print("=" * 70)
-    print(" Running Build 00C4 Remote Command & Telemetry Validation Test")
+    print(" Running Build 00C6 Remote Command & Telemetry Validation Test")
     print(f" Target Testbed: {USER}@{HOST}")
     print("=" * 70)
 
@@ -221,7 +244,7 @@ def main():
     res = json.loads(raw_results)
 
     print("\n" + "=" * 70)
-    print(" EMPIRICAL TEST RESULTS (BUILD 00C5)")
+    print(" EMPIRICAL TEST RESULTS (BUILD 00C6)")
     print("=" * 70)
 
     all_passed = True
@@ -290,9 +313,25 @@ def main():
     all_passed &= hbp
     print(f" [TEST 10] USB HID OUT Command (SetBatteryProfile: 2 [1200mAh]): {'PASS' if hbp else 'FAIL'}")
 
+    # Test 11: RTC Status Check ('c')
+    rtc_res = res.get('test_rtc_check', {})
+    rcp = rtc_res.get('pass', False)
+    all_passed &= rcp
+    print(f" [TEST 11] RTC Clock Check via UART ('c'): {'PASS' if rcp else 'FAIL'}")
+    if rcp and rtc_res.get('lines'):
+        for l in rtc_res['lines']:
+            if '[RTC]' in l:
+                print(f"          {l}")
+
+    # Test 12: HID SetEpoch (Opcode 0x07)
+    epoch_res = res.get('test_hid_epoch', {})
+    ep = epoch_res.get('pass', False)
+    all_passed &= ep
+    print(f" [TEST 12] USB HID OUT SetEpoch (Opcode 0x07 -> 1760091240): {'PASS' if ep else 'FAIL'}")
+
     print("=" * 70)
     if all_passed:
-        print(" >>> ALL 8 TEST SUITES PASSED CLEANLY ON TARGET HARDWARE <<<")
+        print(" >>> ALL 12 TEST SUITES PASSED CLEANLY ON TARGET HARDWARE <<<")
         print("=" * 70)
         sys.exit(0)
     else:

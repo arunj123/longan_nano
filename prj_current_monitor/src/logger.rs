@@ -4,7 +4,7 @@ use embedded_sdmmc::{
     Block, BlockCount, BlockDevice, BlockIdx, Mode, TimeSource, Timestamp,
     VolumeIdx, VolumeManager,
 };
-use longan_nano_bsp::{SdCard, SdError};
+use longan_nano_bsp::{DateTime, SdCard, SdError};
 use crate::fmt::BufferCursor;
 use crate::model::{Accumulators, InaReading};
 use crate::ui::SdStatus;
@@ -46,17 +46,28 @@ impl<'a> BlockDevice for SdCardDevice<'a> {
     }
 }
 
-pub struct StaticTimeSource;
-impl TimeSource for StaticTimeSource {
+pub struct DynamicTimeSource(pub Option<DateTime>);
+impl TimeSource for DynamicTimeSource {
     fn get_timestamp(&self) -> Timestamp {
-        Timestamp::from_calendar(2026, 10, 9, 12, 0, 0).unwrap_or(Timestamp {
-            year_since_1970: 56,
-            zero_indexed_month: 9,
-            zero_indexed_day: 8,
-            hours: 12,
-            minutes: 0,
-            seconds: 0,
-        })
+        if let Some(dt) = self.0 {
+            Timestamp::from_calendar(dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second).unwrap_or(Timestamp {
+                year_since_1970: 56,
+                zero_indexed_month: 9,
+                zero_indexed_day: 9,
+                hours: 12,
+                minutes: 0,
+                seconds: 0,
+            })
+        } else {
+            Timestamp::from_calendar(2026, 10, 10, 12, 0, 0).unwrap_or(Timestamp {
+                year_since_1970: 56,
+                zero_indexed_month: 9,
+                zero_indexed_day: 9,
+                hours: 12,
+                minutes: 0,
+                seconds: 0,
+            })
+        }
     }
 }
 
@@ -75,6 +86,7 @@ pub struct SdDatalogger<'a> {
     last_flush_ms: u32,
     last_probe_ms: u32,
     probe_fail_count: u8,
+    pub current_dt: Option<DateTime>,
 }
 
 impl<'a> SdDatalogger<'a> {
@@ -91,6 +103,7 @@ impl<'a> SdDatalogger<'a> {
             last_flush_ms: now_ms,
             last_probe_ms: now_ms,
             probe_fail_count: 0,
+            current_dt: None,
         }
     }
 
@@ -119,7 +132,7 @@ impl<'a> SdDatalogger<'a> {
     /// files and selects the next sequential file number.
     pub fn scan_and_set_next_session(&mut self) {
         let dev = SdCardDevice(self.sdcard);
-        let vol_mgr = VolumeManager::new(dev, StaticTimeSource);
+        let vol_mgr = VolumeManager::new(dev, DynamicTimeSource(self.current_dt));
         let mut max_num = 0u16;
 
         let _ = (|| -> Result<(), ()> {
@@ -197,14 +210,16 @@ impl<'a> SdDatalogger<'a> {
         now_ms: u32,
         reading: &InaReading,
         accum: &Accumulators,
+        dt: Option<DateTime>,
     ) {
         if self.status != SdStatus::Ready && self.status != SdStatus::Logging {
             return;
         }
+        self.current_dt = dt;
 
         // 1. Format true representative row:
-        // Format: Timestamp_ms,Voltage_mV,Current_mA,Power_mW,Energy_mWh,Charge_mAh\r\n
-        let mut row_buf = [0u8; 80];
+        // Format: Uptime_ms,DateTime_UTC,Voltage_mV,Current_mA,Power_mW,Energy_mWh,Charge_mAh\r\n
+        let mut row_buf = [0u8; 96];
         let mut row_cur = BufferCursor::new(&mut row_buf);
 
         let abs_c = reading.abs_current_tenth();
@@ -220,22 +235,47 @@ impl<'a> SdDatalogger<'a> {
         let mah = accum.charge_mah();
         let mah_frac = accum.charge_mah_frac();
 
-        write!(
-            row_cur,
-            "{},{},{}{}.{},{}.{},{}.{:02},{}.{:02}\r\n",
-            now_ms,
-            reading.voltage_mv,
-            if reading.is_reverse { "-" } else { "" },
-            whole_c,
-            frac_c,
-            whole_p,
-            frac_p,
-            mwh,
-            mwh_frac,
-            mah,
-            mah_frac
-        )
-        .ok();
+        if let Some(d) = dt {
+            write!(
+                row_cur,
+                "{},{:04}-{:02}-{:02} {:02}:{:02}:{:02},{},{}{}.{},{}.{},{}.{:02},{}.{:02}\r\n",
+                now_ms,
+                d.year,
+                d.month,
+                d.day,
+                d.hour,
+                d.minute,
+                d.second,
+                reading.voltage_mv,
+                if reading.is_reverse { "-" } else { "" },
+                whole_c,
+                frac_c,
+                whole_p,
+                frac_p,
+                mwh,
+                mwh_frac,
+                mah,
+                mah_frac
+            )
+            .ok();
+        } else {
+            write!(
+                row_cur,
+                "{},-,{},{}{}.{},{}.{},{}.{:02},{}.{:02}\r\n",
+                now_ms,
+                reading.voltage_mv,
+                if reading.is_reverse { "-" } else { "" },
+                whole_c,
+                frac_c,
+                whole_p,
+                frac_p,
+                mwh,
+                mwh_frac,
+                mah,
+                mah_frac
+            )
+            .ok();
+        }
 
         let row_bytes = row_cur.as_bytes();
         let row_len = row_bytes.len();
@@ -259,14 +299,14 @@ impl<'a> SdDatalogger<'a> {
         }
     }
 
-    /// Flushes internal sector buffer to `MONITOR.CSV` on SD card.
+    /// Flushes internal sector buffer to `LOG_XXXX.CSV` on SD card.
     pub fn flush_buffer(&mut self) {
         if self.buf_len == 0 {
             return;
         }
 
         let dev = SdCardDevice(self.sdcard);
-        let vol_mgr = VolumeManager::new(dev, StaticTimeSource);
+        let vol_mgr = VolumeManager::new(dev, DynamicTimeSource(self.current_dt));
 
         let res: Result<(), ()> = (|| {
             let vol = vol_mgr.open_volume(VolumeIdx(0)).map_err(|_| ())?;
@@ -277,7 +317,7 @@ impl<'a> SdDatalogger<'a> {
                 .map_err(|_| ())?;
 
             if file.length() == 0 {
-                file.write(b"Timestamp_ms,Voltage_mV,Current_mA,Power_mW,Energy_mWh,Charge_mAh\r\n")
+                file.write(b"Uptime_ms,DateTime_UTC,Voltage_mV,Current_mA,Power_mW,Energy_mWh,Charge_mAh\r\n")
                     .map_err(|_| ())?;
             }
 
