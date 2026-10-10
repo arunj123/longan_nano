@@ -1,4 +1,4 @@
-use egui::{Color32, RichText, Ui};
+use egui::{Color32, Frame, Margin, RichText, Rounding, Stroke, Ui};
 use chrono::Utc;
 use crate::model::HidCommand;
 use crate::transport::TransportKind;
@@ -15,21 +15,56 @@ pub fn render_header(
     on_toggle_recording: &mut bool,
 ) {
     ui.horizontal(|ui| {
-        // App Title & Logo
-        ui.heading(RichText::new("⚡ LONGAN NANO CURRENT MONITOR").color(Color32::from_rgb(0, 230, 255)).strong());
+        // App Title & Brand
+        ui.label(RichText::new("⚡ LONGAN NANO").color(Color32::from_rgb(0, 235, 255)).size(15.0).strong());
+        ui.label(RichText::new("CURRENT MONITOR").color(Color32::from_rgb(220, 230, 245)).size(13.0).strong());
+
+        // Build Badge
+        Frame::none()
+            .fill(Color32::from_rgb(22, 32, 48))
+            .stroke(Stroke::new(1.0, Color32::from_rgb(45, 65, 95)))
+            .rounding(Rounding::same(4.0))
+            .inner_margin(Margin::symmetric(6.0, 2.0))
+            .show(ui, |ui| {
+                ui.label(RichText::new("BUILD 00CE").color(Color32::from_rgb(0, 220, 255)).size(10.0).strong());
+            });
+
         ui.separator();
 
-        // Connection Status Badge
-        if connected {
-            ui.label(RichText::new("● CONNECTED").color(Color32::from_rgb(50, 230, 100)).strong());
+        // Connection Status Pill
+        let (conn_dot, conn_text, conn_bg, conn_border) = if connected {
+            (
+                Color32::from_rgb(45, 230, 110),
+                "CONNECTED",
+                Color32::from_rgba_unmultiplied(45, 230, 110, 25),
+                Color32::from_rgb(45, 230, 110),
+            )
         } else {
-            ui.label(RichText::new("○ DISCONNECTED").color(Color32::from_rgb(220, 70, 70)).strong());
-        }
+            (
+                Color32::from_rgb(240, 70, 70),
+                "DISCONNECTED",
+                Color32::from_rgba_unmultiplied(240, 70, 70, 25),
+                Color32::from_rgb(240, 70, 70),
+            )
+        };
 
-        ui.label(RichText::new(format!("({})", status_text)).color(Color32::from_rgb(160, 175, 195)).small());
+        Frame::none()
+            .fill(conn_bg)
+            .stroke(Stroke::new(1.0, conn_border))
+            .rounding(Rounding::same(12.0))
+            .inner_margin(Margin::symmetric(8.0, 3.0))
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("●").color(conn_dot).size(10.0));
+                    ui.label(RichText::new(conn_text).color(Color32::from_rgb(240, 245, 255)).size(11.0).strong());
+                });
+            });
 
+        ui.label(RichText::new(format!("({})", status_text)).color(Color32::from_rgb(130, 150, 175)).size(11.0));
+
+        // Right-aligned toolbar
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            // Transport Selector
+            // 1. Transport Selector Dropdown
             let mut selected_idx = match current_transport {
                 TransportKind::LocalHid => 0,
                 TransportKind::TcpBridge(s) if s.contains("127.0.0.1") => 1,
@@ -39,18 +74,18 @@ pub fn render_header(
             };
 
             let prev_idx = selected_idx;
-            egui::ComboBox::from_id_source("transport_selector")
+            egui::ComboBox::from_id_source("top_transport_combo")
                 .selected_text(match selected_idx {
-                    0 => "Direct USB HID (VID:0x28E9, PID:0x1234)",
-                    1 => "Local TCP Bridge (127.0.0.1:5055)",
-                    2 => "Remote Testbed (192.168.0.63:5055)",
-                    _ => "Simulation Mode (Synthetic)",
+                    0 => "🔌 Direct USB HID (Local)",
+                    1 => "🌐 Local Bridge (127.0.0.1)",
+                    2 => "🛰️ Remote Testbed (192.168.0.63)",
+                    _ => "🎮 Simulation Demo",
                 })
                 .show_ui(ui, |ui| {
-                    ui.selectable_value(&mut selected_idx, 0, "Direct USB HID (Local Windows/Linux)");
-                    ui.selectable_value(&mut selected_idx, 1, "Local TCP Bridge (127.0.0.1:5055)");
-                    ui.selectable_value(&mut selected_idx, 2, "Remote Testbed (192.168.0.63:5055)");
-                    ui.selectable_value(&mut selected_idx, 3, "Simulation Mode (Synthetic Telemetry)");
+                    ui.selectable_value(&mut selected_idx, 0, "🔌 Direct USB HID (Local Windows/Linux)");
+                    ui.selectable_value(&mut selected_idx, 1, "🌐 Local TCP Bridge (127.0.0.1:5055)");
+                    ui.selectable_value(&mut selected_idx, 2, "🛰️ Remote Testbed (192.168.0.63:5055)");
+                    ui.selectable_value(&mut selected_idx, 3, "🎮 Simulation Demo (Synthetic)");
                 });
 
             if selected_idx != prev_idx {
@@ -65,25 +100,32 @@ pub fn render_header(
 
             ui.separator();
 
-            // Record CSV Button
-            let rec_text = if is_recording {
-                format!("⏹ Stop Rec ({} pkts)", recording_samples)
+            // 2. Record CSV Button
+            let (rec_label, rec_bg, rec_fg) = if is_recording {
+                (
+                    format!("⏹ STOP REC ({} pkts)", recording_samples),
+                    Color32::from_rgb(180, 30, 30),
+                    Color32::from_rgb(255, 235, 235),
+                )
             } else {
-                "⏺ Record CSV".to_string()
+                (
+                    "⏺ RECORD CSV".to_string(),
+                    Color32::from_rgb(28, 38, 54),
+                    Color32::from_rgb(200, 215, 235),
+                )
             };
-            let rec_color = if is_recording { Color32::from_rgb(255, 80, 80) } else { Color32::from_rgb(200, 200, 200) };
-            if ui.button(RichText::new(rec_text).color(rec_color)).clicked() {
+            if ui.add(egui::Button::new(RichText::new(rec_label).size(11.0).color(rec_fg).strong()).fill(rec_bg)).clicked() {
                 *on_toggle_recording = true;
             }
 
-            // Sync Epoch Button
-            if ui.button(RichText::new("⏱ Sync RTC Epoch").color(Color32::from_rgb(230, 200, 70))).clicked() {
+            // 3. Sync RTC Epoch Button
+            if ui.add(egui::Button::new(RichText::new("⏱ SYNC RTC").size(11.0).color(Color32::from_rgb(245, 200, 60)).strong()).fill(Color32::from_rgb(28, 38, 54))).clicked() {
                 let epoch = Utc::now().timestamp() as u32;
                 *on_send_cmd = Some(HidCommand::SetEpoch(epoch));
             }
 
-            // Zero-Tare Button
-            if ui.button(RichText::new("⌖ Zero-Tare").color(Color32::from_rgb(80, 220, 255)).strong()).clicked() {
+            // 4. Zero-Tare Button
+            if ui.add(egui::Button::new(RichText::new("⌖ ZERO-TARE").size(11.0).color(Color32::from_rgb(0, 235, 255)).strong()).fill(Color32::from_rgb(18, 42, 60))).clicked() {
                 *on_send_cmd = Some(HidCommand::TareZero);
             }
         });

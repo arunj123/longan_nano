@@ -13,11 +13,11 @@ pub struct Camera3D {
 impl Default for Camera3D {
     fn default() -> Self {
         Self {
-            yaw: 0.75,
-            pitch: 0.55,
-            distance: 90.0,
-            pan: Vec3::ZERO,
-            fov_deg: 45.0,
+            yaw: 0.58,
+            pitch: 0.52,
+            distance: 82.0,
+            pan: Vec3::new(4.0, 0.0, 6.0),
+            fov_deg: 44.0,
         }
     }
 }
@@ -48,7 +48,8 @@ impl Camera3D {
 
 pub struct Renderer3D {
     pub camera: Camera3D,
-    pub light_dir: Vec3,
+    pub key_light_dir: Vec3,
+    pub fill_light_dir: Vec3,
     pub ambient: f32,
     pub wireframe: bool,
     pub auto_rotate: bool,
@@ -58,8 +59,9 @@ impl Default for Renderer3D {
     fn default() -> Self {
         Self {
             camera: Camera3D::default(),
-            light_dir: Vec3::new(0.4, 0.8, 0.5).normalized(),
-            ambient: 0.35,
+            key_light_dir: Vec3::new(0.45, 0.85, 0.50).normalized(),
+            fill_light_dir: Vec3::new(-0.55, 0.35, -0.45).normalized(),
+            ambient: 0.40,
             wireframe: false,
             auto_rotate: false,
         }
@@ -69,13 +71,14 @@ impl Default for Renderer3D {
 struct ProjectedTriangle {
     screen_pts: [Pos2; 3],
     depth: f32,
+    layer: u8,
     color: Color32,
 }
 
 impl Renderer3D {
     pub fn update_animation(&mut self, dt_sec: f32) {
         if self.auto_rotate {
-            self.camera.yaw += 0.4 * dt_sec;
+            self.camera.yaw += 0.35 * dt_sec;
             if self.camera.yaw > std::f32::consts::TAU {
                 self.camera.yaw -= std::f32::consts::TAU;
             }
@@ -87,6 +90,7 @@ impl Renderer3D {
         let view = self.camera.view_matrix();
         let proj = self.camera.proj_matrix(aspect);
         let mvp = proj.mul(&view);
+        let eye = self.camera.eye_position();
 
         // Project vertices
         let mut proj_verts: Vec<Option<(Pos2, f32)>> = Vec::with_capacity(mesh.vertices.len());
@@ -97,17 +101,16 @@ impl Renderer3D {
                 let ndc_y = clip.y / w;
                 let ndc_z = clip.z / w;
 
-                // Screen coordinates
                 let scr_x = rect.left() + (ndc_x + 1.0) * 0.5 * rect.width();
-                let scr_y = rect.top() + (1.0 - ndc_y) * 0.5 * rect.height(); // Invert Y
+                let scr_y = rect.top() + (1.0 - ndc_y) * 0.5 * rect.height();
                 proj_verts.push(Some((Pos2::new(scr_x, scr_y), ndc_z)));
             } else {
                 proj_verts.push(None);
             }
         }
 
-        // Build list of drawable triangles with depth
-        let mut draw_tris: Vec<ProjectedTriangle> = Vec::with_capacity(mesh.faces.len());
+        // Build list of drawable triangles
+        let mut draw_tris: Vec<ProjectedTriangle> = Vec::with_capacity(mesh.faces.len() * 2);
 
         for face in &mesh.faces {
             if face.indices.len() < 3 {
@@ -118,7 +121,7 @@ impl Renderer3D {
             let i2 = face.indices[2];
 
             if let (Some((p0, z0)), Some((p1, z1)), Some((p2, z2))) = (proj_verts[i0], proj_verts[i1], proj_verts[i2]) {
-                // Backface culling: signed 2D area
+                // Backface culling: signed 2D screen area
                 let area = (p1.x - p0.x) * (p2.y - p0.y) - (p1.y - p0.y) * (p2.x - p0.x);
                 if area <= 0.0 && !face.emissive {
                     continue;
@@ -129,26 +132,40 @@ impl Renderer3D {
                 let final_col = if face.emissive {
                     base_col
                 } else {
-                    let diff = face.normal.dot(self.light_dir).max(0.0);
-                    let intensity = (self.ambient + (1.0 - self.ambient) * diff).min(1.0);
-                    Color32::from_rgb(
-                        (base_col.r() as f32 * intensity) as u8,
-                        (base_col.g() as f32 * intensity) as u8,
-                        (base_col.b() as f32 * intensity) as u8,
-                    )
+                    let diff_key = face.normal.dot(self.key_light_dir).max(0.0);
+                    let diff_fill = face.normal.dot(self.fill_light_dir).max(0.0) * 0.35;
+                    let intensity = (self.ambient + (1.0 - self.ambient) * (diff_key + diff_fill)).min(1.0);
+
+                    // Specular highlight
+                    let view_dir = (eye - mesh.vertices[i0].pos).normalized();
+                    let half_vec = (self.key_light_dir + view_dir).normalized();
+                    let spec = face.normal.dot(half_vec).max(0.0).powi(16) * 0.25;
+
+                    let r = ((base_col.r() as f32 * intensity + spec * 255.0).min(255.0)) as u8;
+                    let g = ((base_col.g() as f32 * intensity + spec * 255.0).min(255.0)) as u8;
+                    let b = ((base_col.b() as f32 * intensity + spec * 255.0).min(255.0)) as u8;
+
+                    Color32::from_rgba_premultiplied(r, g, b, base_col.a())
                 };
 
                 let avg_depth = (z0 + z1 + z2) / 3.0;
                 draw_tris.push(ProjectedTriangle {
                     screen_pts: [p0, p1, p2],
                     depth: avg_depth,
+                    layer: face.layer,
                     color: final_col,
                 });
             }
         }
 
-        // Painter's algorithm: sort triangles from farthest to nearest
-        draw_tris.sort_by(|a, b| b.depth.partial_cmp(&a.depth).unwrap_or(std::cmp::Ordering::Equal));
+        // Layer-Aware Sorting:
+        // Lower layer (e.g. PCB) drawn FIRST, higher layer (e.g. Screen content, LEDs) drawn AFTER.
+        // Within the same layer, sort from farthest depth to nearest depth.
+        draw_tris.sort_by(|a, b| {
+            a.layer.cmp(&b.layer).then_with(|| {
+                b.depth.partial_cmp(&a.depth).unwrap_or(std::cmp::Ordering::Equal)
+            })
+        });
 
         // Submit to egui mesh
         let mut egui_mesh = Mesh::default();
@@ -177,9 +194,9 @@ impl Renderer3D {
 
         painter.add(egui::Shape::mesh(egui_mesh));
 
-        // Optional wireframe lines
+        // Wireframe edges overlay
         if self.wireframe {
-            let line_stroke = Stroke::new(1.0, Color32::from_rgba_unmultiplied(80, 200, 255, 120));
+            let line_stroke = Stroke::new(1.0, Color32::from_rgba_unmultiplied(60, 210, 255, 140));
             for &(i0, i1, _) in &mesh.lines {
                 if let (Some((p0, _)), Some((p1, _))) = (proj_verts[i0], proj_verts[i1]) {
                     painter.line_segment([p0, p1], line_stroke);

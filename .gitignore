@@ -35,3 +35,5 @@ msc_debug_dump.txt
 .gitignore
 prj_usb_msc_all_files.txt
 scratch/
+session_*.csv
+snapshot_*.csv

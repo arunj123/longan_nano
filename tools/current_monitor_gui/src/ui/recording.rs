@@ -1,7 +1,7 @@
 use std::fs::File;
 use std::io::Write;
 use chrono::Utc;
-use egui::{Color32, RichText, Ui};
+use egui::{Color32, Frame, Margin, RichText, Rounding, Stroke, Ui};
 use crate::model::TelemetryPacket;
 
 pub struct CsvRecorder {
@@ -98,28 +98,37 @@ pub fn render_recording_panel(
     recorder: &mut CsvRecorder,
     history: &[TelemetryPacket],
 ) {
-    ui.heading(RichText::new("DATA LOGGING & EXPORT").size(15.0).strong());
-    ui.add_space(4.0);
+    ui.label(RichText::new("📁 LOGGING & EXPORT").size(13.0).color(Color32::from_rgb(0, 230, 255)).strong());
+    ui.add_space(6.0);
 
-    ui.group(|ui| {
-        ui.label(RichText::new("📁 CSV File Recording").strong());
+    let card_frame = Frame::none()
+        .fill(Color32::from_rgb(15, 22, 34))
+        .stroke(Stroke::new(1.0, Color32::from_rgb(30, 42, 60)))
+        .rounding(Rounding::same(6.0))
+        .inner_margin(Margin::same(10.0));
+
+    card_frame.show(ui, |ui| {
+        ui.label(RichText::new("Host CSV Recording").color(Color32::from_rgb(220, 235, 255)).strong());
+        ui.add_space(2.0);
         ui.horizontal(|ui| {
-            ui.label("Path:");
+            ui.label(RichText::new("File:").color(Color32::from_rgb(130, 150, 175)).size(11.0));
             ui.text_edit_singleline(&mut recorder.filename);
         });
 
+        ui.add_space(4.0);
         ui.horizontal(|ui| {
             if !recorder.is_recording {
-                if ui.button(RichText::new("⏺ Start Recording").color(Color32::from_rgb(0, 220, 255)).strong()).clicked() {
+                if ui.button(RichText::new("⏺ Start Rec").color(Color32::from_rgb(0, 220, 255)).strong()).clicked() {
                     let _ = recorder.start();
                 }
             } else {
-                if ui.button(RichText::new("⏹ Stop Recording").color(Color32::from_rgb(255, 70, 70)).strong()).clicked() {
+                if ui.button(RichText::new("⏹ Stop Rec").color(Color32::from_rgb(255, 75, 75)).strong()).clicked() {
                     recorder.stop();
                 }
                 ui.label(
                     RichText::new(format!("Writing: {} samples", recorder.samples_written))
-                        .color(Color32::from_rgb(50, 230, 100)),
+                        .color(Color32::from_rgb(50, 230, 110))
+                        .size(11.0),
                 );
             }
         });
@@ -127,10 +136,15 @@ pub fn render_recording_panel(
 
     ui.add_space(6.0);
 
-    ui.group(|ui| {
-        ui.label(RichText::new("💾 Buffer Snapshot").strong());
-        ui.label(format!("Active buffer: {} samples", history.len()));
-        if ui.button("Export Buffer to CSV").clicked() {
+    card_frame.show(ui, |ui| {
+        ui.label(RichText::new("Buffer Snapshot").color(Color32::from_rgb(220, 235, 255)).strong());
+        ui.label(
+            RichText::new(format!("Active buffer: {} samples", history.len()))
+                .color(Color32::from_rgb(140, 165, 190))
+                .size(11.0),
+        );
+        ui.add_space(4.0);
+        if ui.button("Export Snapshot to CSV").clicked() {
             let snap_name = format!("snapshot_{}.csv", Utc::now().format("%Y%m%d_%H%M%S"));
             let _ = recorder.export_buffer(history, &snap_name);
         }
