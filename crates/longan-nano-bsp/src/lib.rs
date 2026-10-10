@@ -39,7 +39,7 @@ pub type LedRed = Led<Pin<PortC, 13, mode::Output<mode::PushPull>>>;
 pub type LedGreen = Led<Pin<PortA, 1, mode::Output<mode::PushPull>>>;
 pub type LedBlue = Led<Pin<PortA, 2, mode::Output<mode::PushPull>>>;
 
-/// Active-low User Button abstraction (PA8)
+/// User Button abstraction (PA8 BOOT0 button: pulled to GND via 10k resistor, goes HIGH (3.3V) when pressed)
 pub struct Button<P> {
     pin: P,
 }
@@ -51,17 +51,18 @@ impl<P: InputPin> Button<P> {
 
     #[inline(always)]
     pub fn is_pressed(&mut self) -> bool {
-        // Active-low: Low means button is pressed
-        self.pin.is_low().unwrap_or(false)
+        // Active-high: High (3.3V) means button is pressed
+        self.pin.is_high().unwrap_or(false)
     }
 
     #[inline(always)]
     pub fn is_released(&mut self) -> bool {
-        self.pin.is_high().unwrap_or(true)
+        // Low (GND) means button is released
+        self.pin.is_low().unwrap_or(true)
     }
 }
 
-pub type KeyButton = Button<Pin<PortA, 8, mode::Input<mode::PullUp>>>;
+pub type KeyButton = Button<Pin<PortA, 8, mode::Input<mode::PullDown>>>;
 
 pub use lcd_font;
 pub mod lcd;
@@ -201,7 +202,7 @@ impl Board {
         led_green.off();
         led_blue.off();
 
-        let button = Button::new(gpioa.pa8.into_pull_up_input());
+        let button = Button::new(gpioa.pa8.into_pull_down_input());
 
         // Configure PA9 (TX) and PA10 (RX) for USART0
         let tx = gpioa.pa9.into_alternate_push_pull();
@@ -268,7 +269,7 @@ impl Board {
         led_green.off();
         led_blue.off();
 
-        let button = Button::new(gpioa.pa8.into_pull_up_input());
+        let button = Button::new(gpioa.pa8.into_pull_down_input());
 
         let tx = gpioa.pa9.into_alternate_push_pull();
         let rx = gpioa.pa10.into_floating_input();
@@ -335,7 +336,7 @@ impl Board {
         led_green.off();
         led_blue.off();
 
-        let button = Button::new(gpioa.pa8.into_pull_up_input());
+        let button = Button::new(gpioa.pa8.into_pull_down_input());
 
         let tx = gpioa.pa9.into_alternate_push_pull();
         let rx = gpioa.pa10.into_floating_input();
@@ -392,7 +393,7 @@ impl Board {
         led_green.off();
         led_blue.off();
 
-        let button = Button::new(gpioa.pa8.into_pull_up_input());
+        let button = Button::new(gpioa.pa8.into_pull_down_input());
 
         let tx = gpioa.pa9.into_alternate_push_pull();
         let rx = gpioa.pa10.into_floating_input();

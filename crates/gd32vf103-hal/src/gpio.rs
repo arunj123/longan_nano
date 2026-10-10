@@ -111,6 +111,17 @@ impl<PORT: PortTrait, const PIN: u8, MODE> Pin<PORT, PIN, MODE> {
     }
 
     #[inline(always)]
+    pub fn into_pull_down_input(self) -> Pin<PORT, PIN, mode::Input<mode::PullDown>> {
+        configure_pin(PORT::PORT, PIN, 0b1000); // Input with pull-up/pull-down
+        let port_regs = unsafe { GpioPort::steal(PORT::PORT) };
+        port_regs.regs().bc.write(1 << PIN); // Set BC bit for pull-down (OCTL=0)
+        Pin {
+            _port: PhantomData,
+            _mode: PhantomData,
+        }
+    }
+
+    #[inline(always)]
     pub fn into_floating_input(self) -> Pin<PORT, PIN, mode::Input<mode::Floating>> {
         configure_pin(PORT::PORT, PIN, 0b0100); // Input floating
         Pin {

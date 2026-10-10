@@ -68,7 +68,7 @@
   - Red: `PC13` (active-low)
   - Green: `PA1` (active-low via anode to 3.3V)
   - Blue: `PA2` (active-low via anode to 3.3V)
-- **User Button**: `PA8` (active-low with internal pull-up). Always ensure `KeyButton::init()` is called to enable pull-up.
+- **User Button**: `PA8` / `BOOT0` (active-high: pulled to GND via on-board 10k resistor, asserts 3.3V HIGH when pressed). Initialize with pull-down (`into_pull_down_input()` / `InputDevice<..., ActiveLevel::High>`).
 - **LCD**: 160x80 ST7735 SPI LCD on SPI0 (CS: PB2, DC: PB0, RST: PB1, SCK: PA5, MOSI: PA7).
 
 ## SD Card & SPI Interface Rules

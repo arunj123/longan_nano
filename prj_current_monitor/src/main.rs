@@ -100,6 +100,7 @@ fn main() -> ! {
     let mut last_10hz_ms = board.delay.uptime_ms();
     let mut last_1hz_ms = board.delay.uptime_ms();
     let mut last_reinit_attempt_ms = board.delay.uptime_ms();
+    let mut last_heartbeat_ms = board.delay.uptime_ms();
     let mut prev_usb_configured = false;
 
     // User Button tracking (PA8)
@@ -194,7 +195,18 @@ fn main() -> ! {
 
         let now = board.delay.uptime_ms();
 
-        // 3. 10 Hz Periodic Measurement, Analytics & Display Rendering
+        // 3. Polite Green LED Heartbeat: Subtle 35ms pulse every 2.5s (2500ms)
+        let hb_phase = now.wrapping_sub(last_heartbeat_ms);
+        if hb_phase < 35 {
+            board.led_green.on();
+        } else {
+            board.led_green.off();
+            if hb_phase >= 2500 {
+                last_heartbeat_ms = now;
+            }
+        }
+
+        // 4. 10 Hz Periodic Measurement, Analytics & Display Rendering
         let dt_ms = now.wrapping_sub(last_10hz_ms);
         if dt_ms >= 100 {
             last_10hz_ms = now;
@@ -271,12 +283,9 @@ fn main() -> ! {
 
             // USB HID Telemetry Streaming (9 bytes @ 10 Hz)
             telemetry.send_reading(&mut board.usb_hid, &reading, ina_present, datalogger.status);
-
-            // Green LED heartbeat toggle
-            board.led_green.toggle();
         }
 
-        // 4. 1 Hz MicroSD CSV Datalogger & Heartbeat Logging
+        // 5. 1 Hz MicroSD CSV Datalogger & Heartbeat Logging
         if now.wrapping_sub(last_1hz_ms) >= 1000 {
             last_1hz_ms = now;
 

@@ -17,9 +17,8 @@ using LedGreen = OutputDevice<GpioPin<Port::A, 1>, ActiveLevel::Low>;
 // Blue LED is on PA2, active-low (anode to 3.3V)
 using LedBlue  = OutputDevice<GpioPin<Port::A, 2>, ActiveLevel::Low>;
 
-// --- Onboard Buttons ---
-// Boot0/Key button on PA8 (active-low with internal pull-up)
-using KeyButton = InputDevice<GpioPin<Port::A, 8>, ActiveLevel::Low>;
+// Boot0/Key button on PA8 (active-high with external 10k pull-down to GND and internal pull-down)
+using KeyButton = InputDevice<GpioPin<Port::A, 8>, ActiveLevel::High>;
 
 // --- Onboard ST7735 LCD SPI Pins (SPI0) ---
 using LcdCs   = GpioPin<Port::B, 2>;
