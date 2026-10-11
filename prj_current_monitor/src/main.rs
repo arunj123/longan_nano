@@ -937,6 +937,10 @@ fn main() -> ! {
 
             // Log representative row to sector buffer using true 1s arithmetic average from sample aggregator
             if ina_present {
+                if let Ok(true) = board.ina219.check_and_restore_calibration() {
+                    writeln!(board.uart0, "[I2C] INA219 brownout detected - restored calibration!").ok();
+                }
+
                 let cur_dt = if board.rtc.is_synced() {
                     Some(board.rtc.get_datetime())
                 } else {

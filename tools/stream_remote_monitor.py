@@ -28,16 +28,31 @@ def main():
         sys.exit(1)
 
     remote_script = f"""python3 -u -c '
-import os, struct, sys
+import os, struct, sys, glob
+
+fd = -1
+for node in sorted(glob.glob("/dev/hidraw*"), reverse=True):
+    try:
+        cand = os.open(node, os.O_RDONLY)
+        d = os.read(cand, 64)
+        if d and len(d) >= 7 and d[0] == 0x01:
+            fd = cand
+            break
+        os.close(cand)
+    except Exception:
+        pass
+
+if fd < 0:
+    print("STATUS:ERROR:No Longan Nano hidraw device found", flush=True)
+    sys.exit(1)
 
 try:
-    fd = os.open("/dev/hidraw0", os.O_RDONLY)
     print("STATUS:CONNECTED", flush=True)
     for i in range({count}):
         data = os.read(fd, 64)
         if data and len(data) >= 7 and data[0] == 0x01:
-            v_mv, c_ma, p_mw = struct.unpack("<HhH", data[1:7])
-            print(f"DATA:{{i+1}}|{{v_mv}}|{{c_ma}}|{{p_mw}}", flush=True)
+            v_mv, c_tenth, p_mw = struct.unpack("<HhH", data[1:7])
+            print(f"DATA:{{i+1}}|{{v_mv}}|{{c_tenth}}|{{p_mw}}", flush=True)
     os.close(fd)
     print("STATUS:DONE", flush=True)
 except Exception as e:
@@ -58,9 +73,10 @@ except Exception as e:
             parts = line[5:].split("|")
             sample_num = int(parts[0])
             v_mv = int(parts[1])
-            c_ma = int(parts[2])
+            c_tenth = int(parts[2])
             p_mw = int(parts[3])
             v_v = v_mv / 1000.0
+            c_ma = c_tenth / 10.0
             print(f"{sample_num:>4} | {v_v:>8.3f} V | {c_ma:>7.1f} mA | {p_mw:>7.1f} mW | OK")
             sys.stdout.flush()
         elif line.startswith("STATUS:"):

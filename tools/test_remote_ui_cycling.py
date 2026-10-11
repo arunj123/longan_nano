@@ -121,11 +121,26 @@ results['test_sd_rotate'] = {'pass': ok, 'new_file': new_file}
 ok, lines = send_and_expect('t', ['[SYS] Session Reset! Rotated to: LOG_'], timeout=2.0)
 results['test_tare_reset'] = {'pass': ok, 'lines': lines}
 
-# TEST 8: USB HID Telemetry Stream Validation (/dev/hidraw0 Input Report ID 1)
+# Auto-detect matching Longan Nano hidraw node
+import glob
+hid_node = None
+for node in sorted(glob.glob('/dev/hidraw*'), reverse=True):
+    try:
+        with open(node, 'rb') as f:
+            d = f.read(9)
+            if len(d) >= 9 and d[0] == 0x01:
+                hid_node = node
+                break
+    except Exception:
+        pass
+if not hid_node:
+    hid_node = '/dev/hidraw0'
+
+# TEST 8: USB HID Telemetry Stream Validation (Input Report ID 1)
 hid_in_ok = False
 hid_reading = None
 try:
-    with open('/dev/hidraw0', 'rb') as f:
+    with open(hid_node, 'rb') as f:
         data = f.read(9)
         if len(data) >= 9 and data[0] == 0x01:
             rid, v, i, p, flg, seq = struct.unpack('<BHhHBB', data)
@@ -141,7 +156,7 @@ try:
     # Packet layout: [0x02 Report ID, 0x01 SetMode Cmd, 0x04 BigDigit Mode, 0, 0, 0, 0, 0, 0]
     out_pkt = struct.pack('<BBBBBBBBB', 0x02, 0x01, 0x04, 0, 0, 0, 0, 0, 0)
     ser.reset_input_buffer()
-    with open('/dev/hidraw0', 'wb') as f:
+    with open(hid_node, 'wb') as f:
         f.write(out_pkt)
         f.flush()
     t0 = time.time()
@@ -159,7 +174,7 @@ hid_batt_ok = False
 try:
     out_pkt = struct.pack('<BBBBBBBBB', 0x02, 0x06, 0x02, 0, 0, 0, 0, 0, 0)
     ser.reset_input_buffer()
-    with open('/dev/hidraw0', 'wb') as f:
+    with open(hid_node, 'wb') as f:
         f.write(out_pkt)
         f.flush()
     t0 = time.time()
@@ -182,7 +197,7 @@ try:
     sync_epoch = 1760091240
     out_pkt = struct.pack('<BBI3s', 0x02, 0x07, sync_epoch, b'\x00\x00\x00')
     ser.reset_input_buffer()
-    with open('/dev/hidraw0', 'wb') as f:
+    with open(hid_node, 'wb') as f:
         f.write(out_pkt)
         f.flush()
     t0 = time.time()
@@ -206,7 +221,7 @@ try:
     lim_ma = 2500
     out_pkt = struct.pack('<BBH5s', 0x02, 0x08, lim_ma, b'\x00\x00\x00\x00\x00')
     ser.reset_input_buffer()
-    with open('/dev/hidraw0', 'wb') as f:
+    with open(hid_node, 'wb') as f:
         f.write(out_pkt)
         f.flush()
     t0 = time.time()

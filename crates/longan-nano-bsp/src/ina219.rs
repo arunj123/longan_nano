@@ -70,6 +70,19 @@ impl Ina219 {
         self.tare_offset_tenth = offset_tenth_ma;
     }
 
+    /// Checks if INA219 lost its calibration or config (e.g. from brownout/POR) and restores it.
+    /// Returns Ok(true) if calibration was restored, Ok(false) if calibration was intact.
+    pub fn check_and_restore_calibration(&mut self) -> Result<bool, I2cError> {
+        let cal = self.i2c.read_reg16(self.addr, Self::REG_CALIBRATION)?;
+        let cfg = self.i2c.read_reg16(self.addr, Self::REG_CONFIG)?;
+        if cal != 4096 || cfg != INA219_CONFIG_DEFAULT {
+            self.init(4096)?;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
     /// Reads bus voltage in millivolts.
     pub fn read_voltage_mv(&mut self) -> Result<u16, I2cError> {
         let raw = self.i2c.read_reg16(self.addr, Self::REG_BUSVOLTAGE)?;
@@ -77,8 +90,10 @@ impl Ina219 {
     }
 
     /// Reads shunt current in milliamperes (signed, after tare compensation).
+    /// Uses raw Shunt Voltage register (1 LSB = 10 uV = 0.1 mA across 0.1 ohm shunt)
+    /// to remain immune to volatile calibration wipes.
     pub fn read_current_ma(&mut self) -> Result<i16, I2cError> {
-        let raw = self.i2c.read_reg16(self.addr, Self::REG_CURRENT)?;
+        let raw = self.i2c.read_reg16(self.addr, Self::REG_SHUNTVOLTAGE)?;
         let c_tenth = (raw as i16).saturating_sub(self.tare_offset_tenth);
         Ok(c_tenth / 10)
     }
@@ -97,8 +112,14 @@ impl Ina219 {
 
     /// Reads bus voltage, shunt current and flags into an `Ina219Data` record.
     /// Also clears the CNVR flag by reading the Power register per the INA219 datasheet.
+    ///
+    /// Resilience Enhancement:
+    /// Samples both Shunt Voltage (0x01) and Current (0x04).
+    /// If Current reads 0 while Shunt Voltage is non-zero, it detects volatile calibration
+    /// loss (e.g., from brownout/POR) and autonomously re-arms Calibration = 4096 and Config.
     pub fn read_all(&mut self) -> Result<Ina219Data, I2cError> {
         let v_raw = self.i2c.read_reg16(self.addr, Self::REG_BUSVOLTAGE)?;
+        let s_raw = self.i2c.read_reg16(self.addr, Self::REG_SHUNTVOLTAGE)?;
         let c_raw = self.i2c.read_reg16(self.addr, Self::REG_CURRENT)?;
         // Reading Power register clears CNVR per INA219 specification
         let _ = self.i2c.read_reg16(self.addr, Self::REG_POWER);
@@ -107,8 +128,22 @@ impl Ina219 {
         let conversion_ready = (v_raw & 0x02) != 0;
         let voltage_mv = (v_raw >> 3) * 4;
 
+        let s_val = s_raw as i16;
+        let c_val = c_raw as i16;
+
+        // Auto-heal: If shunt voltage shows current (>0.2 mA) but INA219 current register is 0,
+        // the INA219 volatile calibration register was wiped (brownout/POR).
+        // Immediately restore calibration and 128x averaging!
+        let raw_c_tenth = if c_val == 0 && s_val.abs() > 2 {
+            let _ = self.init(4096);
+            s_val
+        } else if c_val != 0 {
+            c_val
+        } else {
+            s_val
+        };
+
         // Apply tare compensation with saturation guarding
-        let raw_c_tenth = c_raw as i16;
         let current_tenth_ma = raw_c_tenth.saturating_sub(self.tare_offset_tenth);
 
         let abs_c_tenth = current_tenth_ma.unsigned_abs() as u32;
