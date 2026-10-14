@@ -74,3 +74,23 @@ Run the Python telemetry monitor to view the live ANSI dashboard:
 ```powershell
 python prj_current_monitor/monitor.py
 ```
+
+---
+
+## 3D Printable Enclosure
+
+An OpenSCAD parametric enclosure model is provided in [`prj_current_monitor/enclosure/`](file:///c:/Users/arunj/projects/longan_nano/prj_current_monitor/enclosure/):
+
+- **CAD Source:** [`longan_nano_ina219_case.scad`](file:///c:/Users/arunj/projects/longan_nano/prj_current_monitor/enclosure/longan_nano_ina219_case.scad)
+- **Batch Export Script:** [`generate_meshes.ps1`](file:///c:/Users/arunj/projects/longan_nano/prj_current_monitor/enclosure/generate_meshes.ps1)
+- **Ready-to-Print Files:**
+  - Base: [`case_base.stl`](file:///c:/Users/arunj/projects/longan_nano/prj_current_monitor/enclosure/case_base.stl), [`case_base.3mf`](file:///c:/Users/arunj/projects/longan_nano/prj_current_monitor/enclosure/case_base.3mf)
+  - Lid (Support-free bed orientation): [`case_lid_print.stl`](file:///c:/Users/arunj/projects/longan_nano/prj_current_monitor/enclosure/case_lid_print.stl), [`case_lid_print.3mf`](file:///c:/Users/arunj/projects/longan_nano/prj_current_monitor/enclosure/case_lid_print.3mf)
+  - Combined Dual-Part Bed: [`case_both_print.stl`](file:///c:/Users/arunj/projects/longan_nano/prj_current_monitor/enclosure/case_both_print.stl), [`case_both_print.3mf`](file:///c:/Users/arunj/projects/longan_nano/prj_current_monitor/enclosure/case_both_print.3mf)
+  - Assembly & Exploded Models: [`case_assembled.stl`](file:///c:/Users/arunj/projects/longan_nano/prj_current_monitor/enclosure/case_assembled.stl), [`case_exploded.stl`](file:///c:/Users/arunj/projects/longan_nano/prj_current_monitor/enclosure/case_exploded.stl)
+- **Features:**
+  - Dedicated alignment mounting nipples for Longan Nano & INA219 breakout.
+  - Flush ST7735 LCD viewport with protective internal bezel shelf and ribbon cable strain-relief gap.
+  - Pushbutton access apertures for Reset and Boot/Tare (`PA8`).
+  - Cutouts for Type-C USB telemetry/power, MicroSD card access, and screw terminal block wiring.
+  - Passive convection ventilation louvers.
