@@ -1,5 +1,5 @@
 use longan_nano_bsp::{
-    lcd::{Font, FONT_28, FONT_5X7, FONT_8X16},
+    lcd::{Font, FONT_48, FONT_5X7, FONT_8X16},
     Lcd,
 };
 use crate::fmt::{fmt_voltage, BufferCursor, DirtyField};
@@ -14,33 +14,33 @@ struct SlotConfig {
 }
 
 // 5 pre-allocated, fixed-width character slots for mA mode:
-// Total width: 36 + 36 + 36 + 16 + 36 = 160 pixels (X: 0..159).
-// Slot 0: [0..36) (Hundreds / '-' / ' ')
-// Slot 1: [36..72) (Tens / ' ')
-// Slot 2: [72..108) (Ones)
-// Slot 3: [108..124) (Decimal point '.')
-// Slot 4: [124..160) (Tenths)
+// Total width: 2 + 34 + 34 + 34 + 18 + 34 + 4 = 160 pixels (X: 0..159).
+// Slot 0: [2..36) (Hundreds / '-' / ' ')
+// Slot 1: [36..70) (Tens / ' ')
+// Slot 2: [70..104) (Ones)
+// Slot 3: [104..122) (Decimal point '.')
+// Slot 4: [122..156) (Tenths)
 const SLOTS_MA: [SlotConfig; 5] = [
-    SlotConfig { x: 0, w: 36 },
-    SlotConfig { x: 36, w: 36 },
-    SlotConfig { x: 72, w: 36 },
-    SlotConfig { x: 108, w: 16 },
-    SlotConfig { x: 124, w: 36 },
+    SlotConfig { x: 2, w: 34 },
+    SlotConfig { x: 36, w: 34 },
+    SlotConfig { x: 70, w: 34 },
+    SlotConfig { x: 104, w: 18 },
+    SlotConfig { x: 122, w: 34 },
 ];
 
 // 5 pre-allocated, fixed-width character slots for Amps mode:
-// Total width: 36 + 16 + 36 + 36 + 36 = 160 pixels (X: 0..159).
-// Slot 0: [0..36) (Ones / '-')
-// Slot 1: [36..52) (Decimal point '.')
-// Slot 2: [52..88) (Tenths)
-// Slot 3: [88..124) (Hundredths)
-// Slot 4: [124..160) (Thousandths)
+// Total width: 2 + 34 + 18 + 34 + 34 + 34 + 4 = 160 pixels (X: 0..159).
+// Slot 0: [2..36) (Ones / '-')
+// Slot 1: [36..54) (Decimal point '.')
+// Slot 2: [54..88) (Tenths)
+// Slot 3: [88..122) (Hundredths)
+// Slot 4: [122..156) (Thousandths)
 const SLOTS_A: [SlotConfig; 5] = [
-    SlotConfig { x: 0, w: 36 },
-    SlotConfig { x: 36, w: 16 },
-    SlotConfig { x: 52, w: 36 },
-    SlotConfig { x: 88, w: 36 },
-    SlotConfig { x: 124, w: 36 },
+    SlotConfig { x: 2, w: 34 },
+    SlotConfig { x: 36, w: 18 },
+    SlotConfig { x: 54, w: 34 },
+    SlotConfig { x: 88, w: 34 },
+    SlotConfig { x: 122, w: 34 },
 ];
 
 /// Formats current into exactly 5 fixed-slot ASCII characters:
@@ -283,22 +283,22 @@ impl BigDigitScreen {
             if dirty {
                 let cfg = slot_cfgs[i];
                 if ch == b' ' {
-                    lcd.fill_rect(cfg.x, 15, cfg.w, 56, COL_BLACK);
+                    lcd.fill_rect(cfg.x, 14, cfg.w, 57, COL_BLACK);
                 } else {
-                    let glyph_w = (FONT_28.char_width(ch as char) as u16) * 2;
+                    let glyph_w = FONT_48.char_width(ch as char) as u16;
                     let char_x = cfg.x + (cfg.w.saturating_sub(glyph_w)) / 2;
 
                     // Clear left padding within slot if any
                     if char_x > cfg.x {
-                        lcd.fill_rect(cfg.x, 15, char_x - cfg.x, 56, COL_BLACK);
+                        lcd.fill_rect(cfg.x, 14, char_x - cfg.x, 57, COL_BLACK);
                     }
                     // Clear right padding within slot if any
                     let right = char_x + glyph_w;
                     if right < cfg.x + cfg.w {
-                        lcd.fill_rect(right, 15, (cfg.x + cfg.w) - right, 56, COL_BLACK);
+                        lcd.fill_rect(right, 14, (cfg.x + cfg.w) - right, 57, COL_BLACK);
                     }
-                    // Draw anti-aliased 56px character
-                    lcd.draw_char_scaled(char_x, 15, ch as char, &FONT_28, curr_col, COL_BLACK, 2);
+                    // Draw crisp 1:1 hardware anti-aliased 48px character
+                    lcd.draw_char(char_x, 18, ch as char, &FONT_48, curr_col, COL_BLACK);
                 }
                 self.slot_chars[i] = ch;
                 self.slot_colors[i] = curr_col;

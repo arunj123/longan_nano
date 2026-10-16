@@ -6,6 +6,7 @@ pub mod font5x7;
 pub mod font8x16;
 pub mod font16x24;
 pub mod font28;
+pub mod font48;
 
 pub use traits::{Font, GlyphLayout};
 pub use subset::{
@@ -17,6 +18,7 @@ pub use font5x7::{Font5x7, FONT_5X7, FONT_5X7_RAW};
 pub use font8x16::{Font8x16, FONT_8X16, FONT_8X16_RAW};
 pub use font16x24::{Font16x24, FONT_16X24, FONT_16X24_CHARS, FONT_16X24_RAW};
 pub use font28::{Font28, FONT_28, Glyph28, get_glyph_28, string_width_28};
+pub use font48::{Font48, FONT_48, Glyph48, get_glyph_48, string_width_48};
 
 #[cfg(test)]
 mod tests {
@@ -39,6 +41,11 @@ mod tests {
 
         assert_eq!(FONT_28.height(), 28);
         assert!(FONT_28.contains('5'));
+
+        assert_eq!(FONT_48.height(), 48);
+        assert!(FONT_48.contains('5'));
+        assert!(FONT_48.contains('.'));
+        assert!(FONT_48.contains('-'));
     }
 
     #[test]
