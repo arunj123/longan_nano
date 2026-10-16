@@ -161,6 +161,12 @@ impl hal::MscBlockDevice for SdCard {
     fn write_sector(&mut self, lba: u32, buf: &[u8; 512]) -> bool {
         self.write_sector(lba, buf).is_ok()
     }
+    fn begin_multi_read(&mut self, start_lba: u32) -> bool {
+        self.begin_multi_read(start_lba).is_ok()
+    }
+    fn end_multi_read(&mut self) {
+        self.end_multi_read();
+    }
 }
 
 impl Board {

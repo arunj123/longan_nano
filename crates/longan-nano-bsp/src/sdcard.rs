@@ -58,6 +58,8 @@ pub struct SdCard {
     pub card_type: CardType,
     pub sector_count: u32,
     pub is_initialized: bool,
+    pub streaming_read: bool,
+    pub stream_next_lba: u32,
 }
 
 impl SdCard {
@@ -68,6 +70,8 @@ impl SdCard {
             card_type: CardType::Unknown,
             sector_count: 0,
             is_initialized: false,
+            streaming_read: false,
+            stream_next_lba: 0,
         }
     }
 
@@ -132,6 +136,8 @@ impl SdCard {
         self.card_type = CardType::Unknown;
         self.sector_count = 0;
         self.is_initialized = false;
+        self.streaming_read = false;
+        self.stream_next_lba = 0;
 
         // Start at slow speed (Prescaler Div256 = ~200-400 kHz)
         self.spi.set_prescaler(Prescaler::Div256);
@@ -277,13 +283,99 @@ impl SdCard {
         self.spi.set_prescaler(Prescaler::Div2);
 
         self.is_initialized = true;
+        self.streaming_read = false;
+        self.stream_next_lba = 0;
         Ok(self.card_type)
+    }
+
+    /// Begin continuous multi-block read streaming (CMD18).
+    pub fn begin_multi_read(&mut self, start_sector: u32) -> Result<(), SdError> {
+        if !self.is_initialized {
+            return Err(SdError::NotInitialized);
+        }
+        if self.streaming_read {
+            if self.stream_next_lba == start_sector {
+                return Ok(());
+            }
+            self.end_multi_read();
+        }
+
+        let arg = if self.card_type == CardType::SD2HC {
+            start_sector
+        } else {
+            start_sector * 512
+        };
+
+        self.cs_low();
+        self.xchg(0xFF); // 8 clocks sync
+
+        if !self.spi.wait_ready_fast(100 * 2500) {
+            self.release_bus();
+            return Err(SdError::Timeout);
+        }
+
+        // Send CMD18 (READ_MULTIPLE_BLOCK)
+        let r1 = self.send_cmd(18, arg, 0x01);
+        if r1 != 0x00 {
+            self.release_bus();
+            return Err(SdError::NoResponse);
+        }
+
+        self.streaming_read = true;
+        self.stream_next_lba = start_sector;
+        Ok(())
+    }
+
+    /// Read next consecutive 512-byte sector in an active CMD18 stream.
+    pub fn read_next_stream_sector(&mut self, buf: &mut [u8; 512]) -> Result<(), SdError> {
+        if !self.streaming_read {
+            return Err(SdError::NotInitialized);
+        }
+
+        // Wait for data start token (0xFE) with 250_000 iterations (~110 ms, meeting SD N_AC spec)
+        let token = self.spi.wait_token_fast(250_000);
+        if token != 0xFE {
+            self.end_multi_read();
+            return Err(SdError::ReadTokenTimeout);
+        }
+
+        // Fast block read using pipelined SPI
+        self.spi.read_block_fast(buf);
+
+        // Read 2-byte CRC16
+        self.xchg(0xFF);
+        self.xchg(0xFF);
+
+        self.stream_next_lba += 1;
+        // Leave CS LOW: SD card internal controller prefetches next sector in hardware
+        Ok(())
+    }
+
+    /// Stop continuous multi-block read streaming (CMD12).
+    pub fn end_multi_read(&mut self) {
+        if !self.streaming_read {
+            return;
+        }
+        // Send CMD12 (STOP_TRANSMISSION)
+        let _ = self.send_cmd(12, 0, 0x01);
+        // Wait ready (MISO high)
+        let _ = self.spi.wait_ready_fast(100 * 2500);
+        self.release_bus();
+        self.streaming_read = false;
     }
 
     /// Read a 512-byte sector from the SD card.
     pub fn read_sector(&mut self, lba: u32, buf: &mut [u8; 512]) -> Result<(), SdError> {
         if !self.is_initialized {
             return Err(SdError::NotInitialized);
+        }
+
+        if self.streaming_read {
+            if lba == self.stream_next_lba {
+                return self.read_next_stream_sector(buf);
+            } else {
+                self.end_multi_read();
+            }
         }
 
         let arg = if self.card_type == CardType::SD2HC {
@@ -295,7 +387,7 @@ impl SdCard {
         self.cs_low();
         self.xchg(0xFF); // 8 clocks sync
 
-        if !self.spi.wait_ready_fast(100 * 1500) {
+        if !self.spi.wait_ready_fast(100 * 2500) {
             self.release_bus();
             return Err(SdError::Timeout);
         }
@@ -307,8 +399,8 @@ impl SdCard {
             return Err(SdError::NoResponse);
         }
 
-        // Wait for data start token (0xFE)
-        let token = self.spi.wait_token_fast(60000);
+        // Wait for data start token (0xFE) - calibrated to 250_000 (~110 ms, meeting SD N_AC spec)
+        let token = self.spi.wait_token_fast(250_000);
         if token != 0xFE {
             self.release_bus();
             return Err(SdError::ReadTokenTimeout);
@@ -331,6 +423,10 @@ impl SdCard {
             return Err(SdError::NotInitialized);
         }
 
+        if self.streaming_read {
+            self.end_multi_read();
+        }
+
         let arg = if self.card_type == CardType::SD2HC {
             lba
         } else {
@@ -340,7 +436,7 @@ impl SdCard {
         self.cs_low();
         self.xchg(0xFF); // 8 clocks sync
 
-        if !self.spi.wait_ready_fast(500 * 1500) {
+        if !self.spi.wait_ready_fast(500 * 2500) {
             self.release_bus();
             return Err(SdError::Timeout);
         }
@@ -373,7 +469,7 @@ impl SdCard {
         }
 
         // Wait while card programs flash (MISO held LOW until programming completes)
-        if !self.spi.wait_ready_fast(1000 * 1500) {
+        if !self.spi.wait_ready_fast(1000 * 2500) {
             self.release_bus();
             return Err(SdError::Timeout);
         }

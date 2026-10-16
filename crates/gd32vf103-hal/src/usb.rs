@@ -2802,6 +2802,8 @@ pub trait MscBlockDevice {
     fn capacity(&self) -> (u32, u32);
     fn read_sector(&mut self, lba: u32, buf: &mut [u8; 512]) -> bool;
     fn write_sector(&mut self, lba: u32, buf: &[u8; 512]) -> bool;
+    fn begin_multi_read(&mut self, _start_lba: u32) -> bool { false }
+    fn end_multi_read(&mut self) {}
 }
 
 #[derive(Copy, Clone, Default)]
@@ -2817,8 +2819,64 @@ pub enum BbbState {
     DataOut,
     DataIn,
     SendData,
+    SendZlp,
     StatusPending,
     SendCsw,
+}
+
+pub const CACHE_SECTORS: usize = 16;
+
+#[derive(Copy, Clone)]
+pub struct CacheEntry {
+    pub lba: u32,
+    pub valid: bool,
+}
+
+pub struct LbaCache {
+    pub entries: [CacheEntry; CACHE_SECTORS],
+    pub data: [[u8; 512]; CACHE_SECTORS],
+}
+
+impl LbaCache {
+    pub const fn new() -> Self {
+        Self {
+            entries: [CacheEntry { lba: 0xFFFF_FFFF, valid: false }; CACHE_SECTORS],
+            data: [[0u8; 512]; CACHE_SECTORS],
+        }
+    }
+
+    #[inline]
+    pub fn lookup(&self, lba: u32) -> Option<&[u8; 512]> {
+        for (i, entry) in self.entries.iter().enumerate() {
+            if entry.valid && entry.lba == lba {
+                return Some(&self.data[i]);
+            }
+        }
+        None
+    }
+
+    pub fn insert(&mut self, slot: usize, lba: u32, buf: &[u8; 512]) {
+        if slot < CACHE_SECTORS {
+            self.entries[slot] = CacheEntry { lba, valid: true };
+            self.data[slot].copy_from_slice(buf);
+        }
+    }
+
+    pub fn invalidate(&mut self, lba: u32) {
+        for entry in self.entries.iter_mut() {
+            if entry.valid && entry.lba == lba {
+                entry.valid = false;
+            }
+        }
+    }
+
+    pub fn update(&mut self, lba: u32, buf: &[u8; 512]) {
+        for (i, entry) in self.entries.iter_mut().enumerate() {
+            if entry.valid && entry.lba == lba {
+                self.data[i].copy_from_slice(buf);
+            }
+        }
+    }
 }
 
 #[derive(Copy, Clone, PartialEq, Eq)]
@@ -2923,6 +2981,7 @@ pub struct UsbMsc {
     csw_residue: u32,
     csw_status: CswStatus,
     csw_pending: bool,
+    ep1_in_prearmed: bool,
 
     sense_key: SenseKey,
     sense_asc: Asc,
@@ -2933,7 +2992,11 @@ pub struct UsbMsc {
     need_read: bool,
     need_write: bool,
 
-    media_buf: [u8; 512],
+    pub cache: LbaCache,
+    media_buf: [[u8; 512]; 2],
+    buf_idx: usize,
+    has_read_ahead: bool,
+    read_ahead_len: usize,
     media_rx_offset: usize,
 
     pub stats: MscStats,
@@ -2955,10 +3018,22 @@ impl UsbMsc {
             gccfg::PWRON | gccfg::VBUSACEN | gccfg::VBUSBCEN | gccfg::SOFOEN | gccfg::VBUSIG,
         );
 
-        delay.delay_ms(20);
+        // 1. Force hard Single-Ended Zero (SE0) on D+/D- via GPIOA PA11 & PA12 for 200 ms
+        rcu.regs().apb2en.set_bits(1 << 2); // GPIOA clock
+        let gpioa = unsafe { gd32vf103_pac::gpio::GpioPort::steal(gd32vf103_pac::gpio::Port::A) };
+        let regs = gpioa.regs();
+        let old_ctl1 = regs.ctl1.read();
+        // PA11 (bits 12..15), PA12 (bits 16..19): Output Push-Pull 50MHz (0x3 each -> 0x33 << 12)
+        regs.ctl1.modify(|v| (v & !(0xFF << 12)) | (0x33 << 12));
+        // Force PA11 and PA12 LOW
+        regs.bc.write((1 << 11) | (1 << 12));
+        delay.delay_ms(200);
+        // Restore GPIOA CTL1
+        regs.ctl1.write(old_ctl1);
 
+        // 2. Soft disconnect before initializing device registers for 800 ms (total >= 1000 ms)
         usbfs.device().dctl.set_bits(dctl::SDIS);
-        delay.delay_ms(100);
+        delay.delay_ms(800);
 
         usbfs.pwrclkctl().write(0);
 
@@ -3032,6 +3107,7 @@ impl UsbMsc {
             csw_residue: 0,
             csw_status: CswStatus::CmdPassed,
             csw_pending: false,
+            ep1_in_prearmed: false,
             sense_key: SenseKey::NoSense,
             sense_asc: Asc::NoAsc,
             lba: 0,
@@ -3039,7 +3115,11 @@ impl UsbMsc {
             data_done_time: 0,
             need_read: false,
             need_write: false,
-            media_buf: [0u8; 512],
+            cache: LbaCache::new(),
+            media_buf: [[0u8; 512]; 2],
+            buf_idx: 0,
+            has_read_ahead: false,
+            read_ahead_len: 0,
             media_rx_offset: 0,
             stats: MscStats::default(),
         };
@@ -3166,6 +3246,13 @@ impl UsbMsc {
         let len = data.len();
         let word_count = (len + 3) / 4;
 
+        if ep_num > 0 {
+            let mut timeout = 100_000u32;
+            while ((self.usbfs.in_ep(ep_num).dieptfstat.read() & 0xFFFF) < word_count as u32) && timeout > 0 {
+                timeout -= 1;
+            }
+        }
+
         for i in 0..word_count {
             let mut word = 0u32;
             for b in 0..4 {
@@ -3200,6 +3287,9 @@ impl UsbMsc {
 
         // Idempotent check
         if (live_ctl & depctl::EPEN) != 0 && (live_ctl & depctl::NAKS) != 0 && live_len == target_dieplen {
+            if ep_num == 1 {
+                self.ep1_in_prearmed = true;
+            }
             return;
         }
 
@@ -3223,11 +3313,22 @@ impl UsbMsc {
         epctl = self.usbfs.in_ep(ep_num).diepctl.read();
         epctl &= !(depctl::SD0PID | depctl::SD1PID | depctl::EPD | depctl::CNAK | depctl::SNAK);
         self.usbfs.in_ep(ep_num).diepctl.write(epctl | depctl::EPEN);
+
+        if ep_num == 1 {
+            self.ep1_in_prearmed = true;
+        }
     }
 
     fn ep_send(&mut self, ep_num: usize, data: &[u8]) {
         let len = data.len() as u32;
-        self.ep_nak_arm(ep_num, len);
+        if ep_num == 1 && self.ep1_in_prearmed {
+            self.ep1_in_prearmed = false;
+        } else {
+            self.ep_nak_arm(ep_num, len);
+            if ep_num == 1 {
+                self.ep1_in_prearmed = false;
+            }
+        }
         self.write_fifo(ep_num, data);
 
         let mut cnak_ctl = self.usbfs.in_ep(ep_num).diepctl.read();
@@ -3236,18 +3337,28 @@ impl UsbMsc {
         self.usbfs.in_ep(ep_num).diepctl.write(cnak_ctl);
     }
 
-    fn ep_send_media(&mut self, len: usize) {
-        let len_u32 = len as u32;
-        self.ep_nak_arm(1, len_u32);
+    fn ep_send_media(&mut self, buf_idx: usize, len: usize) {
+        if self.ep1_in_prearmed {
+            self.ep1_in_prearmed = false;
+        } else {
+            self.ep_nak_arm(1, len as u32);
+            self.ep1_in_prearmed = false;
+        }
 
-        let fifo_ptr = self.usbfs.fifo(1);
         let word_count = (len + 3) / 4;
+        let mut timeout = 100_000u32;
+        while ((self.usbfs.in_ep(1).dieptfstat.read() & 0xFFFF) < word_count as u32) && timeout > 0 {
+            timeout -= 1;
+        }
+
+        // Write all data words into DFIFO[1] (~12 µs)
+        let fifo_ptr = self.usbfs.fifo(1);
         for i in 0..word_count {
             let mut word = 0u32;
             for b in 0..4 {
                 let idx = i * 4 + b;
                 if idx < len {
-                    word |= (self.media_buf[idx] as u32) << (b * 8);
+                    word |= (self.media_buf[buf_idx][idx] as u32) << (b * 8);
                 }
             }
             unsafe {
@@ -3255,6 +3366,7 @@ impl UsbMsc {
             }
         }
 
+        // Release NAK and serialize onto wire
         let mut cnak_ctl = self.usbfs.in_ep(1).diepctl.read();
         cnak_ctl &= !(depctl::SD0PID | depctl::SD1PID | depctl::EPD | depctl::SNAK);
         cnak_ctl |= depctl::EPEN | depctl::CNAK;
@@ -3284,7 +3396,10 @@ impl UsbMsc {
         self.ep_send(1, &csw_buf);
     }
 
-    fn abort_transfer(&mut self) {
+    fn abort_transfer<D: MscBlockDevice>(&mut self, disk: &mut D) {
+        disk.end_multi_read();
+        self.ep1_in_prearmed = false;
+        self.has_read_ahead = false;
         self.need_read = false;
         self.need_write = false;
         self.csw_residue = self.remaining_bytes;
@@ -3324,16 +3439,16 @@ impl UsbMsc {
 
     fn decode_cbw<D: MscBlockDevice>(&mut self, disk: &mut D) {
         if self.cbw_rx_len != 31 {
-            self.abort_transfer();
+            self.abort_transfer(disk);
             return;
         }
         let Some(cbw) = BbbCbw::from_bytes(&self.cbw_buf[..31]) else {
-            self.abort_transfer();
+            self.abort_transfer(disk);
             return;
         };
         if cbw.d_cbw_signature != 0x43425355 || cbw.b_cbw_lun != 0 || cbw.b_cbw_cb_length < 1 || cbw.b_cbw_cb_length > 16 {
             self.set_sense(SenseKey::IllegalRequest, Asc::InvalidCdb);
-            self.abort_transfer();
+            self.abort_transfer(disk);
             return;
         }
 
@@ -3352,12 +3467,12 @@ impl UsbMsc {
             0x00 => { // TEST_UNIT_READY
                 if self.cbw.d_cbw_data_transfer_length != 0 {
                     self.set_sense(SenseKey::IllegalRequest, Asc::InvalidCdb);
-                    self.abort_transfer();
+                    self.abort_transfer(disk);
                     return;
                 }
                 if !disk.is_ready() {
                     self.set_sense(SenseKey::NotReady, Asc::MediumNotPresent);
-                    self.abort_transfer();
+                    self.abort_transfer(disk);
                     return;
                 }
                 self.csw_residue = 0;
@@ -3411,7 +3526,7 @@ impl UsbMsc {
                         }
                         _ => {
                             self.set_sense(SenseKey::IllegalRequest, Asc::InvalidFieldInCommand);
-                            self.abort_transfer();
+                            self.abort_transfer(disk);
                         }
                     }
                 } else {
@@ -3435,7 +3550,7 @@ impl UsbMsc {
             0x23 => { // READ_FORMAT_CAPACITIES
                 if !disk.is_ready() {
                     self.set_sense(SenseKey::NotReady, Asc::MediumNotPresent);
-                    self.abort_transfer();
+                    self.abort_transfer(disk);
                     return;
                 }
                 let (blk_cnt, blk_sz) = disk.capacity();
@@ -3451,7 +3566,7 @@ impl UsbMsc {
             0x25 => { // READ_CAPACITY_10
                 if !disk.is_ready() {
                     self.set_sense(SenseKey::NotReady, Asc::MediumNotPresent);
-                    self.abort_transfer();
+                    self.abort_transfer(disk);
                     return;
                 }
                 let (blk_cnt, blk_sz) = disk.capacity();
@@ -3467,7 +3582,7 @@ impl UsbMsc {
                 if (self.cbw.cbwcb[1] & 0x1F) == 0x10 { // READ_CAPACITY_16
                     if !disk.is_ready() {
                         self.set_sense(SenseKey::NotReady, Asc::MediumNotPresent);
-                        self.abort_transfer();
+                        self.abort_transfer(disk);
                         return;
                     }
                     let (blk_cnt, blk_sz) = disk.capacity();
@@ -3479,7 +3594,7 @@ impl UsbMsc {
                     self.send_data(&data[..len]);
                 } else {
                     self.set_sense(SenseKey::IllegalRequest, Asc::InvalidFieldInCommand);
-                    self.abort_transfer();
+                    self.abort_transfer(disk);
                 }
             }
 
@@ -3497,7 +3612,7 @@ impl UsbMsc {
                     self.send_data(&data[..len]);
                 } else {
                     self.set_sense(SenseKey::IllegalRequest, Asc::InvalidFieldInCommand);
-                    self.abort_transfer();
+                    self.abort_transfer(disk);
                 }
             }
 
@@ -3509,7 +3624,7 @@ impl UsbMsc {
             0x08 => { // READ_6
                 if (self.cbw.bm_cbw_flags & 0x80) == 0 || !disk.is_ready() {
                     self.set_sense(SenseKey::IllegalRequest, Asc::InvalidCdb);
-                    self.abort_transfer();
+                    self.abort_transfer(disk);
                     return;
                 }
                 let lba = (((self.cbw.cbwcb[1] & 0x1F) as u32) << 16)
@@ -3522,7 +3637,7 @@ impl UsbMsc {
                 let (blk_cnt, _) = disk.capacity();
                 if lba + blocks > blk_cnt {
                     self.set_sense(SenseKey::IllegalRequest, Asc::AddressOutOfRange);
-                    self.abort_transfer();
+                    self.abort_transfer(disk);
                     return;
                 }
                 let to_transfer = core::cmp::min(self.cbw.d_cbw_data_transfer_length, blocks * 512);
@@ -3530,21 +3645,25 @@ impl UsbMsc {
                 self.remaining_bytes = to_transfer;
                 self.csw_residue = self.cbw.d_cbw_data_transfer_length - to_transfer;
                 self.state = BbbState::DataIn;
+                self.buf_idx = 0;
+                self.has_read_ahead = false;
 
-                let first_len = core::cmp::min(self.remaining_bytes, 512);
+                // Pre-arm EP1 IN with EPEN=1, confirmed NAKS=1, and DIEPLEN=first_len
+                let first_len = core::cmp::min(to_transfer, 512);
                 self.ep_nak_arm(1, first_len);
+
                 self.need_read = true;
             }
 
             0x28 => { // READ_10
                 if (self.cbw.bm_cbw_flags & 0x80) == 0 {
                     self.set_sense(SenseKey::IllegalRequest, Asc::InvalidCdb);
-                    self.abort_transfer();
+                    self.abort_transfer(disk);
                     return;
                 }
                 if !disk.is_ready() {
                     self.set_sense(SenseKey::NotReady, Asc::MediumNotPresent);
-                    self.abort_transfer();
+                    self.abort_transfer(disk);
                     return;
                 }
                 let lba = u32::from_be_bytes([
@@ -3565,7 +3684,7 @@ impl UsbMsc {
                 let (blk_cnt, _) = disk.capacity();
                 if lba + blocks > blk_cnt {
                     self.set_sense(SenseKey::IllegalRequest, Asc::AddressOutOfRange);
-                    self.abort_transfer();
+                    self.abort_transfer(disk);
                     return;
                 }
                 let to_transfer = core::cmp::min(self.cbw.d_cbw_data_transfer_length, blocks * 512);
@@ -3573,16 +3692,20 @@ impl UsbMsc {
                 self.remaining_bytes = to_transfer;
                 self.csw_residue = self.cbw.d_cbw_data_transfer_length - to_transfer;
                 self.state = BbbState::DataIn;
+                self.buf_idx = 0;
+                self.has_read_ahead = false;
 
-                let first_len = core::cmp::min(self.remaining_bytes, 512);
+                // Pre-arm EP1 IN with EPEN=1, confirmed NAKS=1, and DIEPLEN=first_len
+                let first_len = core::cmp::min(to_transfer, 512);
                 self.ep_nak_arm(1, first_len);
+
                 self.need_read = true;
             }
 
             0x0A => { // WRITE_6
                 if (self.cbw.bm_cbw_flags & 0x80) != 0 || !disk.is_ready() {
                     self.set_sense(SenseKey::IllegalRequest, Asc::InvalidCdb);
-                    self.abort_transfer();
+                    self.abort_transfer(disk);
                     return;
                 }
                 let lba = (((self.cbw.cbwcb[1] & 0x1F) as u32) << 16)
@@ -3595,7 +3718,7 @@ impl UsbMsc {
                 let (blk_cnt, _) = disk.capacity();
                 if lba + blocks > blk_cnt {
                     self.set_sense(SenseKey::IllegalRequest, Asc::AddressOutOfRange);
-                    self.abort_transfer();
+                    self.abort_transfer(disk);
                     return;
                 }
                 let to_transfer = core::cmp::min(self.cbw.d_cbw_data_transfer_length, blocks * 512);
@@ -3611,12 +3734,12 @@ impl UsbMsc {
             0x2A => { // WRITE_10
                 if (self.cbw.bm_cbw_flags & 0x80) != 0 {
                     self.set_sense(SenseKey::IllegalRequest, Asc::InvalidCdb);
-                    self.abort_transfer();
+                    self.abort_transfer(disk);
                     return;
                 }
                 if !disk.is_ready() {
                     self.set_sense(SenseKey::NotReady, Asc::MediumNotPresent);
-                    self.abort_transfer();
+                    self.abort_transfer(disk);
                     return;
                 }
                 let lba = u32::from_be_bytes([
@@ -3637,7 +3760,7 @@ impl UsbMsc {
                 let (blk_cnt, _) = disk.capacity();
                 if lba + blocks > blk_cnt {
                     self.set_sense(SenseKey::IllegalRequest, Asc::AddressOutOfRange);
-                    self.abort_transfer();
+                    self.abort_transfer(disk);
                     return;
                 }
                 let to_transfer = core::cmp::min(self.cbw.d_cbw_data_transfer_length, blocks * 512);
@@ -3652,7 +3775,7 @@ impl UsbMsc {
 
             _ => {
                 self.set_sense(SenseKey::IllegalRequest, Asc::InvalidCdb);
-                self.abort_transfer();
+                self.abort_transfer(disk);
             }
         }
     }
@@ -3710,6 +3833,7 @@ impl UsbMsc {
         self.need_read = false;
         self.need_write = false;
         self.csw_pending = false;
+        self.ep1_in_prearmed = false;
         self.usbfs.device().dcfg.clear_bits(dcfg::DAR_MASK);
 
         self.usbfs.device().daepint.write(0xFFFF_FFFF);
@@ -3771,8 +3895,8 @@ impl UsbMsc {
                                         }
                                         BbbState::DataOut => {
                                             let offset = self.media_rx_offset + byte_idx;
-                                            if offset < self.media_buf.len() {
-                                                self.media_buf[offset] = byte;
+                                            if offset < self.media_buf[0].len() {
+                                                self.media_buf[0][offset] = byte;
                                             }
                                         }
                                         _ => {}
@@ -3855,7 +3979,7 @@ impl UsbMsc {
         }
     }
 
-    fn handle_epin(&mut self) {
+    fn handle_epin<D: MscBlockDevice>(&mut self, disk: &mut D) {
         let daepint = self.usbfs.device().daepint.read();
 
         // Check EP0 IN
@@ -3900,11 +4024,51 @@ impl UsbMsc {
                 self.usbfs.in_ep(1).diepintf.write(diepintf::TF);
                 match self.state {
                     BbbState::DataIn => {
-                        if self.remaining_bytes > 0 {
-                            let next_len = core::cmp::min(self.remaining_bytes, 512);
-                            self.ep_nak_arm(1, next_len);
+                        if self.has_read_ahead {
+                            // Wire transmission of previous sector finished!
+                            // Immediately load the read-ahead sector from SRAM into TX1 FIFO (~12 µs)
+                            let cur_idx = self.buf_idx;
+                            let cur_len = self.read_ahead_len;
+                            self.has_read_ahead = false;
+                            self.ep_send_media(cur_idx, cur_len);
+
+                            // Pipelined read-ahead: If more sectors remain, overlap wire transmission with next read
+                            if self.remaining_bytes > 0 {
+                                let next_idx = 1 - cur_idx;
+                                let next_len = core::cmp::min(self.remaining_bytes, 512) as usize;
+                                let lba = self.lba;
+
+                                let read_ok = if let Some(cached) = self.cache.lookup(lba) {
+                                    disk.end_multi_read();
+                                    self.media_buf[next_idx].copy_from_slice(cached);
+                                    true
+                                } else {
+                                    if self.remaining_bytes > 512 {
+                                        disk.begin_multi_read(lba);
+                                    }
+                                    disk.read_sector(lba, &mut self.media_buf[next_idx])
+                                };
+
+                                if read_ok {
+                                    self.stats.sectors_read += 1;
+                                    self.stats.is_active = true;
+                                    self.lba += 1;
+                                    self.remaining_bytes -= next_len as u32;
+                                    self.buf_idx = next_idx;
+                                    self.read_ahead_len = next_len;
+                                    self.has_read_ahead = true;
+                                } else {
+                                    self.set_sense(SenseKey::HardwareError, Asc::UnrecoveredReadError);
+                                    self.abort_transfer(disk);
+                                }
+                            } else {
+                                disk.end_multi_read();
+                            }
+                        } else if self.remaining_bytes > 0 {
+                            self.set_ep_snak(1);
                             self.need_read = true;
                         } else {
+                            disk.end_multi_read();
                             self.set_ep_snak(1);
                             self.csw_status = CswStatus::CmdPassed;
                             self.data_done_time = unsafe { gd32vf103_pac::Mtime::steal().read_ticks() };
@@ -3912,6 +4076,18 @@ impl UsbMsc {
                         }
                     }
                     BbbState::SendData => {
+                        let sent_len = (self.cbw.d_cbw_data_transfer_length - self.csw_residue) as usize;
+                        if self.csw_residue > 0 && (sent_len % 64) == 0 {
+                            self.state = BbbState::SendZlp;
+                            self.ep_send(1, &[]);
+                        } else {
+                            self.set_ep_snak(1);
+                            self.csw_status = CswStatus::CmdPassed;
+                            self.data_done_time = unsafe { gd32vf103_pac::Mtime::steal().read_ticks() };
+                            self.state = BbbState::StatusPending;
+                        }
+                    }
+                    BbbState::SendZlp => {
                         self.set_ep_snak(1);
                         self.csw_status = CswStatus::CmdPassed;
                         self.data_done_time = unsafe { gd32vf103_pac::Mtime::steal().read_ticks() };
@@ -4075,10 +4251,25 @@ impl UsbMsc {
                     self.state = BbbState::Idle;
                     self.need_read = false;
                     self.need_write = false;
+                    self.has_read_ahead = false;
                     self.csw_pending = false;
+                    self.ep1_in_prearmed = false;
 
                     self.usbfs.in_ep(1).diepctl.clear_bits(depctl::STALL);
                     self.usbfs.out_ep(1).doepctl.clear_bits(depctl::STALL);
+
+                    let in_ctl = self.usbfs.in_ep(1).diepctl.read();
+                    if (in_ctl & depctl::EPEN) != 0 {
+                        self.usbfs.in_ep(1).diepctl.write(
+                            (in_ctl & !(depctl::SD0PID | depctl::SD1PID | depctl::CNAK))
+                                | depctl::EPD
+                                | depctl::SNAK,
+                        );
+                        let mut timeout = 1000u32;
+                        while (self.usbfs.in_ep(1).diepctl.read() & depctl::EPEN) != 0 && timeout > 0 {
+                            timeout -= 1;
+                        }
+                    }
 
                     self.usbfs.global().grstctl.write((0x10 << 6) | grstctl::TXFF);
                     while (self.usbfs.global().grstctl.read() & grstctl::TXFF) != 0 {}
@@ -4128,7 +4319,7 @@ impl UsbMsc {
         }
 
         if (intr & gintf::IEPIF) != 0 {
-            self.handle_epin();
+            self.handle_epin(disk);
         }
 
         if (intr & gintf::SP) != 0 {
@@ -4147,21 +4338,69 @@ impl UsbMsc {
 
         if self.need_read {
             self.need_read = false;
-            let len = core::cmp::min(self.remaining_bytes, 512);
-            if disk.read_sector(self.lba, &mut self.media_buf) {
+            let len = core::cmp::min(self.remaining_bytes, 512) as usize;
+            let lba = self.lba;
+
+            let read_ok = if let Some(cached) = self.cache.lookup(lba) {
+                disk.end_multi_read();
+                self.media_buf[0].copy_from_slice(cached);
+                true
+            } else {
+                if self.remaining_bytes > 512 {
+                    disk.begin_multi_read(lba);
+                }
+                disk.read_sector(lba, &mut self.media_buf[0])
+            };
+
+            if read_ok {
                 self.stats.sectors_read += 1;
                 self.stats.is_active = true;
                 self.lba += 1;
-                self.remaining_bytes -= len;
-                self.ep_send_media(len as usize);
+                self.remaining_bytes -= len as u32;
+
+                // Load Sector 0 into TX1 FIFO and assert EPEN | CNAK
+                self.ep_send_media(0, len);
+
+                // Pipelined read-ahead: If more sectors remain, read next sector into buffer 1 right now!
+                if self.remaining_bytes > 0 {
+                    let next_len = core::cmp::min(self.remaining_bytes, 512) as usize;
+                    let next_lba = self.lba;
+
+                    let next_ok = if let Some(cached) = self.cache.lookup(next_lba) {
+                        disk.end_multi_read();
+                        self.media_buf[1].copy_from_slice(cached);
+                        true
+                    } else {
+                        if self.remaining_bytes > 512 {
+                            disk.begin_multi_read(next_lba);
+                        }
+                        disk.read_sector(next_lba, &mut self.media_buf[1])
+                    };
+
+                    if next_ok {
+                        self.stats.sectors_read += 1;
+                        self.stats.is_active = true;
+                        self.lba += 1;
+                        self.remaining_bytes -= next_len as u32;
+                        self.buf_idx = 1;
+                        self.read_ahead_len = next_len;
+                        self.has_read_ahead = true;
+                    } else {
+                        self.set_sense(SenseKey::HardwareError, Asc::UnrecoveredReadError);
+                        self.abort_transfer(disk);
+                    }
+                } else {
+                    disk.end_multi_read();
+                }
             } else {
                 self.set_sense(SenseKey::HardwareError, Asc::UnrecoveredReadError);
-                self.abort_transfer();
+                self.abort_transfer(disk);
             }
         } else if self.need_write {
             self.need_write = false;
             let len = core::cmp::min(self.remaining_bytes, 512);
-            if disk.write_sector(self.lba, &self.media_buf) {
+            if disk.write_sector(self.lba, &self.media_buf[0]) {
+                self.cache.update(self.lba, &self.media_buf[0]);
                 self.stats.sectors_written += 1;
                 self.stats.is_active = true;
                 self.lba += 1;
@@ -4176,17 +4415,18 @@ impl UsbMsc {
                 }
             } else {
                 self.set_sense(SenseKey::HardwareError, Asc::WriteFault);
-                self.abort_transfer();
+                self.abort_transfer(disk);
             }
         } else if self.state == BbbState::StatusPending {
             let now = unsafe { gd32vf103_pac::Mtime::steal().read_ticks() };
-            let guard_elapsed = self.data_done_time != 0 && now.wrapping_sub(self.data_done_time) >= 60_000;
+            let elapsed = if self.data_done_time != 0 { now.wrapping_sub(self.data_done_time) } else { 0 };
             let dieplen = self.usbfs.in_ep(1).dieplen.read();
-            let hw_done = (dieplen & 0x7FFFF) == 0;
+            let hw_done = (dieplen & 0x7FFFF) == 0 && ((dieplen >> 19) & 0x7FF) == 0;
+            let fifo_empty = (self.usbfs.in_ep(1).dieptfstat.read() & 0xFFFF) >= 192;
             let ctl = self.usbfs.in_ep(1).diepctl.read();
             let ep_naking = (ctl & depctl::NAKS) != 0;
 
-            if guard_elapsed && hw_done && ep_naking {
+            if (elapsed >= 1_200 && hw_done && fifo_empty && ep_naking) || (elapsed >= 48_000_000) {
                 self.send_csw(self.csw_status);
             }
         }

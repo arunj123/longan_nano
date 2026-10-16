@@ -80,58 +80,35 @@ fn main() -> ! {
 
         let mut test_sec = [0u8; 512];
 
-        // Sector 0
-        let t0 = board.delay.get_raw_ticks();
-        let res_0 = board.sdcard.read_sector(0, &mut test_sec);
-        let dt_0 = (board.delay.get_raw_ticks() - t0) / 24; // us at 24MHz mtime
-        let _ = writeln!(
-            board.uart0,
-            "[MAIN] Real SD Sector 0: {:?} ({} us, Sig: 0x{:02X}{:02X})",
-            res_0,
-            dt_0,
-            test_sec[510],
-            test_sec[511]
-        );
-
-        // Sector 496 (VBR)
-        let t1 = board.delay.get_raw_ticks();
-        let res_496 = board.sdcard.read_sector(496, &mut test_sec);
-        let dt_496 = (board.delay.get_raw_ticks() - t1) / 24;
-        let _ = writeln!(
-            board.uart0,
-            "[MAIN] Real SD Sector 496 (VBR): {:?} ({} us, Sig: 0x{:02X}{:02X})",
-            res_496,
-            dt_496,
-            test_sec[510],
-            test_sec[511]
-        );
-
-        // Sector 560 (FAT)
-        let t2 = board.delay.get_raw_ticks();
-        let res_560 = board.sdcard.read_sector(560, &mut test_sec);
-        let dt_560 = (board.delay.get_raw_ticks() - t2) / 24;
-        let _ = writeln!(
-            board.uart0,
-            "[MAIN] Real SD Sector 560 (FAT): {:?} ({} us, Sig: 0x{:02X}{:02X})",
-            res_560,
-            dt_560,
-            test_sec[510],
-            test_sec[511]
-        );
-
-        // Sectors 1024..1031
-        for s in 1024..=1031 {
-            let ts = board.delay.get_raw_ticks();
-            let res_s = board.sdcard.read_sector(s, &mut test_sec);
-            let dt_s = (board.delay.get_raw_ticks() - ts) / 24;
+        let _ = writeln!(board.uart0, "[MAIN] Pre-warming 8 KB hot-LBA cache...");
+        // Slots 0..7: LBAs 0..7 (MBR & Partition Table)
+        for s in 0..8 {
+            let t0 = board.delay.get_raw_ticks();
+            let res = board.sdcard.read_sector(s, &mut test_sec);
+            let dt = (board.delay.get_raw_ticks() - t0) / 24;
+            if res.is_ok() {
+                board.usb_msc.cache.insert(s as usize, s, &test_sec);
+            }
             let _ = writeln!(
                 board.uart0,
-                "[MAIN] Real SD Sector {}: {:?} ({} us, Sig: 0x{:02X}{:02X})",
-                s,
-                res_s,
-                dt_s,
-                test_sec[510],
-                test_sec[511]
+                "[CACHE] Slot {} <- LBA {}: {:?} ({} us, Sig: 0x{:02X}{:02X})",
+                s, s, res, dt, test_sec[510], test_sec[511]
+            );
+        }
+
+        // Slots 8..15: LBAs 1024..1031 (Partition 1 AU boundary)
+        for s in 0..8 {
+            let lba = 1024 + s;
+            let t0 = board.delay.get_raw_ticks();
+            let res = board.sdcard.read_sector(lba, &mut test_sec);
+            let dt = (board.delay.get_raw_ticks() - t0) / 24;
+            if res.is_ok() {
+                board.usb_msc.cache.insert((8 + s) as usize, lba, &test_sec);
+            }
+            let _ = writeln!(
+                board.uart0,
+                "[CACHE] Slot {} <- LBA {}: {:?} ({} us, Sig: 0x{:02X}{:02X})",
+                8 + s, lba, res, dt, test_sec[510], test_sec[511]
             );
         }
     } else {
@@ -153,6 +130,8 @@ fn main() -> ! {
 
     let mut last_heartbeat = board.delay.uptime_ms();
     let mut usb_was_configured = false;
+    let mut pending_configured_ui = false;
+    let mut configured_time = 0u32;
 
     loop {
         board.usb_msc.poll(&mut board.sdcard);
@@ -160,12 +139,22 @@ fn main() -> ! {
         let configured = board.usb_msc.is_configured();
         if configured && !usb_was_configured {
             usb_was_configured = true;
-            board.lcd.draw_string(4, 40, "USB: CONFIGURED OK   ", &FONT_5X7, lcd_color::GREEN, lcd_color::BLACK);
-            let _ = writeln!(board.uart0, "[MAIN] >>> USB CONFIGURED BY HOST! <<<");
+            pending_configured_ui = true;
+            configured_time = board.delay.uptime_ms();
         } else if !configured && usb_was_configured {
             usb_was_configured = false;
+            pending_configured_ui = false;
             board.lcd.draw_string(4, 40, "USB: Disconnected... ", &FONT_5X7, lcd_color::YELLOW, lcd_color::BLACK);
             let _ = writeln!(board.uart0, "[MAIN] USB disconnected / reset.");
+        }
+
+        let now = board.delay.uptime_ms();
+
+        // Non-blocking deferred UI: only draw once USB bus has settled for >= 250 ms without blocking the enumeration phase
+        if pending_configured_ui && now.wrapping_sub(configured_time) >= 250 {
+            pending_configured_ui = false;
+            board.lcd.draw_string(4, 40, "USB: CONFIGURED OK   ", &FONT_5X7, lcd_color::GREEN, lcd_color::BLACK);
+            let _ = writeln!(board.uart0, "[MAIN] >>> USB CONFIGURED BY HOST! <<<");
         }
 
         if board.usb_msc.stats.is_active {
@@ -173,7 +162,6 @@ fn main() -> ! {
             board.led_blue.toggle();
         }
 
-        let now = board.delay.uptime_ms();
         if now.wrapping_sub(last_heartbeat) >= 1000 {
             last_heartbeat = now;
             if sd_ok {

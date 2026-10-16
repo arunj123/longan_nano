@@ -149,3 +149,26 @@ Immediately upon completing testing on hardware, commit using the standardized 5
 - **Test Results**: Empirical pass/fail results for LBA 1024, `dd` transfer throughput, and `mount` status.
 - **Root Cause & Diagnostics**: Confirmation of register states, FIFO timing, and latency measurements.
 - **What Next**: Subsequent tuning (e.g. write optimization or DMA-accelerated SPI1).
+
+---
+
+## 7. Build 00D1 Empirical Results & Diagnostic Milestone
+
+### Test Results on Remote Linux Host (`192.168.0.63`):
+1. **Clean Enumeration**: Device enumerates cleanly as Full-Speed MSC device (`28e9:aba3`, `Longan Nano SD Reader`) with `983040 512-byte logical blocks: (503 MB/480 MiB)` and creates `/dev/sdb`, `/dev/sdb1`.
+2. **Read Capacity (Tag 0x09)**: **PASSED** (returned `0x000EFFFF` blocks, 512-byte sector size).
+3. **LBA 0 (1 blk = 512B, Tag 0x0A, Cache Hit)**: **PASSED 100%** (MBR signature `0x55AA`).
+4. **LBA 0 (8 blks = 4096B, Tag 0x0E & 0x14, Cache Hit)**: **PASSED 100%**.
+5. **Physical SD Multi-Block Streaming (Tags 0x15, 0x16, 0x17, 0x18, 0x19)**:
+   - LBAs 32, 64, 128, 256, 512 (each 8 blocks = 4096B) streamed directly from physical SD card via CMD18 at 24 MHz SPI with 2-slot double-buffering.
+   - **PASSED 100%** with zero bus resets or transfer errors!
+6. **LBA 1024 (8 blks = 4096B, Tag 0x1A)**:
+   - Failed immediately on first packet with `C Bi:1:092:1 -71 0` (xHCI `EPROTO -71`, 0 bytes transferred), triggering kernel device reset.
+
+### Root Cause & Diagnostics:
+- Physical SD CMD18 multi-block streaming is verified working at 24 MHz SPI across multiple 4096-byte transfers (LBAs 32 through 512).
+- The failure at Tag 0x1A is isolated to LBA 1024 cache dispatch:
+  - LBA 1024 resides in cache slots 8..15 (pre-warmed with `0xFFFF` unallocated flash at boot).
+  - Sub-microsecond cache response immediately after Tag 0x19 CMD18 streaming causes a timing race or toggle mismatch: `ep_send_media` loads TX1 FIFO and asserts CNAK before the host's Bulk-IN URB reaches the wire.
+  - Test capture commands appeared stuck because `cat /sys/kernel/debug/usb/usbmon/1u` ran indefinitely, and Linux SCSI 30s command timeout held `/dev/sdb` during bus error recovery.
+
