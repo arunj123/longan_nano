@@ -390,11 +390,44 @@ flowchart TD
        - Over-Current Alert threshold and limit field validation PASS.
 
 ### Phase 4: UI/UX & Advanced Features (ACTIVE PHASE)
-- [ ] **Task 4.1**: Implement `PA8` button double-click context actions and long-press visual progress bar.
+- [x] **Task 4.1**: Implement `PA8` button double-click context actions and long-press visual progress bar. *(Verified in Build 00DC: 48/48 host unit tests PASS, 21/21 remote hardware tests PASS, visual progress bar + tare trigger + context actions verified)*
 - [ ] **Task 4.2**: Implement edge-triggered capture on `GraphScreen` and fix `Single` mode autoscale replotting.
 - [ ] **Task 4.3**: Add live LCD telemetry to `prj_usb_msc` during bus idle.
 - [ ] **Task 4.4**: Add SD card hot-swap detection and `SenseKey::UnitAttention` handling.
 - [ ] **Task 4.5**: Add display 180° rotation toggle via `MADCTL` persisted in `BKP` register.
+
+#### Phase 4 Empirical Verification Summary:
+1. **`prj_current_monitor` PA8 Gesture Controller & Visual Feedback (Build 00DC)**:
+   - **Interactive Button Controller (`button.rs`)**:
+     - Created `ButtonController` with explicit timing and state management:
+       - Hardware debouncing (minimum 40 ms press threshold).
+       - Single-click detection (280 ms release timeout or immediate screen advance; re-arms halted single-sweep on `GraphScreen`).
+       - Double-click detection (second tap arriving within 280 ms of first release):
+         - On `GraphScreen`: cycles Trigger Mode (`AUTO` -> `NORM` -> `SINGLE`).
+         - On `StatsScreen` / `BigDigitScreen`: cycles Battery Profile (`None`, `Lipo500`, `Lipo1200`, `LiIon2500`, `Alkaline1000`).
+         - On `HeroScreen` / `HistogramScreen`: flushes sector buffer and rotates SD log file (`LOG_XXXX.CSV`).
+     - State reset on new simulation commands to avoid state bleed across consecutive tests.
+   - **Visual Hold Progress Bar & Context Confirmation Banners**:
+     - Between 300 ms and 1,500 ms of holding `PA8`, renders real-time 10-step progress bar on LCD top bar:
+       `HOLD TO TARE [====      ]` (120 ms per step, amber on deep slate).
+     - At exactly 1,500 ms, triggers Zero Tare Offset Calibration & Session Reset immediately without waiting for button release.
+     - Displays confirmation banner: `  TARE ZERO RESET OK!  ` (mint green, 1,000 ms duration).
+     - Displays brief 700 ms context action banners on double-click (e.g. ` TRIG MODE: NORM        `, ` BATT: LIPO 1200 mAh    `, ` SD: ROTATED LOG FILE   `).
+     - Overlay re-assertion in periodic 10 Hz render loop prevents screen updates from blanking the active banner; automatic screen layout redraw restores the top bar upon expiration or hold abort.
+     - Tactile LED Blue assertion during physical/simulated press down, extinguishing on tare trigger or release.
+   - **Host Unit Test Suite (`cargo test`)**:
+     - 48/48 host unit tests pass across the workspace (24 in `prj_current_monitor`, 20 in `gd32vf103-hal`, 4 in `longan-nano-bsp`).
+     - 9 new unit tests in `button.rs` cover debouncing glitches, single-click timeouts, double-click detection, double-click hold immunity, hold progress steps, hold abort, 1,500 ms tare trigger, progress bar formatting, and simulation hooks.
+   - **Target Hardware Empirical Verification (`tools/test_remote_ui_cycling.py`)**:
+     - Flashed to GD32VF103 over JTAG OpenOCD on remote host `192.168.0.63`.
+     - All 21 remote automated test suites passed:
+       - Tests 1–15: Help menu, screen mode switching (HERO, GRAPH, STATS, HISTO, BIG, cycle), battery profile cycling, session telemetry dump JSON parse, SD buffer flush, SD file rotation, zero-tare reset, USB HID telemetry streaming, HID OUT SetMode, SetBatteryProfile, SetEpoch, SetCurrentLimit, limit check.
+       - Test 16: PA8 Simulated Single-Click (`[BUTTON] Single-click: Advance Screen -> HERO`) PASS.
+       - Test 17: PA8 Simulated Double-Click in Graph (`[BUTTON] Double-click: Trigger Mode -> NORM | Level: 20.0 mA`) PASS.
+       - Test 18: PA8 Simulated Double-Click in Stats (`[BUTTON] Double-click: Battery profile -> 2500mAh`) PASS.
+       - Test 19: PA8 Simulated Double-Click in Hero (`[BUTTON] Double-click: SD Rotated to new file: LOG_0086.CSV`) PASS.
+       - Test 20: PA8 Simulated Long-Press Hold & Tare (`[BUTTON] Holding PA8: 300..1380 ms [Step 0..9/10]`, `[SYS] Session Reset!`, `[BUTTON] Long press (1500 ms): Tare Zero & Reset triggered!`) PASS.
+       - Test 21: PA8 Simulated Aborted Hold (`[BUTTON] Holding PA8: 300..540 ms`, `[BUTTON] Hold aborted (< 1500 ms)`) PASS.
 
 ---
 

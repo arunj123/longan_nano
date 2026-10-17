@@ -2,6 +2,7 @@
 #![cfg_attr(not(test), no_main)]
 
 mod app;
+pub mod button;
 pub mod fmt;
 mod logger;
 pub mod model;
@@ -18,6 +19,7 @@ use riscv_rt::entry;
 use longan_nano_bsp::Board;
 
 use crate::app::{App, BKP_MAGIC_KEY, BKP_REG_CONFIG, BKP_REG_LIMIT, BKP_REG_MAGIC, BKP_REG_TARE};
+use crate::button::{ButtonEvent, ButtonState};
 use crate::logger::SdDatalogger;
 use crate::model::{BatteryProfile, InaReading};
 use crate::telemetry::HidCommand;
@@ -364,6 +366,22 @@ fn main() -> ! {
                     b's' | b'S' => {
                         app.dump_session(&mut board, now);
                     }
+                    b'k' => {
+                        app.button.simulate_tap(now, 80);
+                        writeln!(board.uart0, "[SIM] Simulated button tap (80 ms)").ok();
+                    }
+                    b'K' => {
+                        app.button.simulate_double_tap(now, 80, 100);
+                        writeln!(board.uart0, "[SIM] Simulated button double-tap (80ms + 100ms gap + 80ms)").ok();
+                    }
+                    b'P' => {
+                        app.button.simulate_hold(now, 1600);
+                        writeln!(board.uart0, "[SIM] Simulated button hold (1600 ms)").ok();
+                    }
+                    b'p' => {
+                        app.button.simulate_hold(now, 600);
+                        writeln!(board.uart0, "[SIM] Simulated button aborted hold (600 ms)").ok();
+                    }
                     b'?' | b'h' | b'H' => {
                         app.print_help(&mut board);
                     }
@@ -434,28 +452,115 @@ fn main() -> ! {
         }
 
         // 4. Interactive Button Controls (PA8)
-        let button_pressed = board.button.is_pressed();
-        if button_pressed && !app.prev_button_pressed {
-            app.button_press_start_ms = now;
-            board.led_blue.on(); // Visual click feedback
-        } else if !button_pressed && app.prev_button_pressed {
-            let duration = now.wrapping_sub(app.button_press_start_ms);
-            board.led_blue.off();
+        let raw_pressed = board.button.is_pressed();
+        let is_button_down = app.button.is_down(raw_pressed, now);
 
-            if duration >= 1500 {
-                // Long press (>= 1.5s): Zero Tare Calibration + Reset Session Stats
-                app.tare_and_reset(&mut board, now);
-            } else if duration >= 50 {
-                // Short press (50ms..1499ms):
-                if app.screen_mode == ScreenMode::Graph && app.graph_screen.trigger_mode == TriggerMode::Single && app.graph_screen.trigger_state == TriggerState::Halted {
+        // Tactile/Visual LED Blue feedback
+        if is_button_down && app.button.state != ButtonState::TareExecuted {
+            board.led_blue.on();
+        } else {
+            board.led_blue.off();
+        }
+
+        let btn_event = app.button.update(raw_pressed, now);
+        match btn_event {
+            ButtonEvent::None => {}
+
+            ButtonEvent::SingleClick => {
+                if app.screen_mode == ScreenMode::Graph
+                    && app.graph_screen.trigger_mode == TriggerMode::Single
+                    && app.graph_screen.trigger_state == TriggerState::Halted
+                {
                     app.graph_screen.rearm();
                     writeln!(board.uart0, "[TRIG] Single sweep rearmed! Waiting for trigger...").ok();
                 } else {
                     app.cycle_screen_mode(&mut board);
+                    writeln!(board.uart0, "[BUTTON] Single-click: Advance Screen -> {}", app.screen_mode_name()).ok();
                 }
             }
+
+            ButtonEvent::DoubleClick => {
+                match app.screen_mode {
+                    ScreenMode::Graph => {
+                        app.graph_screen.cycle_trigger_mode();
+                        let trig_name = app.graph_screen.trigger_mode.name();
+                        writeln!(
+                            board.uart0,
+                            "[BUTTON] Double-click: Trigger Mode -> {} | Level: {}.{} mA",
+                            trig_name,
+                            app.graph_screen.trigger_level_tenth / 10,
+                            app.graph_screen.trigger_level_tenth % 10,
+                        ).ok();
+                        let banner = match app.graph_screen.trigger_mode {
+                            TriggerMode::Auto => " TRIG MODE: AUTO        ",
+                            TriggerMode::Norm => " TRIG MODE: NORMAL      ",
+                            TriggerMode::Single => " TRIG MODE: SINGLE      ",
+                        };
+                        app.button.overlay.show_context_banner(banner, now, 700);
+                        app.render_top_bar_overlay(&mut board.lcd);
+                    }
+                    ScreenMode::Stats | ScreenMode::BigDigit => {
+                        app.battery.profile = app.battery.profile.next();
+                        app.save_nvram(&mut board);
+                        writeln!(
+                            board.uart0,
+                            "[BUTTON] Double-click: Battery profile -> {} (Nominal: {} mAh)",
+                            app.battery.profile.name(),
+                            app.battery.profile.capacity_mah(),
+                        ).ok();
+                        let banner = match app.battery.profile {
+                            BatteryProfile::None => " BATT: NONE (Disabled)  ",
+                            BatteryProfile::Lipo500 => " BATT: LIPO 500 mAh     ",
+                            BatteryProfile::Lipo1200 => " BATT: LIPO 1200 mAh    ",
+                            BatteryProfile::LiIon2500 => " BATT: LI-ION 2500 mAh  ",
+                            BatteryProfile::Alkaline1000 => " BATT: ALKALINE 1000 mAh",
+                        };
+                        app.button.overlay.show_context_banner(banner, now, 700);
+                        app.render_top_bar_overlay(&mut board.lcd);
+                    }
+                    ScreenMode::Hero | ScreenMode::Histogram => {
+                        app.datalogger.rotate_session();
+                        writeln!(
+                            board.uart0,
+                            "[BUTTON] Double-click: SD Rotated to new file: {}",
+                            app.datalogger.file_name_str(),
+                        ).ok();
+                        app.button.overlay.show_context_banner(" SD: ROTATED LOG FILE   ", now, 700);
+                        app.render_top_bar_overlay(&mut board.lcd);
+                    }
+                }
+            }
+
+            ButtonEvent::HoldProgress { step, duration_ms } => {
+                app.button.overlay.show_hold_progress(step);
+                app.render_top_bar_overlay(&mut board.lcd);
+                writeln!(
+                    board.uart0,
+                    "[BUTTON] Holding PA8: {} ms [Step {}/10]",
+                    duration_ms, step
+                ).ok();
+            }
+
+            ButtonEvent::HoldAborted => {
+                app.button.overlay.clear();
+                app.draw_current_layout(&mut board);
+                writeln!(board.uart0, "[BUTTON] Hold aborted (< 1500 ms)").ok();
+            }
+
+            ButtonEvent::TareTrigger => {
+                app.tare_and_reset(&mut board, now);
+                app.button.overlay.show_tare_confirmed(now, 1000);
+                app.render_top_bar_overlay(&mut board.lcd);
+                board.led_blue.off();
+                writeln!(board.uart0, "[BUTTON] Long press (1500 ms): Tare Zero & Reset triggered!").ok();
+            }
         }
-        app.prev_button_pressed = button_pressed;
+
+        // Overlay expiration check
+        if app.button.overlay.is_banner_expired(now) {
+            app.button.overlay.clear();
+            app.draw_current_layout(&mut board);
+        }
 
         // 3. Polite Green LED Heartbeat: Subtle 35ms pulse every 2.5s (2500ms)
         let hb_phase = now.wrapping_sub(app.last_heartbeat_ms);
@@ -608,6 +713,11 @@ fn main() -> ! {
                         app.over_current,
                     );
                 }
+            }
+
+            // Re-assert top bar overlay if active so normal screen render doesn't blank it
+            if app.button.overlay.is_active {
+                app.render_top_bar_overlay(&mut board.lcd);
             }
 
             // USB HID Telemetry Streaming (9 bytes @ 10 Hz)

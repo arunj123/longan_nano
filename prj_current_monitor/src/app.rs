@@ -2,12 +2,14 @@ use core::fmt::Write;
 use embedded_hal::delay::DelayNs;
 use longan_nano_bsp::CurrentMonitorBoard;
 
+use crate::button::{fmt_hold_progress, BannerType, ButtonController};
 use crate::logger::SdDatalogger;
 use crate::model::{
     Accumulators, BatteryProfile, BatteryState, HistogramData, InaReading, SampleAggregator,
     SessionStats, WaveformHistory,
 };
 use crate::telemetry::TelemetryStreamer;
+use crate::ui::theme::{COL_AMBER, COL_BG_TOP, COL_CARD_BORDER, COL_CYAN, COL_DIVIDER, COL_MINT};
 use crate::ui::{
     BigDigitScreen, GraphScreen, HeroScreen, HistogramScreen, ScreenMode, StatsScreen,
 };
@@ -66,8 +68,7 @@ pub struct App<'a> {
     pub prev_usb_configured: bool,
     pub last_reading: InaReading,
 
-    pub button_press_start_ms: u32,
-    pub prev_button_pressed: bool,
+    pub button: ButtonController,
     pub cmd_buf: [u8; 32],
     pub cmd_len: usize,
 }
@@ -101,8 +102,7 @@ impl<'a> App<'a> {
             prev_usb_configured: false,
             last_reading: InaReading::default(),
 
-            button_press_start_ms: 0,
-            prev_button_pressed: false,
+            button: ButtonController::new(),
             cmd_buf: [0u8; 32],
             cmd_len: 0,
         }
@@ -177,6 +177,43 @@ impl<'a> App<'a> {
     pub fn cycle_screen_mode_rev(&mut self, board: &mut CurrentMonitorBoard) {
         let prev = self.prev_screen_mode();
         self.set_screen_mode(board, prev);
+    }
+
+    pub fn screen_mode_name(&self) -> &'static str {
+        match self.screen_mode {
+            ScreenMode::Hero => "HERO",
+            ScreenMode::Graph => "GRAPH",
+            ScreenMode::Stats => "STATS",
+            ScreenMode::Histogram => "HISTO",
+            ScreenMode::BigDigit => "BIG DIGIT",
+        }
+    }
+
+    pub fn render_top_bar_overlay(&mut self, lcd: &mut longan_nano_bsp::Lcd) {
+        if !self.button.overlay.is_active {
+            return;
+        }
+        match self.button.overlay.banner_type {
+            BannerType::None => {
+                let mut buf = [0u8; 25];
+                fmt_hold_progress(&mut buf, self.button.overlay.hold_step);
+                if let Ok(s) = core::str::from_utf8(&buf) {
+                    lcd.fill_rect(0, 0, 160, 13, COL_BG_TOP);
+                    lcd.fill_rect(0, 13, 160, 1, COL_DIVIDER);
+                    lcd.draw_string(5, 3, s, &longan_nano_bsp::lcd::FONT_5X7, COL_AMBER, COL_BG_TOP);
+                }
+            }
+            BannerType::TareConfirmed => {
+                lcd.fill_rect(0, 0, 160, 13, 0x0162);
+                lcd.fill_rect(0, 13, 160, 1, COL_MINT);
+                lcd.draw_string(11, 3, "  TARE ZERO RESET OK!  ", &longan_nano_bsp::lcd::FONT_5X7, COL_MINT, 0x0162);
+            }
+            BannerType::ContextAction(msg) => {
+                lcd.fill_rect(0, 0, 160, 13, 0x0944);
+                lcd.fill_rect(0, 13, 160, 1, COL_CARD_BORDER);
+                lcd.draw_string(8, 3, msg, &longan_nano_bsp::lcd::FONT_5X7, COL_CYAN, 0x0944);
+            }
+        }
     }
 
     pub fn tare_and_reset(&mut self, board: &mut CurrentMonitorBoard, now: u32) {
@@ -420,6 +457,16 @@ impl<'a> App<'a> {
         writeln!(
             board.uart0,
             " 's'      : Dump full telemetry summary (JSON)"
+        )
+        .ok();
+        writeln!(
+            board.uart0,
+            " 'k' / 'K': Sim PA8 Button (k: Click, K: Double-Click)"
+        )
+        .ok();
+        writeln!(
+            board.uart0,
+            " 'P' / 'p': Sim PA8 Hold (P: 1.6s Tare, p: Abort Hold)"
         )
         .ok();
         writeln!(board.uart0, " '?' / 'h': Print this command menu").ok();

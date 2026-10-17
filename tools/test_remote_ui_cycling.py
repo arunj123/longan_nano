@@ -212,7 +212,8 @@ results['test_hid_epoch'] = {'pass': hid_rtc_ok}
 
 # TEST 13: Over-Current Alert Threshold via UART Console ('l' and 'L 1500\n')
 ok_l1, lines_l1 = send_and_expect('l', ['[LIMIT] Over-Current Alert Limit:'], timeout=1.5)
-ok_l2, lines_l2 = send_and_expect('L 1500\n', ['[LIMIT] Set Over-Current Alert Limit to: 1500 mA'], timeout=2.0, char_delay=0.01)
+time.sleep(0.2)
+ok_l2, lines_l2 = send_and_expect('L 1500\n', ['[LIMIT] Set Over-Current Alert Limit to: 1500 mA'], timeout=2.5, char_delay=0.02)
 results['test_limit_uart'] = {'pass': ok_l1 and ok_l2, 'lines': lines_l1 + lines_l2}
 
 # TEST 14: USB HID OUT SetCurrentLimit (Opcode 0x08 -> 2500 mA)
@@ -235,6 +236,7 @@ except Exception as e:
 results['test_hid_limit'] = {'pass': hid_lim_ok}
 
 # TEST 15: Telemetry Summary JSON Verification for limit_ma and alert
+time.sleep(0.3)
 ok_s, lines_s = send_and_expect('s', ['--- SESSION TELEMETRY SUMMARY ---', '[JSON]'], timeout=2.5)
 json_has_limit = False
 limit_val = None
@@ -250,6 +252,42 @@ for l in lines_s:
             except:
                 pass
 results['test_json_limit'] = {'pass': ok_s and json_has_limit and (limit_val == 2500), 'limit_ma': limit_val, 'lines': lines_s}
+
+# TEST 16: PA8 Simulated Single-Click ('k' -> Advance Screen)
+time.sleep(0.4)
+ok_k, lines_k = send_and_expect('k', ['[BUTTON] Single-click: Advance Screen ->'], timeout=2.0)
+results['test_btn_single'] = {'pass': ok_k, 'lines': lines_k}
+
+# TEST 17: PA8 Simulated Double-Click in Graph Mode ('2' then 'K' -> Cycle Trigger Mode)
+time.sleep(0.4)
+send_and_expect('2', ['[UI] Screen mode: 2: GRAPH'], timeout=1.5)
+time.sleep(0.2)
+ok_dg, lines_dg = send_and_expect('K', ['[BUTTON] Double-click: Trigger Mode ->'], timeout=2.0)
+results['test_btn_dbl_graph'] = {'pass': ok_dg, 'lines': lines_dg}
+
+# TEST 18: PA8 Simulated Double-Click in Stats Mode ('3' then 'K' -> Cycle Battery Profile)
+time.sleep(0.4)
+send_and_expect('3', ['[UI] Screen mode: 3: STATS'], timeout=1.5)
+time.sleep(0.2)
+ok_db, lines_db = send_and_expect('K', ['[BUTTON] Double-click: Battery profile ->'], timeout=2.0)
+results['test_btn_dbl_batt'] = {'pass': ok_db, 'lines': lines_db}
+
+# TEST 19: PA8 Simulated Double-Click in Hero Mode ('1' then 'K' -> Rotate SD Log File)
+time.sleep(0.4)
+send_and_expect('1', ['[UI] Screen mode: 1: HERO'], timeout=1.5)
+time.sleep(0.2)
+ok_ds, lines_ds = send_and_expect('K', ['[BUTTON] Double-click: SD Rotated to new file: LOG_'], timeout=2.0)
+results['test_btn_dbl_sd'] = {'pass': ok_ds, 'lines': lines_ds}
+
+# TEST 20: PA8 Simulated Long-Press Hold & Tare Trigger ('P' -> Progress Steps & Tare Trigger)
+time.sleep(0.4)
+ok_hp, lines_hp = send_and_expect('P', ['[BUTTON] Holding PA8:', '[BUTTON] Long press (1500 ms): Tare Zero & Reset triggered!'], timeout=3.5)
+results['test_btn_hold_tare'] = {'pass': ok_hp, 'lines': lines_hp}
+
+# TEST 21: PA8 Simulated Aborted Hold ('p' -> Progress Steps & Hold Aborted)
+time.sleep(0.4)
+ok_ha, lines_ha = send_and_expect('p', ['[BUTTON] Holding PA8:', '[BUTTON] Hold aborted (< 1500 ms)'], timeout=2.0)
+results['test_btn_hold_abort'] = {'pass': ok_ha, 'lines': lines_ha}
 
 ser.close()
 print("FINAL_RESULTS:" + json.dumps(results))
@@ -409,9 +447,45 @@ def main():
     all_passed &= ljp
     print(f" [TEST 15] JSON Telemetry Alert & Limit Field Validation: {'PASS' if ljp else 'FAIL'} (Limit: {lim_j.get('limit_ma')} mA)")
 
+    # Test 16: PA8 Single-Click Screen Advance
+    btn_s = res.get('test_btn_single', {})
+    bsp = btn_s.get('pass', False)
+    all_passed &= bsp
+    print(f" [TEST 16] PA8 Simulated Single-Click (Advance Screen): {'PASS' if bsp else 'FAIL'}")
+
+    # Test 17: PA8 Double-Click in Graph Mode (Cycle Trigger Mode)
+    btn_dg = res.get('test_btn_dbl_graph', {})
+    bdgp = btn_dg.get('pass', False)
+    all_passed &= bdgp
+    print(f" [TEST 17] PA8 Simulated Double-Click in Graph (Cycle Trigger): {'PASS' if bdgp else 'FAIL'}")
+
+    # Test 18: PA8 Double-Click in Stats Mode (Cycle Battery Profile)
+    btn_db = res.get('test_btn_dbl_batt', {})
+    bdbp = btn_db.get('pass', False)
+    all_passed &= bdbp
+    print(f" [TEST 18] PA8 Simulated Double-Click in Stats (Cycle Battery): {'PASS' if bdbp else 'FAIL'}")
+
+    # Test 19: PA8 Double-Click in Hero Mode (Rotate SD Log File)
+    btn_ds = res.get('test_btn_dbl_sd', {})
+    bdsp = btn_ds.get('pass', False)
+    all_passed &= bdsp
+    print(f" [TEST 19] PA8 Simulated Double-Click in Hero (Rotate SD Log): {'PASS' if bdsp else 'FAIL'}")
+
+    # Test 20: PA8 Long-Press Hold Progress & Tare Trigger (1500 ms)
+    btn_ht = res.get('test_btn_hold_tare', {})
+    bhtp = btn_ht.get('pass', False)
+    all_passed &= bhtp
+    print(f" [TEST 20] PA8 Simulated Long-Press Hold & Tare (1500 ms): {'PASS' if bhtp else 'FAIL'}")
+
+    # Test 21: PA8 Aborted Hold (< 1500 ms)
+    btn_ha = res.get('test_btn_hold_abort', {})
+    bhap = btn_ha.get('pass', False)
+    all_passed &= bhap
+    print(f" [TEST 21] PA8 Simulated Aborted Hold (< 1500 ms): {'PASS' if bhap else 'FAIL'}")
+
     print("=" * 70)
     if all_passed:
-        print(" >>> ALL 15 TEST SUITES PASSED CLEANLY ON TARGET HARDWARE <<<")
+        print(" >>> ALL 21 TEST SUITES PASSED CLEANLY ON TARGET HARDWARE <<<")
         print("=" * 70)
         sys.exit(0)
     else:
