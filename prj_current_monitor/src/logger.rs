@@ -159,6 +159,7 @@ impl<'a> SdDatalogger<'a> {
             let vol = vol_mgr.open_volume(VolumeIdx(0)).map_err(|_| ())?;
             let root = vol.open_root_dir().map_err(|_| ())?;
             let _ = root.iterate_dir(|entry| {
+                longan_nano_bsp::hal::Fwdgt::feed_raw();
                 let name = &entry.name;
                 if name.extension() == b"CSV" {
                     let base = name.base_name();
@@ -370,6 +371,8 @@ impl<'a> SdDatalogger<'a> {
         if self.buf_len == 0 {
             return Ok(());
         }
+
+        longan_nano_bsp::hal::Fwdgt::feed_raw();
 
         let dev = SdCardDevice(self.sdcard);
         let vol_mgr = VolumeManager::new(dev, DynamicTimeSource(self.current_dt));

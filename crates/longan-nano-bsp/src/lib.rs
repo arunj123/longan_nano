@@ -348,7 +348,7 @@ impl Board {
         let sd_miso = gpiob.pb14.into_pull_up_input();
         let sd_mosi = gpiob.pb15.into_alternate_push_pull();
         let spi1 = Spi1::new_master(dp.spi1, sd_sck, sd_miso, sd_mosi, Prescaler::Div256, &rcu);
-        let sdcard = SdCard::new(spi1, sd_cs);
+        let sdcard = SdCard::new_with_ticks_per_ms(spi1, sd_cs, clocks.mtime_freq / 1000);
 
         let mut delay = Delay::new(dp.mtime, clocks);
 
@@ -422,7 +422,7 @@ impl Board {
         let sd_miso = gpiob.pb14.into_pull_up_input();
         let sd_mosi = gpiob.pb15.into_alternate_push_pull();
         let spi1 = Spi1::new_master(dp.spi1, sd_sck, sd_miso, sd_mosi, Prescaler::Div256, &rcu);
-        let sdcard = SdCard::new(spi1, sd_cs);
+        let sdcard = SdCard::new_with_ticks_per_ms(spi1, sd_cs, clocks.mtime_freq / 1000);
 
         let mcu_temp = Adc0TempSensor::init(dp.adc0, &rcu, &mut delay);
         let fwdgt = Fwdgt::start(dp.fwdgt, 2000);
@@ -554,7 +554,7 @@ impl Board {
         let sd_miso = gpiob.pb14.into_pull_up_input();
         let sd_mosi = gpiob.pb15.into_alternate_push_pull();
         let spi1 = Spi1::new_master(dp.spi1, sd_sck, sd_miso, sd_mosi, Prescaler::Div256, &rcu);
-        let sdcard = SdCard::new(spi1, sd_cs);
+        let sdcard = SdCard::new_with_ticks_per_ms(spi1, sd_cs, clocks.mtime_freq / 1000);
 
         let mut delay = Delay::new(dp.mtime, clocks);
         let usb_msc = UsbMsc::new(dp.usbfs, &rcu, &mut delay);

@@ -482,7 +482,7 @@ fn main() -> ! {
         // avoiding redundant I2C pre-polling and reducing bus transactions to 2.
         let dt_ms = now.wrapping_sub(app.last_10hz_ms);
         if dt_ms >= 100 {
-            app.last_10hz_ms = now;
+            app.last_10hz_ms = if dt_ms >= 200 { now } else { app.last_10hz_ms.wrapping_add(100) };
 
             let mut reading = InaReading::default();
 
@@ -542,10 +542,6 @@ fn main() -> ! {
             if !(app.graph_screen.trigger_mode == TriggerMode::Single && app.graph_screen.trigger_state == TriggerState::Halted) {
                 app.history.push(reading.current_tenth_ma);
             }
-
-            // Sample internal MCU die temperature
-            let mcu_temp_tenth = board.mcu_temp.read_temperature_tenth_c();
-            app.stats.update_temp(mcu_temp_tenth);
 
             // Only record histogram and session statistics when sensor is online
             if app.ina_present {
@@ -671,8 +667,13 @@ fn main() -> ! {
         }
 
         // 5. 1 Hz MicroSD CSV Datalogger & Heartbeat Logging
-        if now.wrapping_sub(app.last_1hz_ms) >= 1000 {
-            app.last_1hz_ms = now;
+        let dt_1hz_ms = now.wrapping_sub(app.last_1hz_ms);
+        if dt_1hz_ms >= 1000 {
+            app.last_1hz_ms = if dt_1hz_ms >= 2000 { now } else { app.last_1hz_ms.wrapping_add(1000) };
+
+            // Sample internal MCU die temperature once per second (relocated from 10 Hz loop)
+            let mcu_temp_tenth = board.mcu_temp.read_temperature_tenth_c();
+            app.stats.update_temp(mcu_temp_tenth);
 
             // Only probe and log if not in Active USB Drive mode (exclusive host access)
             let is_msc_active = app.screen_mode == ScreenMode::UsbDrive
@@ -709,50 +710,48 @@ fn main() -> ! {
                 }
             }
 
-            // UART0 Heartbeat & Diagnostic Output
-            let sec = now / 1000;
-            let cfg_str = if board.is_usb_configured() { "CFG" } else { "DISC" };
-            let sensor_str = if app.ina_present { "ONLINE" } else { "OFFLINE" };
-            let sd_str = if is_msc_active {
-                "MSC_EXCLUSIVE"
-            } else {
-                match app.datalogger.status {
+            // UART0 Heartbeat & Diagnostic Output (silenced during Active USB Drive mode to avoid xHCI NAK stalls)
+            if !is_msc_active {
+                let sec = now / 1000;
+                let cfg_str = if board.is_usb_configured() { "CFG" } else { "DISC" };
+                let sensor_str = if app.ina_present { "ONLINE" } else { "OFFLINE" };
+                let sd_str = match app.datalogger.status {
                     SdStatus::Logging => "LOGGING",
                     SdStatus::Ready => "READY",
                     SdStatus::NoCard => "NO_CARD",
                     SdStatus::WriteError => "ERROR",
-                }
-            };
-            let mode_str = match app.screen_mode {
-                ScreenMode::Hero => "HERO",
-                ScreenMode::Graph => "GRAPH",
-                ScreenMode::Stats => "STATS",
-                ScreenMode::Histogram => "HISTO",
-                ScreenMode::BigDigit => "BIG",
-                ScreenMode::UsbDrive => "USB_DRIVE",
-            };
-            let temp_tenth = app.stats.mcu_temp_tenth_c;
+                };
+                let mode_str = match app.screen_mode {
+                    ScreenMode::Hero => "HERO",
+                    ScreenMode::Graph => "GRAPH",
+                    ScreenMode::Stats => "STATS",
+                    ScreenMode::Histogram => "HISTO",
+                    ScreenMode::BigDigit => "BIG",
+                    ScreenMode::UsbDrive => "USB_DRIVE",
+                };
+                let temp_tenth = app.stats.mcu_temp_tenth_c;
 
-            if board.rtc.is_synced() {
-                let dt = board.rtc.get_datetime();
-                writeln!(
-                    board.uart0,
-                    "[HEARTBEAT] {:04}-{:02}-{:02} {:02}:{:02}:{:02} UTC (T+{}s) | Mode: {} | Sensor: {} | MCU: {}.{}C | BATT: {}% | USB: {} | SD: {} ({} : {} rows)",
-                    dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second,
-                    sec, mode_str, sensor_str, temp_tenth / 10, temp_tenth.unsigned_abs() % 10,
-                    app.battery.soc_pct, cfg_str, sd_str,
-                    app.datalogger.file_name_str(), app.datalogger.total_logged_rows
-                )
-                .ok();
-            } else {
-                writeln!(
-                    board.uart0,
-                    "[HEARTBEAT] T+{}s | Mode: {} | Sensor: {} | MCU: {}.{}C | BATT: {}% | USB: {} | SD: {} ({} : {} rows)",
-                    sec, mode_str, sensor_str, temp_tenth / 10, temp_tenth.unsigned_abs() % 10,
-                    app.battery.soc_pct, cfg_str, sd_str,
-                    app.datalogger.file_name_str(), app.datalogger.total_logged_rows
-                )
-                .ok();
+                if board.rtc.is_synced() {
+                    let dt = board.rtc.get_datetime();
+                    writeln!(
+                        board.uart0,
+                        "[HEARTBEAT] {:04}-{:02}-{:02} {:02}:{:02}:{:02} UTC (T+{}s) | Mode: {} | Sensor: {} | MCU: {}.{}C | BATT: {}% | USB: {} | SD: {} ({} : {} rows)",
+                        dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second,
+                        sec, mode_str, sensor_str, temp_tenth / 10, temp_tenth.unsigned_abs() % 10,
+                        app.battery.soc_pct, cfg_str, sd_str,
+                        app.datalogger.file_name_str(), app.datalogger.total_logged_rows
+                    )
+                    .ok();
+                } else {
+                    writeln!(
+                        board.uart0,
+                        "[HEARTBEAT] T+{}s | Mode: {} | Sensor: {} | MCU: {}.{}C | BATT: {}% | USB: {} | SD: {} ({} : {} rows)",
+                        sec, mode_str, sensor_str, temp_tenth / 10, temp_tenth.unsigned_abs() % 10,
+                        app.battery.soc_pct, cfg_str, sd_str,
+                        app.datalogger.file_name_str(), app.datalogger.total_logged_rows
+                    )
+                    .ok();
+                }
             }
         }
     }

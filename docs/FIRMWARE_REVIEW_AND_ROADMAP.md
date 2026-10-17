@@ -242,12 +242,13 @@ flowchart TD
   - In `prj_current_monitor/src/main.rs`, refactored Rotary Encoder polling, UART0 interactive CLI, bidirectional USB HID OUT command polling, and PA8 ButtonController events into `AppCommand` dispatching, shrinking `main.rs` by 216 lines and eliminating ~1,820 bytes of flash text duplication.
   - *Empirical Verification (Build 00E6)*: 87/87 host tests pass (`33` in `gd32vf103-hal`, `9` in `longan-nano-bsp`, `42` in `prj_current_monitor`, `3` doctests); firmware `text = 122,526` bytes (reduced by 1,820 bytes), `bss = 32,768` bytes; 12/12 hardware checks passed on `192.168.0.63` via `test_usb_drive_mode.py` (UART screen switching, simulated double-click mount, MSC block read, RO mount, single-click dismount, session rotation `LOG_0126.CSV -> LOG_0128.CSV`, clean HID restoration `28e9:1234`).
 
-- [ ] **Task 6.4: Real-Time Scheduling, Latency & Watchdog Safety (P1)**:
-  - Lock 10 Hz and 1 Hz scheduler phases deterministically (`wrapping_add(100)` / `wrapping_add(1000)`) (`[MON-SCHED-01]`).
-  - Silence 1 Hz UART heartbeat during MSC Active mode to eliminate xHCI USB NAK timeout stalls (`[MON-SCHED-02]`).
-  - Add explicit FWDGT watchdog feeds in long SD card operations (`init`, `iterate_dir`, `flush_buffer`) (`[MON-SCHED-03]`).
-  - Move ADC internal MCU die temperature reading from 10 Hz block to 1 Hz block (`[MON-SCHED-04]`).
-  - Fix `sdcard.rs` `delay_ms_internal` to use dynamic clock frequency rather than hardcoded 24,000 ticks/ms (`[MON-SCHED-05]`).
+- [x] **Task 6.4: Real-Time Scheduling, Latency & Watchdog Safety (P1)** *(Verified in Build 00E7)*:
+  - In `prj_current_monitor/src/main.rs`, locked 10 Hz and 1 Hz scheduler phases deterministically (`wrapping_add(100)` / `wrapping_add(1000)`) (`[MON-SCHED-01]`).
+  - In `prj_current_monitor/src/main.rs`, silenced 1 Hz UART heartbeat during MSC Active mode to eliminate host xHCI split-transaction NAK timeout stalls (`[MON-SCHED-02]`).
+  - In `crates/gd32vf103-hal/src/fwdgt.rs`, implemented static `Fwdgt::feed_raw()`; added watchdog feeds in `SdCard::init_internal()` (CMD0 & ACMD41 loops), `iterate_dir()` in `logger.rs`, and `flush_buffer()` in `logger.rs` (`[MON-SCHED-03]`).
+  - In `prj_current_monitor/src/main.rs`, relocated internal MCU die temperature ADC conversion from the 10 Hz loop to the 1 Hz periodic block (`[MON-SCHED-04]`).
+  - In `crates/longan-nano-bsp/src/sdcard.rs` and `lib.rs`, stored `ticks_per_ms` dynamically from `clocks.mtime_freq / 1000`, eliminating hardcoded 24,000 ticks/ms clock assumption (`[MON-SCHED-05]`).
+  - *Empirical Verification (Build 00E7)*: 87/87 host tests pass (`33` in `gd32vf103-hal`, `9` in `longan-nano-bsp`, `42` in `prj_current_monitor`, `3` doctests); firmware `text = 121,872` bytes (reduced by 654 bytes from Build 00E6's 122,526 bytes), `bss = 32,768` bytes; 12/12 hardware checks passed on `192.168.0.63` via `test_usb_drive_mode.py` (UART screen switching, simulated double-click mount, MSC block read, RO mount, single-click dismount, session rotation `LOG_0133.CSV -> LOG_0135.CSV`, clean HID restoration `28e9:1234`).
 
 - [ ] **Task 6.5: UI Performance, Memory Alignment & Documentation Integrity (P2)**:
   - In `screen_graph.rs`, stream historical columns directly via `write_pixels` in `replot_history` without redundant dot pre-clearing (`[MON-UI-01]`).
@@ -282,23 +283,23 @@ flowchart TD
    - **Trigger Conditions**:
      - When a logical milestone/task is completed, or
      - When context window consumption is high / conversation is long, making further actions economically inefficient or error-prone.
-   - **Mandatory Handoff Steps**:
+    - **Mandatory Handoff Steps**:
      1. Update the checkboxes (`[x]`) and progress notes in this document.
      2. Ensure all verified work is committed in git.
      3. Explicitly direct/prompt the user to start a **new chat session**, informing them that the next session can resume directly from `docs/FIRMWARE_REVIEW_AND_ROADMAP.md`.
 
 ### 5.2 Active Session State & Next-Session Handoff
-- **Latest Verified Build**: `Build 00E6` (`prj_current_monitor`: `text = 122,526` bytes, `bss = 32,768` bytes; 87/87 host tests passing; 12/12 hardware checks passing on `192.168.0.63`).
+- **Latest Verified Build**: `Build 00E7` (`prj_current_monitor`: `text = 121,872` bytes, `bss = 32,768` bytes; 87/87 host tests passing; 12/12 hardware checks passing on `192.168.0.63`).
 - **Completed in Phase 6**:
   - **Task 6.1** (`Build 00E4`): Storage & Filesystem Data Integrity (`[MON-STOR-01]`, `[MON-STOR-02]`, `[MON-STOR-03]`, `[MON-UI-02]`).
   - **Task 6.2** (`Build 00E5`): Sensor DSP, Tare Calibration & Telemetry Correctness (`[MON-SENS-01]` through `[MON-SENS-06]`).
   - **Task 6.3** (`Build 00E6`): AI Maintainability & Unified Command Dispatcher (`[MON-MEM-01]`, `[MON-AI-01]`).
+  - **Task 6.4** (`Build 00E7`): Real-Time Scheduling, Latency & Watchdog Safety (`[MON-SCHED-01]` through `[MON-SCHED-05]`).
 - **Immediate Next Step**:
-  - **Task 6.4: Real-Time Scheduling, Latency & Watchdog Safety (P1)** (`Build 00E7`):
-    1. Lock 10 Hz and 1 Hz scheduler phases deterministically (`wrapping_add(100)` / `wrapping_add(1000)`) (`[MON-SCHED-01]`).
-    2. Silence 1 Hz UART heartbeat during MSC Active mode to eliminate xHCI USB NAK timeout stalls (`[MON-SCHED-02]`).
-    3. Add explicit FWDGT watchdog feeds in long SD card operations (`init`, `iterate_dir`, `flush_buffer`) (`[MON-SCHED-03]`).
-    4. Move ADC internal MCU die temperature reading from 10 Hz block to 1 Hz block (`[MON-SCHED-04]`).
-    5. Fix `sdcard.rs` `delay_ms_internal` to use dynamic clock frequency rather than hardcoded 24,000 ticks/ms (`[MON-SCHED-05]`).
-  - Follow with **Task 6.5**.
+  - **Task 6.5: UI Performance, Memory Alignment & Documentation Integrity (P2)** (`Build 00E8`):
+    1. In `screen_graph.rs`, stream historical columns directly via `write_pixels` in `replot_history` without redundant dot pre-clearing (`[MON-UI-01]`).
+    2. In `crates/gd32vf103-hal/src/usb/msc/cache.rs`, wrap cache entries with `#[repr(align(4))]` (`[MSC-MEM-01]`).
+    3. Clean up documentation: remove legacy C/C++ references, replace absolute paths with relative paths, remove plaintext credentials (`[MON-AI-02]`).
+    4. Add host unit tests (`cargo test`) covering command dispatcher, logger failure paths, and tare sanity checks (`[MON-AI-03]`).
+  - Follow with **Phase 7 (v1.0.0 Master Release)**.
 

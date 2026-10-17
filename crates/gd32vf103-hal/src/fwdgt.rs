@@ -1,7 +1,7 @@
-use gd32vf103_pac::fwdgt::{ctl, psc, stat, Fwdgt as PacFwdgt};
+use gd32vf103_pac::fwdgt::{ctl, psc, stat, Fwdgt as PacFwdgt, FWDGT_BASE};
 
 pub struct Fwdgt {
-    fwdgt: PacFwdgt,
+    _fwdgt: PacFwdgt,
 }
 
 impl Fwdgt {
@@ -35,12 +35,22 @@ impl Fwdgt {
         // 6. Enable FWDGT counter
         regs.ctl.write(ctl::CMD_ENABLE);
 
-        Self { fwdgt }
+        Self { _fwdgt: fwdgt }
+    }
+
+    /// Static hardware watchdog feed, safe to call from any context without holding `&mut Fwdgt`.
+    #[inline(always)]
+    pub fn feed_raw() {
+        #[cfg(not(test))]
+        unsafe {
+            PacFwdgt::steal(FWDGT_BASE).regs().ctl.write(ctl::CMD_RELOAD);
+        }
     }
 
     /// Reloads (kicks/feeds) the watchdog counter to prevent MCU reset.
     #[inline(always)]
     pub fn feed(&mut self) {
-        self.fwdgt.regs().ctl.write(ctl::CMD_RELOAD);
+        Self::feed_raw();
     }
 }
+

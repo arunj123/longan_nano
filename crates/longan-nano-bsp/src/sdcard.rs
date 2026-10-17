@@ -61,10 +61,19 @@ pub struct SdCard {
     pub stream_next_lba: u32,
     pub streaming_write: bool,
     pub stream_write_next_lba: u32,
+    pub ticks_per_ms: u32,
 }
 
 impl SdCard {
     pub fn new(spi: Spi1, cs: Pin<PortB, 12, mode::Output<mode::PushPull>>) -> Self {
+        Self::new_with_ticks_per_ms(spi, cs, 24_000)
+    }
+
+    pub fn new_with_ticks_per_ms(
+        spi: Spi1,
+        cs: Pin<PortB, 12, mode::Output<mode::PushPull>>,
+        ticks_per_ms: u32,
+    ) -> Self {
         Self {
             spi,
             cs,
@@ -75,6 +84,7 @@ impl SdCard {
             stream_next_lba: 0,
             streaming_write: false,
             stream_write_next_lba: 0,
+            ticks_per_ms: if ticks_per_ms == 0 { 24_000 } else { ticks_per_ms },
         }
     }
 
@@ -135,10 +145,10 @@ impl SdCard {
     }
 
     #[inline(always)]
-    fn delay_ms_internal(ms: u32) {
+    fn delay_ms_internal(&self, ms: u32) {
         #[cfg(not(test))]
         {
-            let ticks = (ms as u64) * 24_000;
+            let ticks = (ms as u64) * (self.ticks_per_ms as u64);
             let start = unsafe { gd32vf103_hal::pac::Mtime::steal().read_ticks() };
             while unsafe { gd32vf103_hal::pac::Mtime::steal().read_ticks() }.wrapping_sub(start) < ticks {}
         }
@@ -165,7 +175,7 @@ impl SdCard {
         self.spi.set_prescaler(Prescaler::Div256);
         self.cs_high();
 
-        Self::delay_ms_internal(10);
+        self.delay_ms_internal(10);
 
         // Power-up sync: Send >= 80 clock cycles with CS=HIGH
         for _ in 0..16 {
@@ -175,6 +185,8 @@ impl SdCard {
         // Send CMD0 (GO_IDLE_STATE) with CRC=0x95
         let mut r1 = 0xFF;
         for _ in 0..10 {
+            #[cfg(not(test))]
+            crate::hal::Fwdgt::feed_raw();
             self.cs_low();
             r1 = self.send_cmd(0, 0, 0x95);
             self.cs_high();
@@ -182,7 +194,7 @@ impl SdCard {
             if r1 == 0x01 {
                 break;
             }
-            Self::delay_ms_internal(5);
+            self.delay_ms_internal(5);
         }
 
         if r1 != 0x01 {
@@ -207,12 +219,14 @@ impl SdCard {
         let acmd41_arg = if is_v2 { 1u32 << 30 } else { 0 }; // HCS bit
         let mut ready = false;
         for _ in 0..150 {
+            #[cfg(not(test))]
+            crate::hal::Fwdgt::feed_raw();
             r1 = self.send_acmd(41, acmd41_arg);
             if r1 == 0x00 {
                 ready = true;
                 break;
             }
-            Self::delay_ms_internal(10);
+            self.delay_ms_internal(10);
         }
 
         if !ready {
