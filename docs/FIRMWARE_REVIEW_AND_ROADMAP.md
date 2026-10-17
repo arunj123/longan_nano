@@ -250,12 +250,13 @@ flowchart TD
   - In `crates/longan-nano-bsp/src/sdcard.rs` and `lib.rs`, stored `ticks_per_ms` dynamically from `clocks.mtime_freq / 1000`, eliminating hardcoded 24,000 ticks/ms clock assumption (`[MON-SCHED-05]`).
   - *Empirical Verification (Build 00E7)*: 87/87 host tests pass (`33` in `gd32vf103-hal`, `9` in `longan-nano-bsp`, `42` in `prj_current_monitor`, `3` doctests); firmware `text = 121,872` bytes (reduced by 654 bytes from Build 00E6's 122,526 bytes), `bss = 32,768` bytes; 12/12 hardware checks passed on `192.168.0.63` via `test_usb_drive_mode.py` (UART screen switching, simulated double-click mount, MSC block read, RO mount, single-click dismount, session rotation `LOG_0133.CSV -> LOG_0135.CSV`, clean HID restoration `28e9:1234`).
 
-- [ ] **Task 6.5: UI Performance, Memory Alignment & Documentation Integrity (P2)**:
-  - In `screen_graph.rs`, stream historical columns directly via `write_pixels` in `replot_history` without redundant dot pre-clearing (`[MON-UI-01]`).
-  - [x] Clamp session numbering at 9999 or handle wrap cleanly (`[MON-UI-02]`) *(Completed in Build 00E4)*.
-  - In `crates/gd32vf103-hal/src/usb/msc/cache.rs`, wrap cache entries with `#[repr(align(4))]` (`[MSC-MEM-01]`).
-  - Clean up documentation: remove legacy C/C++ references, replace absolute paths with relative paths, remove plaintext credentials (`[MON-AI-02]`).
-  - Add host unit tests (`cargo test`) covering command dispatcher, logger failure paths, and tare sanity checks (`[MON-AI-03]`).
+- [x] **Task 6.5: UI Performance, Memory Alignment & Documentation Integrity (P2)** *(Verified in Build 00E8)*:
+  - In `prj_current_monitor/src/ui/screen_graph.rs`, factored out `redraw_labels_and_axis(&mut self, lcd)`; in `replot_history`, stream historical columns directly via `write_pixels` without redundant full-screen clears and 105 separate `set_pixel` SPI transactions, eliminating autoscale screen flicker (`[MON-UI-01]`).
+  - [x] Clamped session numbering at 9999 to prevent 4-digit wrap collision with `LOG_0000.CSV` (`[MON-UI-02]`) *(Completed in Build 00E4)*.
+  - In `crates/gd32vf103-hal/src/usb/msc/cache.rs`, wrapped sector buffers in `#[repr(C, align(4))] pub struct CacheBlock(pub [u8; 512])` with alignment unit tests ensuring 32-bit alignment for RISC-V USB FIFO word loads/stores (`[MSC-MEM-01]`).
+  - Cleaned up documentation across `GEMINI.md`, `AGENTS.md`, `README.md`, `prj_current_monitor/README.md`, and archive roadmaps: replaced absolute `file:///` URLs with repository-relative paths and removed plaintext SSH credentials (`[MON-AI-02]`).
+  - Added comprehensive host unit tests in `prj_current_monitor/src/app.rs` and `crates/gd32vf103-hal/src/usb/msc/cache.rs` covering all 22 `AppCommand` variants, forward and backward `ScreenMode` transitions, tare load sanity boundary conditions (`-500`, `+500`, `-501`, `+501`), NVRAM config packing, and `CacheBlock` alignment (`[MON-AI-03]`).
+  - *Empirical Verification (Build 00E8)*: 91 host tests pass (`34` in `gd32vf103-hal`, `9` in `longan-nano-bsp`, `46` in `prj_current_monitor`, `5` in `lcd_font`, `11` in `prj_usb_msc`, `23` in `embedded-sdmmc`, `3` doctests; 131 total); firmware `text = 122,040` bytes, `bss = 32,768` bytes; 12/12 hardware checks passed on `192.168.0.63` via `test_usb_drive_mode.py` (UART screen switching, simulated double-click mount, MSC block read, RO mount, single-click dismount, session rotation `LOG_0136.CSV -> LOG_0138.CSV`, clean HID restoration `28e9:1234`).
 
 ---
 
@@ -289,17 +290,16 @@ flowchart TD
      3. Explicitly direct/prompt the user to start a **new chat session**, informing them that the next session can resume directly from `docs/FIRMWARE_REVIEW_AND_ROADMAP.md`.
 
 ### 5.2 Active Session State & Next-Session Handoff
-- **Latest Verified Build**: `Build 00E7` (`prj_current_monitor`: `text = 121,872` bytes, `bss = 32,768` bytes; 87/87 host tests passing; 12/12 hardware checks passing on `192.168.0.63`).
-- **Completed in Phase 6**:
+- **Latest Verified Build**: `Build 00E8` (`prj_current_monitor`: `text = 122,040` bytes, `bss = 32,768` bytes; 91 host tests passing / 131 total across workspace; 12/12 hardware checks passing on `192.168.0.63`).
+- **Phase 6 Status**: **100% COMPLETE** (Tasks 6.1, 6.2, 6.3, 6.4, and 6.5 all implemented, empirical verified on hardware, and committed).
   - **Task 6.1** (`Build 00E4`): Storage & Filesystem Data Integrity (`[MON-STOR-01]`, `[MON-STOR-02]`, `[MON-STOR-03]`, `[MON-UI-02]`).
   - **Task 6.2** (`Build 00E5`): Sensor DSP, Tare Calibration & Telemetry Correctness (`[MON-SENS-01]` through `[MON-SENS-06]`).
   - **Task 6.3** (`Build 00E6`): AI Maintainability & Unified Command Dispatcher (`[MON-MEM-01]`, `[MON-AI-01]`).
   - **Task 6.4** (`Build 00E7`): Real-Time Scheduling, Latency & Watchdog Safety (`[MON-SCHED-01]` through `[MON-SCHED-05]`).
+  - **Task 6.5** (`Build 00E8`): UI Performance, Memory Alignment & Documentation Integrity (`[MON-UI-01]`, `[MSC-MEM-01]`, `[MON-AI-02]`, `[MON-AI-03]`).
 - **Immediate Next Step**:
-  - **Task 6.5: UI Performance, Memory Alignment & Documentation Integrity (P2)** (`Build 00E8`):
-    1. In `screen_graph.rs`, stream historical columns directly via `write_pixels` in `replot_history` without redundant dot pre-clearing (`[MON-UI-01]`).
-    2. In `crates/gd32vf103-hal/src/usb/msc/cache.rs`, wrap cache entries with `#[repr(align(4))]` (`[MSC-MEM-01]`).
-    3. Clean up documentation: remove legacy C/C++ references, replace absolute paths with relative paths, remove plaintext credentials (`[MON-AI-02]`).
-    4. Add host unit tests (`cargo test`) covering command dispatcher, logger failure paths, and tare sanity checks (`[MON-AI-03]`).
-  - Follow with **Phase 7 (v1.0.0 Master Release)**.
+  - **Phase 7: Master Release Milestone v1.0.0 End-to-End Verification & Release Tagging (UPCOMING)**:
+    1. Run complete regression suites on target hardware for `prj_usb_msc` and `prj_current_monitor`.
+    2. Finalize verification artifacts and release notes.
+    3. Tag git repository at `v1.0.0-release`.
 

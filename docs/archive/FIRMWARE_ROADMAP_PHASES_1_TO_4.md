@@ -1,6 +1,6 @@
 # Firmware Historical Archive: Phases 1 to 4
 
-**Archive Reference**: Archived from [`docs/FIRMWARE_REVIEW_AND_ROADMAP.md`](file:///c:/Users/arunj/projects/longan_nano/docs/FIRMWARE_REVIEW_AND_ROADMAP.md) per Roadmap Archival & Size Management policy.  
+**Archive Reference**: Archived from [`docs/FIRMWARE_REVIEW_AND_ROADMAP.md`](../FIRMWARE_REVIEW_AND_ROADMAP.md) per Roadmap Archival & Size Management policy.  
 **Target Architecture**: Sipeed Longan Nano (GD32VF103CBT6, RISC-V RV32IMAC @ 96/108 MHz, 32 KB SRAM, 128 KB Flash).
 
 ---

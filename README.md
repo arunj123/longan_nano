@@ -8,15 +8,15 @@ This repository is structured to support multiple independent firmware applicati
 
 ### `prj_usb_msc`
 
-A standalone USB Mass Storage Bulk-Only Transport (BOT) device presenting the onboard MicroSD card over SPI1 as a USB flash drive. Supports MBR partition table detection, SCSI emulation (`INQUIRY`, `READ_CAPACITY_10/16`, `READ_10`), and direct sector reads. See [prj_usb_msc/README.md](file:///c:/Users/arunj/projects/longan_nano/prj_usb_msc/README.md) for architecture, status, and test suite details.
+A standalone USB Mass Storage Bulk-Only Transport (BOT) device presenting the onboard MicroSD card over SPI1 as a USB flash drive. Supports MBR partition table detection, SCSI emulation (`INQUIRY`, `READ_CAPACITY_10/16`, `READ_10`), and direct sector reads. See [prj_usb_msc/README.md](prj_usb_msc/README.md) for architecture, status, and test suite details.
 
 ### `prj_usb_composite`
 
-This project demonstrates a composite USB device with multiple HID interfaces (Keyboard, Mouse, Consumer Control, Custom HID) and an optional Mass Storage device. Its primary feature is a dynamic information display streamed from a host PC to the board's LCD. See [prj_usb_composite/README.md](file:///c:/Users/arunj/projects/longan_nano/prj_usb_composite/README.md) for full details.
+This project demonstrates a composite USB device with multiple HID interfaces (Keyboard, Mouse, Consumer Control, Custom HID) and an optional Mass Storage device. Its primary feature is a dynamic information display streamed from a host PC to the board's LCD. See [prj_usb_composite/README.md](prj_usb_composite/README.md) for full details.
 
 ### `prj_current_monitor`
 
-This project turns the Longan Nano into a real-time DC current and power monitor. It uses an INA219 sensor via hardware I2C and streams live data (Voltage, Current, Power) over USB HID at 10Hz to a host PC. See [prj_current_monitor/README.md](file:///c:/Users/arunj/projects/longan_nano/prj_current_monitor/README.md).
+This project turns the Longan Nano into a real-time DC current and power monitor. It uses an INA219 sensor via hardware I2C and streams live data (Voltage, Current, Power) over USB HID at 10Hz to a host PC. See [prj_current_monitor/README.md](prj_current_monitor/README.md).
 
 ### `prj_usb_serial`
 
@@ -121,4 +121,4 @@ This project was inspired by and references code from:
 *   [Appelsiini.net: Programming GD32V (Longan Nano)](https://www.appelsiini.net/2020/programming-gd32v-longan-nano/)
 *   [Longan-Nano-Rainbow](https://github.com/joba-1/Longan-Nano-Rainbow/tree/main): An example of using Timer/PWM to control an RGB LED.
 *   [GD32VF103_templates](https://github.com/WRansohoff/GD32VF103_templates/tree/master): A collection of templates for low-level peripheral usage, including Systick.
-*   See [docs/REFERENCE_BASELINE.md](file:///c:/Users/arunj/projects/longan_nano/docs/REFERENCE_BASELINE.md) for silicon errata, register baselines, and modern C++23 zero-cost driver architecture.
+*   See [docs/REFERENCE_BASELINE.md](docs/REFERENCE_BASELINE.md) for silicon errata, register baselines, and modern C++23 zero-cost driver architecture.

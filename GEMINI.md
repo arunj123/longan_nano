@@ -3,12 +3,12 @@
 ## CRITICAL MANDATORY INVARIANT: MASTER ROADMAP TRACKING & SESSION CLOSING
 > [!IMPORTANT]
 > **ROADMAP DOCUMENTATION & SESSION CLOSING INVARIANT**:
-> 1. **Master Tracking Document**: [`docs/FIRMWARE_REVIEW_AND_ROADMAP.md`](file:///c:/Users/arunj/projects/longan_nano/docs/FIRMWARE_REVIEW_AND_ROADMAP.md) is the authoritative, permanent engineering record and multi-session implementation blueprint.
+> 1. **Master Tracking Document**: [`docs/FIRMWARE_REVIEW_AND_ROADMAP.md`](docs/FIRMWARE_REVIEW_AND_ROADMAP.md) is the authoritative, permanent engineering record and multi-session implementation blueprint.
 > 2. **Session Updates**: At the end of EVERY session, or immediately upon completing any roadmap item/milestone:
->    - The agent MUST update [`docs/FIRMWARE_REVIEW_AND_ROADMAP.md`](file:///c:/Users/arunj/projects/longan_nano/docs/FIRMWARE_REVIEW_AND_ROADMAP.md) to mark completed tasks (`[x]`), document architectural decisions, record empirical verification results, and note any blockers.
+>    - The agent MUST update [`docs/FIRMWARE_REVIEW_AND_ROADMAP.md`](docs/FIRMWARE_REVIEW_AND_ROADMAP.md) to mark completed tasks (`[x]`), document architectural decisions, record empirical verification results, and note any blockers.
 >    - Ensure all information needed to continue seamlessly in a brand-new session (exact next steps, active phase, file locations, known bugs/findings) is fully documented in the file without requiring the next agent to re-analyze from scratch.
-> 3. **Session Start Verification**: At the start of EVERY new session or task, run `git status` and read [`docs/FIRMWARE_REVIEW_AND_ROADMAP.md`](file:///c:/Users/arunj/projects/longan_nano/docs/FIRMWARE_REVIEW_AND_ROADMAP.md) before performing any work.
-> 4. **Roadmap Archival & Size Management**: When [`docs/FIRMWARE_REVIEW_AND_ROADMAP.md`](file:///c:/Users/arunj/projects/longan_nano/docs/FIRMWARE_REVIEW_AND_ROADMAP.md) grows beyond maintainable size (e.g. > 600-800 lines or > 50-60 KB), archive completed historical phases, milestones, detailed progress notes, and empirical verification logs into dedicated archive documents (e.g. `docs/archive/FIRMWARE_ROADMAP_PHASES_1_TO_4.md`), retaining in the active roadmap an executive summary/table of completed phases, the active phase, upcoming phases, and the active session handoff protocol to keep the document lightweight, fast to read, and fully maintainable.
+> 3. **Session Start Verification**: At the start of EVERY new session or task, run `git status` and read [`docs/FIRMWARE_REVIEW_AND_ROADMAP.md`](docs/FIRMWARE_REVIEW_AND_ROADMAP.md) before performing any work.
+> 4. **Roadmap Archival & Size Management**: When [`docs/FIRMWARE_REVIEW_AND_ROADMAP.md`](docs/FIRMWARE_REVIEW_AND_ROADMAP.md) grows beyond maintainable size (e.g. > 600-800 lines or > 50-60 KB), archive completed historical phases, milestones, detailed progress notes, and empirical verification logs into dedicated archive documents (e.g. `docs/archive/FIRMWARE_ROADMAP_PHASES_1_TO_4.md`), retaining in the active roadmap an executive summary/table of completed phases, the active phase, upcoming phases, and the active session handoff protocol to keep the document lightweight, fast to read, and fully maintainable.
 
 
 ## CRITICAL MANDATORY INVARIANT: ECONOMIC AI SESSION HANDOFF
@@ -16,7 +16,7 @@
 > **ECONOMIC SESSION TRANSITION ENFORCEMENT**:
 > 1. **Context & Token Economy**: Chat sessions with high token consumption or extended history become economically inefficient, slow, and prone to context degradation.
 > 2. **Mandatory Handoff Prompting**: Whenever session context grows long, or when a discrete roadmap task/milestone/build verification is completed:
->    - The agent MUST ensure all changes are tested, documented in [`docs/FIRMWARE_REVIEW_AND_ROADMAP.md`](file:///c:/Users/arunj/projects/longan_nano/docs/FIRMWARE_REVIEW_AND_ROADMAP.md), and committed to git.
+>    - The agent MUST ensure all changes are tested, documented in [`docs/FIRMWARE_REVIEW_AND_ROADMAP.md`](docs/FIRMWARE_REVIEW_AND_ROADMAP.md), and committed to git.
 >    - The agent MUST explicitly direct and prompt the user to start a **new chat/agent session**, providing the exact prompt/command for the user to resume in the new session.
 
 ## CRITICAL MANDATORY INVARIANT: PER-BUILD GIT COMMITS
@@ -57,7 +57,7 @@
     `program "<hex_path>" verify; halt; reg pc 0x08000000; resume; shutdown`
 
 ## Remote Linux Host Debugging & Flashing
-- **Remote Host**: `192.168.0.63` (`user: arun`, `password: arun`).
+- **Remote Host**: `192.168.0.63` (`user: arun`, SSH key/agent authentication).
 - **Hardware Layout on Linux**:
   - FT2232D: Interface 0 (`ttyUSB0`) for JTAG OpenOCD; Interface 1 (`/dev/ttyUSB1`) for Debug UART @ 115200 baud.
   - GD32VF103 Device USB: `28e9:018a` (CDC-ACM `/dev/ttyACM0`).

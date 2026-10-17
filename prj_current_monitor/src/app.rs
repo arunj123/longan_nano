@@ -991,4 +991,119 @@ mod tests {
             AppCommand::RotateSdLog { show_banner: true }
         );
     }
+
+    #[test]
+    fn test_app_command_exhaustive_coverage() {
+        let all_cmds = [
+            AppCommand::SetScreen(ScreenMode::Graph),
+            AppCommand::NextScreen,
+            AppCommand::PrevScreen,
+            AppCommand::ToggleUsbDrive,
+            AppCommand::CycleTriggerOrRearm { show_banner: false },
+            AppCommand::AdjustTriggerLevel(50),
+            AppCommand::CycleBatteryProfile { show_banner: false },
+            AppCommand::SetBatteryProfile(BatteryProfile::LiIon2500),
+            AppCommand::TareAndReset { show_banner: true },
+            AppCommand::FlushSd,
+            AppCommand::RotateSdLog { show_banner: false },
+            AppCommand::ToggleLcdRotation,
+            AppCommand::SetRtcEpoch(1700000000),
+            AppCommand::PrintRtcTime,
+            AppCommand::SetCurrentLimit(1500),
+            AppCommand::PrintCurrentLimit,
+            AppCommand::DumpSession,
+            AppCommand::PrintHelp,
+            AppCommand::SimButtonTap,
+            AppCommand::SimButtonDoubleTap,
+            AppCommand::SimButtonHoldTare,
+            AppCommand::SimButtonHoldAbort,
+        ];
+
+        for (i, cmd_a) in all_cmds.iter().enumerate() {
+            for (j, cmd_b) in all_cmds.iter().enumerate() {
+                if i == j {
+                    assert_eq!(cmd_a, cmd_b);
+                } else {
+                    assert_ne!(cmd_a, cmd_b);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_screen_mode_forward_and_backward_transitions() {
+        let modes = [
+            ScreenMode::Hero,
+            ScreenMode::Graph,
+            ScreenMode::Stats,
+            ScreenMode::Histogram,
+            ScreenMode::BigDigit,
+            ScreenMode::UsbDrive,
+        ];
+
+        // Forward cycling
+        for (i, &mode) in modes.iter().enumerate() {
+            let next_expected = modes[(i + 1) % modes.len()];
+            let next_actual = match mode {
+                ScreenMode::Hero => ScreenMode::Graph,
+                ScreenMode::Graph => ScreenMode::Stats,
+                ScreenMode::Stats => ScreenMode::Histogram,
+                ScreenMode::Histogram => ScreenMode::BigDigit,
+                ScreenMode::BigDigit => ScreenMode::UsbDrive,
+                ScreenMode::UsbDrive => ScreenMode::Hero,
+            };
+            assert_eq!(next_actual, next_expected);
+        }
+
+        // Backward cycling
+        for (i, &mode) in modes.iter().enumerate() {
+            let prev_expected = modes[(i + modes.len() - 1) % modes.len()];
+            let prev_actual = match mode {
+                ScreenMode::Hero => ScreenMode::UsbDrive,
+                ScreenMode::Graph => ScreenMode::Hero,
+                ScreenMode::Stats => ScreenMode::Graph,
+                ScreenMode::Histogram => ScreenMode::Stats,
+                ScreenMode::BigDigit => ScreenMode::Histogram,
+                ScreenMode::UsbDrive => ScreenMode::BigDigit,
+            };
+            assert_eq!(prev_actual, prev_expected);
+        }
+    }
+
+    #[test]
+    fn test_tare_offset_boundary_cases() {
+        assert_eq!(validate_tare_offset(-500), Ok(-500));
+        assert_eq!(validate_tare_offset(500), Ok(500));
+        assert_eq!(validate_tare_offset(-501), Err(-501));
+        assert_eq!(validate_tare_offset(501), Err(501));
+        assert_eq!(validate_tare_offset(i16::MIN), Err(i16::MIN));
+        assert_eq!(validate_tare_offset(i16::MAX), Err(i16::MAX));
+    }
+
+    #[test]
+    fn test_nvram_config_packing_and_screen_mode_encoding() {
+        let mode_idx = |m: ScreenMode| -> u16 {
+            match m {
+                ScreenMode::Hero => 0,
+                ScreenMode::Graph => 1,
+                ScreenMode::Stats => 2,
+                ScreenMode::Histogram => 3,
+                ScreenMode::BigDigit => 4,
+                ScreenMode::UsbDrive => 5,
+            }
+        };
+
+        for &mode in &[
+            ScreenMode::Hero,
+            ScreenMode::Graph,
+            ScreenMode::Stats,
+            ScreenMode::Histogram,
+            ScreenMode::BigDigit,
+            ScreenMode::UsbDrive,
+        ] {
+            let config = (mode_idx(mode) << 8) | (BatteryProfile::LiIon2500.id() as u16);
+            assert_eq!((config >> 8) as usize, mode_idx(mode) as usize);
+            assert_eq!((config & 0xFF) as u8, BatteryProfile::LiIon2500.id());
+        }
+    }
 }

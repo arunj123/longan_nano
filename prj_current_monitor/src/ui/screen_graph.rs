@@ -284,7 +284,7 @@ impl GraphScreen {
         }
     }
 
-    pub fn redraw_grid(&mut self, lcd: &mut Lcd) {
+    pub fn redraw_labels_and_axis(&mut self, lcd: &mut Lcd) {
         let tier = &CURRENT_TIERS[self.scale_tier];
 
         lcd.fill_rect(0, 20, 21, 60, COL_BLACK);
@@ -293,16 +293,6 @@ impl GraphScreen {
         lcd.draw_string(6, 70, " 0",   &FONT_5X7, rgb565(90, 110, 135),  COL_BLACK);
 
         lcd.fill_rect(21, 20, 1, 60, COL_AXIS);
-        lcd.fill_rect(GRAPH_X_MIN, 20, GRAPH_X_MAX - GRAPH_X_MIN + 1, 60, COL_GRAPH_BG);
-        lcd.fill_rect(GRAPH_X_MIN, GRAPH_Y_BASE, GRAPH_X_MAX - GRAPH_X_MIN + 1, 1, COL_AXIS);
-
-        let mut x = GRAPH_X_MIN;
-        while x <= GRAPH_X_MAX {
-            lcd.set_pixel(x, 36, COL_GRID); // 75%
-            lcd.set_pixel(x, 49, COL_GRID); // 50%
-            lcd.set_pixel(x, 63, COL_GRID); // 25%
-            x += 4;
-        }
 
         // Draw trigger marker tick on the Y-axis (X: 20..21)
         let scale_max = CURRENT_TIERS[self.scale_tier].max_val;
@@ -313,9 +303,25 @@ impl GraphScreen {
         self.prev_trig_marker_y = Some(trig_y);
     }
 
+    pub fn redraw_grid(&mut self, lcd: &mut Lcd) {
+        self.redraw_labels_and_axis(lcd);
+
+        lcd.fill_rect(GRAPH_X_MIN, 20, GRAPH_X_MAX - GRAPH_X_MIN + 1, 60, COL_GRAPH_BG);
+        lcd.fill_rect(GRAPH_X_MIN, GRAPH_Y_BASE, GRAPH_X_MAX - GRAPH_X_MIN + 1, 1, COL_AXIS);
+
+        let mut x = GRAPH_X_MIN;
+        while x <= GRAPH_X_MAX {
+            lcd.set_pixel(x, 36, COL_GRID); // 75%
+            lcd.set_pixel(x, 49, COL_GRID); // 50%
+            lcd.set_pixel(x, 63, COL_GRID); // 25%
+            x += 4;
+        }
+    }
+
     /// Replots all available historical samples from the circular buffer at the current scale tier.
+    /// Streams columns directly via write_pixels without pre-clearing with individual dot transactions.
     pub fn replot_history(&mut self, lcd: &mut Lcd, history: &WaveformHistory) {
-        self.redraw_grid(lcd);
+        self.redraw_labels_and_axis(lcd);
 
         let scale_max = CURRENT_TIERS[self.scale_tier].max_val;
         let count = history.count;
@@ -372,6 +378,24 @@ impl GraphScreen {
             }
             lcd.write_pixels(x, GRAPH_Y_TOP, 1, GRAPH_HEIGHT + 1, &col_buf);
             prev = y_curr;
+        }
+
+        // Fill remaining unplotted tail columns if history has fewer samples than graph width
+        let tail_x = GRAPH_X_MIN + (count as u16);
+        if tail_x <= GRAPH_X_MAX {
+            let tail_w = GRAPH_X_MAX - tail_x + 1;
+            lcd.fill_rect(tail_x, 20, tail_w, 60, COL_GRAPH_BG);
+            lcd.fill_rect(tail_x, GRAPH_Y_BASE, tail_w, 1, COL_AXIS);
+            let mut x = tail_x;
+            while x % 4 != 0 && x <= GRAPH_X_MAX {
+                x += 1;
+            }
+            while x <= GRAPH_X_MAX {
+                lcd.set_pixel(x, 36, COL_GRID);
+                lcd.set_pixel(x, 49, COL_GRID);
+                lcd.set_pixel(x, 63, COL_GRID);
+                x += 4;
+            }
         }
 
         self.sweep_x = GRAPH_X_MIN + (count as u16);

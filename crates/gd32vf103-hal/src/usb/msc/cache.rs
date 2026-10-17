@@ -6,14 +6,20 @@ pub struct CacheEntry {
     pub valid: bool,
 }
 
+/// 4-byte aligned 512-byte cache sector block to ensure RISC-V 32-bit word alignment
+/// during USB FIFO packet loads and stores.
+#[repr(C, align(4))]
+#[derive(Copy, Clone)]
+pub struct CacheBlock(pub [u8; 512]);
+
 #[cfg(not(test))]
-static mut CACHE_DATA: [[u8; 512]; CACHE_SECTORS] = [[0u8; 512]; CACHE_SECTORS];
+static mut CACHE_DATA: [CacheBlock; CACHE_SECTORS] = [CacheBlock([0u8; 512]); CACHE_SECTORS];
 
 pub struct LbaCache {
     pub entries: [CacheEntry; CACHE_SECTORS],
     pub next_insert_slot: usize,
     #[cfg(test)]
-    pub data: [[u8; 512]; CACHE_SECTORS],
+    pub data: [CacheBlock; CACHE_SECTORS],
 }
 
 impl LbaCache {
@@ -25,7 +31,7 @@ impl LbaCache {
             }; CACHE_SECTORS],
             next_insert_slot: 0,
             #[cfg(test)]
-            data: [[0u8; 512]; CACHE_SECTORS],
+            data: [CacheBlock([0u8; 512]); CACHE_SECTORS],
         }
     }
 
@@ -35,10 +41,10 @@ impl LbaCache {
             if entry.valid && entry.lba == lba {
                 #[cfg(not(test))]
                 unsafe {
-                    return Some(&CACHE_DATA[i]);
+                    return Some(&CACHE_DATA[i].0);
                 }
                 #[cfg(test)]
-                return Some(&self.data[i]);
+                return Some(&self.data[i].0);
             }
         }
         None
@@ -49,10 +55,10 @@ impl LbaCache {
             self.entries[slot] = CacheEntry { lba, valid: true };
             #[cfg(not(test))]
             unsafe {
-                CACHE_DATA[slot].copy_from_slice(buf);
+                CACHE_DATA[slot].0.copy_from_slice(buf);
             }
             #[cfg(test)]
-            self.data[slot].copy_from_slice(buf);
+            self.data[slot].0.copy_from_slice(buf);
         }
     }
 
@@ -84,10 +90,10 @@ impl LbaCache {
             if entry.valid && entry.lba == lba {
                 #[cfg(not(test))]
                 unsafe {
-                    CACHE_DATA[i].copy_from_slice(buf);
+                    CACHE_DATA[i].0.copy_from_slice(buf);
                 }
                 #[cfg(test)]
-                self.data[i].copy_from_slice(buf);
+                self.data[i].0.copy_from_slice(buf);
             }
         }
     }
@@ -96,6 +102,12 @@ impl LbaCache {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_cache_block_alignment() {
+        assert!(core::mem::align_of::<CacheBlock>() >= 4);
+        assert_eq!(core::mem::size_of::<CacheBlock>(), 512);
+    }
 
     #[test]
     fn test_lba_cache_operations() {
