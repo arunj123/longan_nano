@@ -1,12 +1,15 @@
-#![no_std]
-#![no_main]
+#![cfg_attr(not(test), no_std)]
+#![cfg_attr(not(test), no_main)]
 
 use core::fmt::Write;
 use embedded_hal::delay::DelayNs;
 use longan_nano_bsp::Board;
+#[cfg(not(test))]
 use panic_halt as _;
+#[cfg(not(test))]
 use riscv_rt::entry;
 
+#[cfg(not(test))]
 #[entry]
 fn main() -> ! {
     let mut board = Board::take().unwrap();

@@ -1,8 +1,10 @@
-#![no_std]
-#![no_main]
+#![cfg_attr(not(test), no_std)]
+#![cfg_attr(not(test), no_main)]
 
 use core::fmt::Write;
+#[cfg(not(test))]
 use panic_halt as _;
+#[cfg(not(test))]
 use riscv_rt::entry;
 
 use longan_nano_bsp::lcd::FONT_5X7;
@@ -26,6 +28,7 @@ const DARK_NAVY: u16 = 0x0010;
 const LIGHT_GRAY: u16 = 0xCE79;
 const GRAY: u16 = 0x8410;
 
+#[cfg(not(test))]
 #[entry]
 fn main() -> ! {
     let mut board = Board::take_composite().expect("Board initialization failed");

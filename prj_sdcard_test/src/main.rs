@@ -1,12 +1,14 @@
-#![no_std]
-#![no_main]
+#![cfg_attr(not(test), no_std)]
+#![cfg_attr(not(test), no_main)]
 
 use core::fmt::Write;
 use embedded_hal::delay::DelayNs;
 use longan_nano_bsp::lcd::FONT_5X7;
 use longan_nano_bsp::lcd_color;
 use longan_nano_bsp::{Board, CardType, LCD_HEIGHT, LCD_WIDTH};
+#[cfg(not(test))]
 use panic_halt as _;
+#[cfg(not(test))]
 use riscv_rt::entry;
 
 // Stack-allocated string buffer for formatting without heap
@@ -147,6 +149,7 @@ fn run_sd_test(board: &mut Board) {
     }
 }
 
+#[cfg(not(test))]
 #[entry]
 fn main() -> ! {
     let mut board = Board::take().unwrap();

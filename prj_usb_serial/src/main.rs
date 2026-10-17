@@ -1,13 +1,16 @@
-#![no_std]
-#![no_main]
+#![cfg_attr(not(test), no_std)]
+#![cfg_attr(not(test), no_main)]
 
 use core::fmt::Write;
 use embedded_hal::delay::DelayNs;
+#[cfg(not(test))]
 use panic_halt as _;
+#[cfg(not(test))]
 use riscv_rt::entry;
 
 use longan_nano_bsp::Board;
 
+#[cfg(not(test))]
 #[entry]
 fn main() -> ! {
     let mut board = Board::take_usb().expect("Failed to initialize board with USB");

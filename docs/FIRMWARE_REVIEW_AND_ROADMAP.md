@@ -257,9 +257,9 @@ flowchart TD
   - In `crates/gd32vf103-hal/src/usb/msc/mod.rs`, optimized read-ahead pipelining so that sequential cache hits during an active `CMD18` multi-block read do not invoke `disk.end_multi_read()`.
   - Maintained the active SPI streaming read pipeline across cache hits for large block transfers (> 8 blocks), only consulting cache when starting a new transfer or for small isolated reads ($\le 8$ blocks).
   - Added round-robin sector caching (`insert_lba`) across 16 cache slots for small transfers ($\le 8$ blocks), speeding up repeated partition table and FAT sector lookups.
-- [ ] **Task 5.4**: Fix Workspace-Wide Host Unit Test Harness & `panic_halt` Guarding:
-  - Guard `panic_halt` in auxiliary crates (`prj_blink`, `prj_lcd_test`, `prj_sdcard_test`, `prj_sdcard_fs_test`, `prj_usb_serial`) with `#[cfg(not(test))] use panic_halt as _;`.
-  - Ensure pure `cargo test --workspace --target x86_64-pc-windows-msvc` passes cleanly with 0 compilation errors across all workspace members.
+- [x] **Task 5.4**: Fix Workspace-Wide Host Unit Test Harness & `panic_halt` Guarding:
+  - Guarded `panic_halt`, `riscv_rt::entry`, and `main()` in auxiliary crates (`prj_blink`, `prj_uart_test`, `prj_lcd_test`, `prj_sdcard_test`, `prj_sdcard_fs_test`, `prj_usb_serial`, `prj_usb_composite`) with `#[cfg(not(test))]`.
+  - Verified pure `cargo test --workspace --target x86_64-pc-windows-msvc` passes 100% cleanly across all workspace crates (89 passed tests, 3 doc-tests, 0 failed, 0 errors).
 - [ ] **Task 5.5**: Master Release Milestone v1.0.0 End-to-End Verification & Documentation:
   - Run complete end-to-end regression suites on target hardware for both `prj_usb_msc` and `prj_current_monitor`.
   - Tag git repository at `v1.0.0-release` and archive final verification artifacts.
@@ -345,6 +345,16 @@ flowchart TD
      - Multi-block 128 KiB CMD25 write streaming with double buffering verified with 100% cryptographic match (`MD5: 9ec54e9020276f923d7a70ac1e28d5a6`).
      - Tested BKP persistence across reboot: set WP to `RO` (`0x5701`), re-triggered hardware reset via OpenOCD, verified boot status retained `Write-Protect: RO (BKP6: 0x5701)`, restored to `RW`.
      - Clean unmount with zero kernel errors or USB bus resets.
+
+4. **Workspace-Wide Host Unit Test Harness & `panic_halt` Guarding (Task 5.4)**:
+   - **`panic_halt` & `#![no_std]` Guarding Across Auxiliary Crates**:
+     - In `prj_blink`, `prj_uart_test`, `prj_lcd_test`, `prj_sdcard_test`, `prj_sdcard_fs_test`, `prj_usb_serial`, and `prj_usb_composite`:
+       - Changed crate attributes to `#![cfg_attr(not(test), no_std)]` and `#![cfg_attr(not(test), no_main)]`.
+       - Guarded `use panic_halt as _;` and `use riscv_rt::entry;` with `#[cfg(not(test))]`.
+       - Guarded firmware `#[entry] fn main() -> !` with `#[cfg(not(test))]`.
+   - **Verification Results**:
+     - `cargo test --workspace --target x86_64-pc-windows-msvc` passes 100% cleanly across all 13 workspace members (89 unit tests + 3 doc tests = 92 tests passing, 0 failures, 0 errors).
+     - Target RV32 embedded compilation verified: both `prj_usb_msc` and `prj_current_monitor` build release binaries without errors.
 
 ---
 

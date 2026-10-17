@@ -1,5 +1,5 @@
-#![no_std]
-#![no_main]
+#![cfg_attr(not(test), no_std)]
+#![cfg_attr(not(test), no_main)]
 
 use core::cell::RefCell;
 use core::fmt::Write;
@@ -11,7 +11,9 @@ use embedded_sdmmc::{
 use longan_nano_bsp::lcd::FONT_5X7;
 use longan_nano_bsp::lcd_color;
 use longan_nano_bsp::{Board, SdCard, SdError, LCD_HEIGHT, LCD_WIDTH};
+#[cfg(not(test))]
 use panic_halt as _;
+#[cfg(not(test))]
 use riscv_rt::entry;
 
 // Stack-allocated string buffer for formatting without heap
@@ -317,6 +319,7 @@ fn run_filesystem_test(board: &mut Board, run_counter: u32) {
     let _ = volume.close();
 }
 
+#[cfg(not(test))]
 #[entry]
 fn main() -> ! {
     let mut board = Board::take().unwrap();
