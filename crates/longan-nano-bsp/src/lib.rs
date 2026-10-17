@@ -107,6 +107,25 @@ pub struct Board {
     pub clocks: Clocks,
 }
 
+/// Active USB operating mode for CurrentMonitorBoard
+pub enum UsbMode {
+    Hid(UsbHid),
+    Msc(UsbMsc),
+    None,
+}
+
+impl UsbMode {
+    #[inline(always)]
+    pub fn is_hid(&self) -> bool {
+        matches!(self, UsbMode::Hid(_))
+    }
+
+    #[inline(always)]
+    pub fn is_msc(&self) -> bool {
+        matches!(self, UsbMode::Msc(_))
+    }
+}
+
 /// Board container specialized for INA219 Current Monitor application
 pub struct CurrentMonitorBoard {
     pub led_red: LedRed,
@@ -116,14 +135,80 @@ pub struct CurrentMonitorBoard {
     pub uart0: Uart0,
     pub lcd: Lcd,
     pub ina219: Ina219,
-    pub usb_hid: UsbHid,
+    pub usb: UsbMode,
     pub sdcard: Option<SdCard>,
     pub delay: Delay,
     pub clocks: Clocks,
+    pub rcu: hal::pac::rcu::Rcu,
     pub mcu_temp: Adc0TempSensor,
     pub fwdgt: Fwdgt,
     pub rtc: Rtc,
     pub encoder: BoardRotaryEncoder,
+}
+
+impl CurrentMonitorBoard {
+    #[inline(always)]
+    pub fn is_usb_configured(&self) -> bool {
+        match &self.usb {
+            UsbMode::Hid(hid) => hid.is_configured(),
+            UsbMode::Msc(msc) => msc.is_configured(),
+            UsbMode::None => false,
+        }
+    }
+
+    #[inline(always)]
+    pub fn usb_hid(&mut self) -> Option<&mut UsbHid> {
+        match &mut self.usb {
+            UsbMode::Hid(hid) => Some(hid),
+            _ => None,
+        }
+    }
+
+    #[inline(always)]
+    pub fn usb_msc(&mut self) -> Option<&mut UsbMsc> {
+        match &mut self.usb {
+            UsbMode::Msc(msc) => Some(msc),
+            _ => None,
+        }
+    }
+
+    /// Transitions dynamic USB subsystem from UsbHid (or None) to UsbMsc.
+    /// Safely detaches the current USB class, reallocates FIFOs, sets up SCSI/BOT,
+    /// and attaches to the USB bus as a Mass Storage device.
+    pub fn switch_to_msc(&mut self) -> bool {
+        if matches!(self.usb, UsbMode::Msc(_)) {
+            return true;
+        }
+        self.fwdgt.feed();
+        let usbfs = match core::mem::replace(&mut self.usb, UsbMode::None) {
+            UsbMode::Hid(hid) => hid.into_inner(),
+            UsbMode::Msc(msc) => msc.into_inner(),
+            UsbMode::None => return false,
+        };
+        let msc = UsbMsc::new(usbfs, &self.rcu, &mut self.delay);
+        self.usb = UsbMode::Msc(msc);
+        self.fwdgt.feed();
+        true
+    }
+
+    /// Transitions dynamic USB subsystem from UsbMsc (or None) to UsbHid.
+    /// Safely detaches USB MSC, reallocates FIFOs, sets up HID endpoints,
+    /// and attaches to the USB bus as a Custom HID telemetry device.
+    pub fn switch_to_hid(&mut self) -> bool {
+        if matches!(self.usb, UsbMode::Hid(_)) {
+            return true;
+        }
+        self.fwdgt.feed();
+        let usbfs = match core::mem::replace(&mut self.usb, UsbMode::None) {
+            UsbMode::Hid(hid) => hid.into_inner(),
+            UsbMode::Msc(msc) => msc.into_inner(),
+            UsbMode::None => return false,
+        };
+        let hid = UsbHid::new(usbfs, &self.rcu, &mut self.delay);
+        self.usb = UsbMode::Hid(hid);
+        self.fwdgt.feed();
+        true
+    }
 }
 
 /// Board container specialized for USB Composite device application
@@ -355,10 +440,11 @@ impl Board {
             uart0,
             lcd,
             ina219,
-            usb_hid,
+            usb: UsbMode::Hid(usb_hid),
             sdcard: Some(sdcard),
             delay,
             clocks,
+            rcu,
             mcu_temp,
             fwdgt,
             rtc,

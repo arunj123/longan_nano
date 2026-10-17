@@ -17,7 +17,7 @@ use panic_halt as _;
 use riscv_rt::entry;
 
 use longan_nano_bsp::{
-    Board, Rotation, BKP_REG_ROTATION, BKP_ROTATION_180, BKP_ROTATION_NORMAL,
+    Board, Rotation, UsbMode, BKP_REG_ROTATION, BKP_ROTATION_180, BKP_ROTATION_NORMAL,
 };
 
 use crate::app::{App, BKP_MAGIC_KEY, BKP_REG_CONFIG, BKP_REG_LIMIT, BKP_REG_MAGIC, BKP_REG_TARE};
@@ -25,7 +25,7 @@ use crate::button::{ButtonEvent, ButtonState};
 use crate::logger::SdDatalogger;
 use crate::model::{BatteryProfile, InaReading};
 use crate::telemetry::HidCommand;
-use crate::ui::{ScreenMode, SdStatus, TriggerMode, TriggerState};
+use crate::ui::{ScreenMode, SdStatus, TriggerMode, TriggerState, UsbDriveState};
 
 #[cfg(not(test))]
 #[entry]
@@ -40,7 +40,7 @@ fn main() -> ! {
         board.clocks.sysclk / 1_000_000
     )
     .ok();
-    writeln!(board.uart0, " MicroSD: SPI1 | USB HID: VID 0x28E9, PID 0x1234").ok();
+    writeln!(board.uart0, " MicroSD: SPI1 | USB: Dual Mode (HID / MSC)").ok();
     let init_epoch = board.rtc.get_epoch();
     let init_dt = board.rtc.get_datetime();
     writeln!(
@@ -50,7 +50,7 @@ fn main() -> ! {
         init_epoch,
         if board.rtc.is_synced() { "YES" } else { "NO" }
     ).ok();
-    writeln!(board.uart0, " Commands: '1'..'5' Mode, 'm' Cycle, 'b' Bat, 't' Tare, 'c' Clock, 'r' Rotate SD, 'o' Rotate LCD, 's' Dump, '?' Help").ok();
+    writeln!(board.uart0, " Commands: '1'..'6' Mode, 'm' Cycle, 'u' UsbDrive, 'b' Bat, 't' Tare, 'c' Clock, 'r' Rotate SD, 'o' Rotate LCD, 's' Dump, '?' Help").ok();
     writeln!(board.uart0, "========================================").ok();
 
     // Initialize ST7735 160x80 LCD
@@ -88,7 +88,7 @@ fn main() -> ! {
         .ok();
     }
 
-    let mut app = App::new(datalogger, board.delay.uptime_ms());
+    let mut app = App::new(datalogger, &sdcard_cell, board.delay.uptime_ms());
 
     // Check NVRAM configuration in BKP registers
     if board.rtc.read_backup_reg(BKP_REG_MAGIC) == BKP_MAGIC_KEY {
@@ -103,6 +103,7 @@ fn main() -> ! {
             2 => ScreenMode::Stats,
             3 => ScreenMode::Histogram,
             4 => ScreenMode::BigDigit,
+            5 => ScreenMode::UsbDrive,
             _ => ScreenMode::Hero,
         };
         app.battery.profile = BatteryProfile::from_id(bat_idx);
@@ -155,21 +156,41 @@ fn main() -> ! {
         board.fwdgt.feed();
 
         // 1. High-frequency non-blocking USB polling (every loop iteration)
-        board.usb_hid.poll();
-
-        let usb_configured = board.usb_hid.is_configured();
-        if usb_configured && !app.prev_usb_configured {
-            let uptime = now;
-            writeln!(
-                board.uart0,
-                "[USB] >>> USB HID State: CONFIGURED [Time: {} ms] <<<",
-                uptime
-            )
-            .ok();
-            app.prev_usb_configured = true;
-        } else if !usb_configured && app.prev_usb_configured {
-            writeln!(board.uart0, "[USB] >>> USB HID State: DISCONNECTED <<<").ok();
-            app.prev_usb_configured = false;
+        match &mut board.usb {
+            UsbMode::Hid(ref mut hid) => {
+                hid.poll();
+                let usb_configured = hid.is_configured();
+                if usb_configured && !app.prev_usb_configured {
+                    writeln!(
+                        board.uart0,
+                        "[USB] >>> USB HID State: CONFIGURED [Time: {} ms] <<<",
+                        now
+                    )
+                    .ok();
+                    app.prev_usb_configured = true;
+                } else if !usb_configured && app.prev_usb_configured {
+                    writeln!(board.uart0, "[USB] >>> USB HID State: DISCONNECTED <<<").ok();
+                    app.prev_usb_configured = false;
+                }
+            }
+            UsbMode::Msc(ref mut msc) => {
+                let mut sd = sdcard_cell.borrow_mut();
+                msc.poll(&mut *sd);
+                let usb_configured = msc.is_configured();
+                if usb_configured && !app.prev_usb_configured {
+                    writeln!(
+                        board.uart0,
+                        "[USB] >>> USB MSC State: CONFIGURED [Time: {} ms] <<<",
+                        now
+                    )
+                    .ok();
+                    app.prev_usb_configured = true;
+                } else if !usb_configured && app.prev_usb_configured {
+                    writeln!(board.uart0, "[USB] >>> USB MSC State: DISCONNECTED <<<").ok();
+                    app.prev_usb_configured = false;
+                }
+            }
+            UsbMode::None => {}
         }
 
         // 1.5 Rotary Encoder Polling (PB10/PB11/PB5)
@@ -195,7 +216,14 @@ fn main() -> ! {
         }
 
         if enc_pressed {
-            if app.screen_mode == ScreenMode::Graph {
+            if app.screen_mode == ScreenMode::UsbDrive {
+                // In UsbDrive mode: toggle Mount / Unmount
+                if app.usb_drive_screen.state == UsbDriveState::Standby {
+                    app.enter_usb_drive_active(&mut board, now);
+                } else {
+                    app.exit_usb_drive_active(&mut board, now);
+                }
+            } else if app.screen_mode == ScreenMode::Graph {
                 // In Graph mode: Cycle trigger mode (AUTO -> NORM -> SINGLE) or Rearm if halted
                 if app.graph_screen.trigger_mode == TriggerMode::Single && app.graph_screen.trigger_state == TriggerState::Halted {
                     app.graph_screen.rearm();
@@ -306,6 +334,20 @@ fn main() -> ! {
                     }
                     b'5' => {
                         app.set_screen_mode(&mut board, ScreenMode::BigDigit);
+                    }
+                    b'6' => {
+                        app.set_screen_mode(&mut board, ScreenMode::UsbDrive);
+                    }
+                    b'u' | b'U' => {
+                        if app.screen_mode == ScreenMode::UsbDrive {
+                            if app.usb_drive_screen.state == UsbDriveState::Standby {
+                                app.enter_usb_drive_active(&mut board, now);
+                            } else {
+                                app.exit_usb_drive_active(&mut board, now);
+                            }
+                        } else {
+                            app.set_screen_mode(&mut board, ScreenMode::UsbDrive);
+                        }
                     }
                     b'm' | b'M' => {
                         app.cycle_screen_mode(&mut board);
@@ -420,22 +462,24 @@ fn main() -> ! {
         }
 
         // 3. Bidirectional USB HID OUT Command Polling
-        if let Some(cmd) = app.telemetry.poll_command(&mut board.usb_hid) {
-            match cmd {
-                HidCommand::SetMode(m) => {
-                    let next = match m {
-                        0 => Some(ScreenMode::Hero),
-                        1 => Some(ScreenMode::Graph),
-                        2 => Some(ScreenMode::Stats),
-                        3 => Some(ScreenMode::Histogram),
-                        4 => Some(ScreenMode::BigDigit),
-                        0xFF => Some(app.next_screen_mode()),
-                        _ => None,
-                    };
-                    if let Some(mode) = next {
-                        app.set_screen_mode(&mut board, mode);
+        if let Some(hid) = board.usb_hid() {
+            if let Some(cmd) = app.telemetry.poll_command(hid) {
+                match cmd {
+                    HidCommand::SetMode(m) => {
+                        let next = match m {
+                            0 => Some(ScreenMode::Hero),
+                            1 => Some(ScreenMode::Graph),
+                            2 => Some(ScreenMode::Stats),
+                            3 => Some(ScreenMode::Histogram),
+                            4 => Some(ScreenMode::BigDigit),
+                            5 => Some(ScreenMode::UsbDrive),
+                            0xFF => Some(app.next_screen_mode()),
+                            _ => None,
+                        };
+                        if let Some(mode) = next {
+                            app.set_screen_mode(&mut board, mode);
+                        }
                     }
-                }
                 HidCommand::TareZero => app.tare_and_reset(&mut board, now),
                 HidCommand::FlushSd => {
                     app.datalogger.flush_buffer();
@@ -476,6 +520,7 @@ fn main() -> ! {
                 }
             }
         }
+    }
 
         // 4. Interactive Button Controls (PA8)
         let raw_pressed = board.button.is_pressed();
@@ -493,7 +538,12 @@ fn main() -> ! {
             ButtonEvent::None => {}
 
             ButtonEvent::SingleClick => {
-                if app.screen_mode == ScreenMode::Graph
+                if app.screen_mode == ScreenMode::UsbDrive && app.usb_drive_screen.state == UsbDriveState::Active {
+                    // Exiting Screen 6 while Active unmounts MSC, restores HID, and rotates SD file
+                    app.exit_usb_drive_active(&mut board, now);
+                    app.cycle_screen_mode(&mut board);
+                    writeln!(board.uart0, "[BUTTON] Single-click: Exited USB Drive -> Advance Screen -> {}", app.screen_mode_name()).ok();
+                } else if app.screen_mode == ScreenMode::Graph
                     && app.graph_screen.trigger_mode == TriggerMode::Single
                     && app.graph_screen.trigger_state == TriggerState::Halted
                 {
@@ -507,6 +557,13 @@ fn main() -> ! {
 
             ButtonEvent::DoubleClick => {
                 match app.screen_mode {
+                    ScreenMode::UsbDrive => {
+                        if app.usb_drive_screen.state == UsbDriveState::Standby {
+                            app.enter_usb_drive_active(&mut board, now);
+                        } else {
+                            app.exit_usb_drive_active(&mut board, now);
+                        }
+                    }
                     ScreenMode::Graph => {
                         app.graph_screen.cycle_trigger_mode();
                         let trig_name = app.graph_screen.trigger_mode.name();
@@ -574,11 +631,20 @@ fn main() -> ! {
             }
 
             ButtonEvent::TareTrigger => {
-                app.tare_and_reset(&mut board, now);
-                app.button.overlay.show_tare_confirmed(now, 1000);
-                app.render_top_bar_overlay(&mut board.lcd);
-                board.led_blue.off();
-                writeln!(board.uart0, "[BUTTON] Long press (1500 ms): Tare Zero & Reset triggered!").ok();
+                if app.screen_mode == ScreenMode::UsbDrive {
+                    if app.usb_drive_screen.state == UsbDriveState::Standby {
+                        app.enter_usb_drive_active(&mut board, now);
+                    } else {
+                        app.exit_usb_drive_active(&mut board, now);
+                    }
+                    board.led_blue.off();
+                } else {
+                    app.tare_and_reset(&mut board, now);
+                    app.button.overlay.show_tare_confirmed(now, 1000);
+                    app.render_top_bar_overlay(&mut board.lcd);
+                    board.led_blue.off();
+                    writeln!(board.uart0, "[BUTTON] Long press (1500 ms): Tare Zero & Reset triggered!").ok();
+                }
             }
         }
 
@@ -683,6 +749,8 @@ fn main() -> ! {
                 app.accum.update(reading.power_tenth_mw, reading.current_tenth_ma, dt_ms);
             }
 
+            let usb_configured = board.is_usb_configured();
+
             // Screen Rendering
             match app.screen_mode {
                 ScreenMode::Hero => {
@@ -691,7 +759,7 @@ fn main() -> ! {
                         &reading,
                         &app.accum,
                         app.ina_present,
-                        board.usb_hid.is_configured(),
+                        usb_configured,
                         app.datalogger.status,
                         app.over_current,
                     );
@@ -704,7 +772,7 @@ fn main() -> ! {
                         &app.history,
                         app.ina_present,
                         app.datalogger.status,
-                        board.usb_hid.is_configured(),
+                        usb_configured,
                     );
                 }
                 ScreenMode::Stats => {
@@ -722,7 +790,7 @@ fn main() -> ! {
                         app.datalogger.status,
                         app.datalogger.total_logged_rows,
                         now,
-                        board.usb_hid.is_configured(),
+                        usb_configured,
                         cur_dt,
                     );
                 }
@@ -736,10 +804,32 @@ fn main() -> ! {
                         &app.accum,
                         &app.battery,
                         app.ina_present,
-                        board.usb_hid.is_configured(),
+                        usb_configured,
                         app.datalogger.status,
                         app.over_current,
                     );
+                }
+                ScreenMode::UsbDrive => {
+                    // Check if active MSC is idle before SPI0 LCD draw to prevent USB BOT timeouts
+                    let can_render = match &board.usb {
+                        UsbMode::Msc(msc) => msc.is_idle(),
+                        _ => true,
+                    };
+                    if can_render {
+                        let msc_stats = match &board.usb {
+                            UsbMode::Msc(msc) => Some(&msc.stats),
+                            _ => None,
+                        };
+                        let sectors = sdcard_cell.borrow().sector_count;
+                        let filename = app.datalogger.file_name_str();
+                        app.usb_drive_screen.update(
+                            &mut board.lcd,
+                            app.datalogger.status,
+                            sectors,
+                            filename,
+                            msc_stats,
+                        );
+                    }
                 }
             }
 
@@ -749,51 +839,63 @@ fn main() -> ! {
             }
 
             // USB HID Telemetry Streaming (9 bytes @ 10 Hz)
-            app.telemetry.send_reading(&mut board.usb_hid, &reading, app.ina_present, app.datalogger.status, app.over_current);
+            if let Some(hid) = board.usb_hid() {
+                app.telemetry.send_reading(hid, &reading, app.ina_present, app.datalogger.status, app.over_current);
+            }
         }
 
         // 5. 1 Hz MicroSD CSV Datalogger & Heartbeat Logging
         if now.wrapping_sub(app.last_1hz_ms) >= 1000 {
             app.last_1hz_ms = now;
 
-            // Probe card if missing (with exponential backoff)
-            if app.datalogger.status == SdStatus::NoCard || app.datalogger.status == SdStatus::WriteError {
-                if app.datalogger.check_probe(now, &mut board.delay) {
-                    let sectors = sdcard_cell.borrow().sector_count;
-                    writeln!(
-                        board.uart0,
-                        "[SD] Card hot-plug inserted & ready ({} sectors) | File: {}",
-                        sectors,
-                        app.datalogger.file_name_str()
-                    )
-                    .ok();
-                }
-            }
+            // Only probe and log if not in Active USB Drive mode (exclusive host access)
+            let is_msc_active = app.screen_mode == ScreenMode::UsbDrive
+                && app.usb_drive_screen.state == UsbDriveState::Active;
 
-            // Log representative row to sector buffer using true 1s arithmetic average from sample aggregator
-            if app.ina_present {
-                if let Ok(true) = board.ina219.check_and_restore_calibration() {
-                    writeln!(board.uart0, "[I2C] INA219 brownout detected - restored calibration!").ok();
+            if !is_msc_active {
+                // Probe card if missing (with exponential backoff)
+                if app.datalogger.status == SdStatus::NoCard || app.datalogger.status == SdStatus::WriteError {
+                    if app.datalogger.check_probe(now, &mut board.delay) {
+                        let sectors = sdcard_cell.borrow().sector_count;
+                        writeln!(
+                            board.uart0,
+                            "[SD] Card hot-plug inserted & ready ({} sectors) | File: {}",
+                            sectors,
+                            app.datalogger.file_name_str()
+                        )
+                        .ok();
+                    }
                 }
 
-                let cur_dt = if board.rtc.is_synced() {
-                    Some(board.rtc.get_datetime())
-                } else {
-                    None
-                };
-                let agg_reading = app.sec_agg.finish_and_reset(&app.last_reading);
-                app.datalogger.log_sample(now, &agg_reading, &app.accum, cur_dt);
+                // Log representative row to sector buffer using true 1s arithmetic average from sample aggregator
+                if app.ina_present {
+                    if let Ok(true) = board.ina219.check_and_restore_calibration() {
+                        writeln!(board.uart0, "[I2C] INA219 brownout detected - restored calibration!").ok();
+                    }
+
+                    let cur_dt = if board.rtc.is_synced() {
+                        Some(board.rtc.get_datetime())
+                    } else {
+                        None
+                    };
+                    let agg_reading = app.sec_agg.finish_and_reset(&app.last_reading);
+                    app.datalogger.log_sample(now, &agg_reading, &app.accum, cur_dt);
+                }
             }
 
             // UART0 Heartbeat & Diagnostic Output
             let sec = now / 1000;
-            let cfg_str = if board.usb_hid.is_configured() { "CFG" } else { "DISC" };
+            let cfg_str = if board.is_usb_configured() { "CFG" } else { "DISC" };
             let sensor_str = if app.ina_present { "ONLINE" } else { "OFFLINE" };
-            let sd_str = match app.datalogger.status {
-                SdStatus::Logging => "LOGGING",
-                SdStatus::Ready => "READY",
-                SdStatus::NoCard => "NO_CARD",
-                SdStatus::WriteError => "ERROR",
+            let sd_str = if is_msc_active {
+                "MSC_EXCLUSIVE"
+            } else {
+                match app.datalogger.status {
+                    SdStatus::Logging => "LOGGING",
+                    SdStatus::Ready => "READY",
+                    SdStatus::NoCard => "NO_CARD",
+                    SdStatus::WriteError => "ERROR",
+                }
             };
             let mode_str = match app.screen_mode {
                 ScreenMode::Hero => "HERO",
@@ -801,6 +903,7 @@ fn main() -> ! {
                 ScreenMode::Stats => "STATS",
                 ScreenMode::Histogram => "HISTO",
                 ScreenMode::BigDigit => "BIG",
+                ScreenMode::UsbDrive => "USB_DRIVE",
             };
             let temp_tenth = app.stats.mcu_temp_tenth_c;
 

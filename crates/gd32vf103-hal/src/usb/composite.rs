@@ -251,6 +251,14 @@ impl UsbComposite {
         instance
     }
 
+    /// Consumes the USB Composite driver, asserts a soft disconnect on the USB bus (DCTL.SDIS = 1),
+    /// masks global AHB interrupts, and returns the underlying `Usbfs` peripheral.
+    pub fn into_inner(self) -> Usbfs {
+        self.usbfs.device().dctl.set_bits(dctl::SDIS);
+        self.usbfs.global().gahbcs.clear_bits(gahbcs::GINTEN);
+        self.usbfs
+    }
+
     #[inline(always)]
     pub fn is_configured(&self) -> bool {
         self.configured

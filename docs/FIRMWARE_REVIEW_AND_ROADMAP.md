@@ -563,18 +563,18 @@ flowchart TD
 
 
 ### Phase 5: Dedicated USB Drive Mode & Production Hardening (ACTIVE / NEXT PHASE)
-- [ ] **Task 5.1**: Implement Dedicated USB Drive Mode on Screen 6 for `prj_current_monitor`:
+- [x] **Task 5.1**: Implement Dedicated USB Drive Mode on Screen 6 for `prj_current_monitor` (Verified in Build `00E1`):
   - **FAT32 Concurrency & Safety (Elimination of Two Masters)**:
     - Entering Screen 6 enters `Standby` (instructions displayed, logging remains safe, USB remains HID).
     - Double-click or long-press on PA8 toggles Drive Mode state (`Standby` <-> `Active`).
     - When transitioning to `Active`: flushes buffer (`datalogger.flush_buffer()`), safely closes FAT file handle, unmounts `embedded-sdmmc`, and hands exclusive raw sector access to `UsbMsc`.
     - When transitioning to `Standby` or exiting Screen 6 (single-click advancing to Hero, or UART switch): automatically detaches `UsbMsc` (`DCTL.SDIS = 1`), restores `UsbHid`, re-probes SD card, rotates to the next sequential file (`LOG_XXXX.CSV`), and resumes logging seamlessly.
   - **Dynamic USB Re-enumeration Engine**:
-    - Add `into_inner(self) -> Usbfs` to `UsbHid` and `UsbMsc` in `crates/gd32vf103-hal/src/usb/` asserting soft-disconnect (`dctl.SDIS = 1`).
-    - Add `UsbMode` enum (`Hid(UsbHid)`, `Msc(UsbMsc)`, `None`) and `switch_to_msc()` / `switch_to_hid()` transition helpers in `CurrentMonitorBoard`.
+    - Added `into_inner(self) -> Usbfs` to `UsbHid`, `UsbMsc`, `UsbCdcAcm`, and `UsbComposite` in `crates/gd32vf103-hal/src/usb/` asserting soft-disconnect (`dctl.SDIS = 1`) and disabling global USB interrupts (`gahbcs.GINTEN = 0`).
+    - Added `UsbMode` enum (`Hid(UsbHid)`, `Msc(UsbMsc)`, `None`) and `switch_to_msc()` / `switch_to_hid()` transition helpers in `CurrentMonitorBoard` with a 50 ms disconnect settle delay.
   - **UI/UX & Screen 6 Component**:
-    - Extend `ScreenMode` with `ScreenMode::UsbDrive` (Screen 6).
-    - Implement `screen_usbdrive.rs` with clean status badges (`[STANDBY: NOT MOUNTED]` vs `[ACTIVE: PC MOUNTED]`), active log file, MicroSD capacity, and PA8 gesture prompts (`DOUBLE-CLICK / HOLD TO MOUNT`, `SINGLE-CLICK TO EXIT & RESUME`).
+    - Extended `ScreenMode` with `ScreenMode::UsbDrive` (Screen 6).
+    - Implemented `screen_usbdrive.rs` with clean status badges (`[STANDBY]` vs `[PC MOUNTED]`), active log file, MicroSD capacity, live read/write sector counters, and PA8 gesture prompts (`DBL-CLICK/HOLD: MOUNT`, `CLICK PA8: EXIT/RESUME`).
 - [ ] **Task 5.2**: Implement Hardware/Software Write-Protect Toggle & SCSI `MODE_SENSE_6`/`10` Protection Handling in `prj_usb_msc`:
   - Add Write-Protect (WP) bit reporting in SCSI `MODE_SENSE_6` (Byte 2, bit 7 `0x80`) and `MODE_SENSE_10` (Byte 3, bit 7 `0x80`).
   - Reject `WRITE_6` and `WRITE_10` with `SenseKey::DataProtect (0x07)`, `Asc::WriteProtected (0x27, 0x00)` when write-protect is active.
@@ -589,6 +589,28 @@ flowchart TD
 - [ ] **Task 5.5**: Master Release Milestone v1.0.0 End-to-End Verification & Documentation:
   - Run complete end-to-end regression suites on target hardware for both `prj_usb_msc` and `prj_current_monitor`.
   - Tag git repository at `v1.0.0-release` and archive final verification artifacts.
+
+#### Phase 5 Empirical Verification & Progress Notes
+1. **`prj_current_monitor` Dedicated USB Drive Mode on Screen 6 (Build 00E1)**:
+   - **Dynamic USB Peripheral Ownership & Soft-Disconnect (`crates/gd32vf103-hal/src/usb/`, `crates/longan-nano-bsp/src/lib.rs`)**:
+     - Implemented `into_inner(self) -> Usbfs` across `UsbHid`, `UsbMsc`, `UsbCdcAcm`, and `UsbComposite`, asserting `dctl.sdis = 1` (soft-disconnect) and clearing `gahbcs.ginten = 0` to cleanly detach from the host root hub.
+     - Added `UsbMode` enum (`Hid(UsbHid)`, `Msc(UsbMsc)`, `None`) and stored `rcu: hal::pac::rcu::Rcu` inside `CurrentMonitorBoard`, enabling `switch_to_msc()` and `switch_to_hid()` with a 50 ms bus disconnect settle delay before re-initializing the DWC2 core.
+   - **Zero Dual-Master FAT32 Corruption Architecture (`prj_current_monitor/src/app.rs`, `main.rs`)**:
+     - Navigating to Screen 6 (`ScreenMode::UsbDrive`) starts in `UsbDriveState::Standby`, keeping USB HID active and datalogging undisturbed.
+     - Toggling to `UsbDriveState::Active` (via PA8 double-click, PA8 1.5s hold, or UART `'u'`) flushes the pending 512-byte CSV sector buffer (`datalogger.flush_buffer()`), terminates any active SPI multi-block stream, suppresses the 1 Hz datalogger in `main.rs`, and transitions the USB peripheral to `UsbMsc` (`28e9:abd4`).
+     - Exiting `Active` mode (via PA8 single-click, double-click, hold, rotary encoder turn, or UART screen switch) terminates any active MSC stream, switches USB back to `UsbHid` (`28e9:1234`), re-probes the MicroSD card, and rotates to the next sequential `LOG_XXXX.CSV` file.
+   - **Flash Optimization (`Cargo.toml`)**:
+     - Switching release profile optimization from `opt-level = "s"` to `opt-level = "z"` reduced the combined `UsbHid` + `UsbMsc` + `embedded-sdmmc` firmware image from 131,172 bytes (100B overflow) down to **122,056 bytes** (`-9,116 bytes`), leaving **9,016 bytes** of free Flash headroom within the 128 KB GD32VF103 Flash.
+   - **Host Unit Test Suite (`cargo test`)**:
+     - **77/77 host unit tests pass** across the workspace (27 in `gd32vf103-hal`, 6 in `longan-nano-bsp`, 34 in `prj_current_monitor`, 10 in `prj_usb_msc`), including 3 new unit tests in `ui::screen_usbdrive::tests`.
+   - **Target Hardware Empirical Verification (`tools/test_usb_drive_mode.py`)**:
+     - Flashed to GD32VF103 over JTAG OpenOCD on remote Linux host `192.168.0.63`.
+     - **12/12 automated hardware verification checks passed**:
+       - Screen 6 `Standby` entry via UART `'6'`, preserving `28e9:1234` HID enumeration.
+       - Simulated PA8 double-click (`'K'`) transitioned Screen 6 to `Active`, detached `28e9:1234`, and re-enumerated on Linux xHCI as `28e9:abd4` (`Longan Nano SD Reader`, `/dev/sdb`, `/dev/sg1`).
+       - Direct SCSI `READ_10` of LBA 0 via `sg_raw` succeeded (valid MBR signature `0x55aa`).
+       - Host OS mounted `/dev/sdb1` FAT32 partition cleanly and verified 77 `LOG_*.CSV` files on disk (`LOG_0109.CSV`).
+       - Simulated PA8 single-click (`'k'`) automatically unmounted MSC, restored `28e9:1234` HID, advanced to Screen 1 (`HERO`), re-probed the SD card, rotated the active session file (`LOG_0109.CSV -> LOG_0111.CSV`), and resumed 10 Hz USB HID telemetry (`v_mv: 3320, seq: 7`) on `/dev/hidraw1`.
 
 ---
 

@@ -12,6 +12,7 @@ use crate::telemetry::TelemetryStreamer;
 use crate::ui::theme::{COL_AMBER, COL_BG_TOP, COL_CARD_BORDER, COL_CYAN, COL_DIVIDER, COL_MINT};
 use crate::ui::{
     BigDigitScreen, GraphScreen, HeroScreen, HistogramScreen, ScreenMode, StatsScreen, TriggerMode,
+    UsbDriveScreen, UsbDriveState,
 };
 
 pub const BKP_MAGIC_KEY: u16 = 0x5A5A;
@@ -33,6 +34,7 @@ pub fn save_nvram_config(
         ScreenMode::Stats => 2u16,
         ScreenMode::Histogram => 3u16,
         ScreenMode::BigDigit => 4u16,
+        ScreenMode::UsbDrive => 5u16,
     };
     let config = (mode_idx << 8) | (battery_profile.id() as u16);
     rtc.write_backup_reg(BKP_REG_CONFIG, config);
@@ -47,6 +49,7 @@ pub struct App<'a> {
     pub stats_screen: StatsScreen,
     pub histogram_screen: HistogramScreen,
     pub big_digit_screen: BigDigitScreen,
+    pub usb_drive_screen: UsbDriveScreen,
     pub screen_mode: ScreenMode,
     pub current_limit_ma: u16,
     pub over_current: bool,
@@ -60,6 +63,7 @@ pub struct App<'a> {
     pub telemetry: TelemetryStreamer,
     pub sec_agg: SampleAggregator,
     pub datalogger: SdDatalogger<'a>,
+    pub sdcard: &'a core::cell::RefCell<longan_nano_bsp::SdCard>,
 
     pub last_10hz_ms: u32,
     pub last_1hz_ms: u32,
@@ -74,13 +78,18 @@ pub struct App<'a> {
 }
 
 impl<'a> App<'a> {
-    pub fn new(datalogger: SdDatalogger<'a>, now: u32) -> Self {
+    pub fn new(
+        datalogger: SdDatalogger<'a>,
+        sdcard: &'a core::cell::RefCell<longan_nano_bsp::SdCard>,
+        now: u32,
+    ) -> Self {
         Self {
             hero_screen: HeroScreen::new(),
             graph_screen: GraphScreen::new(),
             stats_screen: StatsScreen::new(),
             histogram_screen: HistogramScreen::new(),
             big_digit_screen: BigDigitScreen::new(),
+            usb_drive_screen: UsbDriveScreen::new(),
             screen_mode: ScreenMode::Hero,
             current_limit_ma: 0,
             over_current: false,
@@ -94,6 +103,7 @@ impl<'a> App<'a> {
             telemetry: TelemetryStreamer::new(),
             sec_agg: SampleAggregator::new(),
             datalogger,
+            sdcard,
 
             last_10hz_ms: now,
             last_1hz_ms: now,
@@ -124,17 +134,19 @@ impl<'a> App<'a> {
             ScreenMode::Graph => ScreenMode::Stats,
             ScreenMode::Stats => ScreenMode::Histogram,
             ScreenMode::Histogram => ScreenMode::BigDigit,
-            ScreenMode::BigDigit => ScreenMode::Hero,
+            ScreenMode::BigDigit => ScreenMode::UsbDrive,
+            ScreenMode::UsbDrive => ScreenMode::Hero,
         }
     }
 
     pub fn prev_screen_mode(&self) -> ScreenMode {
         match self.screen_mode {
-            ScreenMode::Hero => ScreenMode::BigDigit,
+            ScreenMode::Hero => ScreenMode::UsbDrive,
             ScreenMode::Graph => ScreenMode::Hero,
             ScreenMode::Stats => ScreenMode::Graph,
             ScreenMode::Histogram => ScreenMode::Stats,
             ScreenMode::BigDigit => ScreenMode::Histogram,
+            ScreenMode::UsbDrive => ScreenMode::BigDigit,
         }
     }
 
@@ -150,10 +162,18 @@ impl<'a> App<'a> {
             ScreenMode::Stats => self.stats_screen.draw_layout(&mut board.lcd),
             ScreenMode::Histogram => self.histogram_screen.draw_layout(&mut board.lcd),
             ScreenMode::BigDigit => self.big_digit_screen.draw_layout(&mut board.lcd),
+            ScreenMode::UsbDrive => self.usb_drive_screen.draw_layout(&mut board.lcd),
         }
     }
 
     pub fn set_screen_mode(&mut self, board: &mut CurrentMonitorBoard, new_mode: ScreenMode) {
+        if self.screen_mode == ScreenMode::UsbDrive
+            && self.usb_drive_screen.state == UsbDriveState::Active
+            && new_mode != ScreenMode::UsbDrive
+        {
+            let now = board.delay.uptime_ms();
+            self.exit_usb_drive_active(board, now);
+        }
         self.screen_mode = new_mode;
         self.draw_current_layout(board);
         self.save_nvram(board);
@@ -166,6 +186,7 @@ impl<'a> App<'a> {
                 ScreenMode::Stats => "3: STATS (Dashboard)",
                 ScreenMode::Histogram => "4: HISTOGRAM",
                 ScreenMode::BigDigit => "5: BIG DIGIT",
+                ScreenMode::UsbDrive => "6: USB DRIVE (Mass Storage)",
             }
         )
         .ok();
@@ -188,7 +209,109 @@ impl<'a> App<'a> {
             ScreenMode::Stats => "STATS",
             ScreenMode::Histogram => "HISTO",
             ScreenMode::BigDigit => "BIG DIGIT",
+            ScreenMode::UsbDrive => "USB DRIVE",
         }
+    }
+
+    pub fn enter_usb_drive_active(
+        &mut self,
+        board: &mut CurrentMonitorBoard,
+        now: u32,
+    ) -> bool {
+        if self.datalogger.status == crate::ui::SdStatus::NoCard
+            || self.datalogger.status == crate::ui::SdStatus::WriteError
+        {
+            writeln!(board.uart0, "[USB-DRIVE] Cannot mount: SD card not ready").ok();
+            self.button.overlay.show_context_banner(" NO SD CARD INSERTED  ", now, 1000);
+            self.render_top_bar_overlay(&mut board.lcd);
+            return false;
+        }
+
+        // 1. Flush any pending buffered log records to SD
+        self.datalogger.flush_buffer();
+
+        // 2. Terminate any SPI streaming states in SdCard
+        {
+            let mut sd = self.sdcard.borrow_mut();
+            sd.end_multi_read();
+            sd.end_multi_write();
+        }
+
+        // 3. Switch USB peripheral hardware to MSC
+        writeln!(board.uart0, "[USB-DRIVE] Detaching USB HID and initializing USB MSC...").ok();
+        if !board.switch_to_msc() {
+            writeln!(board.uart0, "[USB-DRIVE] Failed to switch to MSC").ok();
+            return false;
+        }
+
+        // 4. Update MSC media readiness
+        if let Some(msc) = board.usb_msc() {
+            let sectors = self.sdcard.borrow().sector_count;
+            msc.set_media_present(sectors > 0);
+        }
+
+        // 5. Update state & UI
+        self.usb_drive_screen.state = UsbDriveState::Active;
+        self.draw_current_layout(board);
+        self.button.overlay.show_context_banner(" USB DRIVE: PC MOUNTED ", now, 1000);
+        self.render_top_bar_overlay(&mut board.lcd);
+        writeln!(
+            board.uart0,
+            "[USB-DRIVE] >>> Screen 6: USB Drive {} (PC Mounted, Logging Paused) <<<",
+            self.usb_drive_screen.state.name()
+        )
+        .ok();
+        true
+    }
+
+    pub fn exit_usb_drive_active(
+        &mut self,
+        board: &mut CurrentMonitorBoard,
+        now: u32,
+    ) -> bool {
+        if self.usb_drive_screen.state != UsbDriveState::Active {
+            return false;
+        }
+
+        writeln!(board.uart0, "[USB-DRIVE] Detaching USB MSC and restoring USB HID...").ok();
+
+        // 1. Terminate any active MSC read/write stream in SdCard
+        {
+            let mut sd = self.sdcard.borrow_mut();
+            sd.end_multi_read();
+            sd.end_multi_write();
+        }
+
+        // 2. Switch USB peripheral hardware to HID (calls msc.into_inner() with soft disconnect)
+        board.switch_to_hid();
+
+        // 3. Mark state as Standby
+        self.usb_drive_screen.state = UsbDriveState::Standby;
+
+        // 4. Re-probe SD card and rotate session to new file
+        self.datalogger.status = crate::ui::SdStatus::NoCard;
+        if self.datalogger.check_probe(now, &mut board.delay) {
+            self.datalogger.rotate_session();
+            writeln!(
+                board.uart0,
+                "[USB-DRIVE] SD card re-probed. Resuming logging in new file: {}",
+                self.datalogger.file_name_str()
+            )
+            .ok();
+        } else {
+            writeln!(board.uart0, "[USB-DRIVE] SD card probe failed after unmount").ok();
+        }
+
+        self.draw_current_layout(board);
+        self.button.overlay.show_context_banner(" USB DRIVE: DISMOUNTED ", now, 1000);
+        self.render_top_bar_overlay(&mut board.lcd);
+        writeln!(
+            board.uart0,
+            "[USB-DRIVE] >>> Screen 6: USB Drive {} (HID Restored, Logging Resumed) <<<",
+            self.usb_drive_screen.state.name()
+        )
+        .ok();
+        true
     }
 
     pub fn render_top_bar_overlay(&mut self, lcd: &mut longan_nano_bsp::Lcd) {
@@ -270,6 +393,7 @@ impl<'a> App<'a> {
             ScreenMode::Stats => "STATS",
             ScreenMode::Histogram => "HISTO",
             ScreenMode::BigDigit => "BIG",
+            ScreenMode::UsbDrive => "USB_DRIVE",
         };
         let c_min = if self.stats.has_samples {
             self.stats.c_min
@@ -420,10 +544,15 @@ impl<'a> App<'a> {
         writeln!(board.uart0, "\r\n=== REMOTE COMMAND CONSOLE ===").ok();
         writeln!(
             board.uart0,
-            " '1'..'5' : Set Screen (1:Hero, 2:Graph, 3:Stats, 4:Histo, 5:BigDigit)"
+            " '1'..'6' : Set Screen (1:Hero, 2:Graph, 3:Stats, 4:Histo, 5:BigDigit, 6:UsbDrive)"
         )
         .ok();
         writeln!(board.uart0, " 'm'      : Cycle next screen mode").ok();
+        writeln!(
+            board.uart0,
+            " 'u'      : Toggle USB Drive Mount/Unmount (Screen 6)"
+        )
+        .ok();
         writeln!(
             board.uart0,
             " 'g'      : Cycle Scope Trigger (AUTO/NORM/SINGLE) / Rearm"

@@ -4,12 +4,14 @@ pub mod screen_graph;
 pub mod screen_stats;
 pub mod screen_histogram;
 pub mod screen_big_digit;
+pub mod screen_usbdrive;
 
 pub use screen_hero::HeroScreen;
 pub use screen_graph::{GraphScreen, TriggerMode, TriggerState};
 pub use screen_stats::{SdStatus, StatsScreen};
 pub use screen_histogram::HistogramScreen;
 pub use screen_big_digit::BigDigitScreen;
+pub use screen_usbdrive::{UsbDriveScreen, UsbDriveState};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum ScreenMode {
@@ -18,4 +20,5 @@ pub enum ScreenMode {
     Stats,     // Comprehensive session dashboard and DSP analytics
     Histogram, // 7-bin logarithmic current distribution profile
     BigDigit,  // Full-screen high-visibility bench meter mode
+    UsbDrive,  // Dedicated USB Mass Storage Class drive mode
 }
