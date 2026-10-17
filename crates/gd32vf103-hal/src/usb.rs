@@ -2723,7 +2723,7 @@ const MSC_DEV_DESC: [u8; 18] = [
     0x00,       // bDeviceProtocol = 0
     64,         // bMaxPacketSize0 = 64
     0xE9, 0x28, // idVendor = 0x28E9
-    0xD3, 0xAB, // idProduct = 0xABD3
+    0xD4, 0xAB, // idProduct = 0xABD4
     0x00, 0x01, // bcdDevice = 1.00
     1,          // iManufacturer = 1
     2,          // iProduct = 2
@@ -2782,7 +2782,7 @@ const STR_MSC_SERIAL: [u8; 26] = [
     26, 0x03,
     b'L', 0, b'N', 0, b'M', 0, b'S', 0, b'C', 0,
     b'0', 0, b'0', 0, b'0', 0, b'0', 0, b'0', 0,
-    b'D', 0, b'3', 0,
+    b'D', 0, b'4', 0,
 ];
 
 const MSC_INQUIRY_DATA: [u8; 36] = [
@@ -3514,7 +3514,7 @@ impl UsbMsc {
                             data[0] = 0x00;
                             data[1] = 0x80;
                             data[3] = 12;
-                            data[4..16].copy_from_slice(b"LNMSC00000D3");
+                            data[4..16].copy_from_slice(b"LNMSC00000D4");
                             let len = core::cmp::min(self.cbw.d_cbw_data_transfer_length as usize, 16);
                             self.send_data(&data[..len]);
                         }
@@ -3628,8 +3628,13 @@ impl UsbMsc {
             }
 
             0x08 => { // READ_6
-                if (self.cbw.bm_cbw_flags & 0x80) == 0 || !disk.is_ready() {
+                if (self.cbw.bm_cbw_flags & 0x80) == 0 {
                     self.set_sense(SenseKey::IllegalRequest, Asc::InvalidCdb);
+                    self.abort_transfer(disk);
+                    return;
+                }
+                if !disk.is_ready() {
+                    self.set_sense(SenseKey::NotReady, Asc::MediumNotPresent);
                     self.abort_transfer(disk);
                     return;
                 }
@@ -3641,12 +3646,12 @@ impl UsbMsc {
                     blocks = self.cbw.d_cbw_data_transfer_length / 512;
                 }
                 let (blk_cnt, _) = disk.capacity();
-                if lba + blocks > blk_cnt {
+                if lba.checked_add(blocks).map_or(true, |end| end > blk_cnt) {
                     self.set_sense(SenseKey::IllegalRequest, Asc::AddressOutOfRange);
                     self.abort_transfer(disk);
                     return;
                 }
-                let to_transfer = core::cmp::min(self.cbw.d_cbw_data_transfer_length, blocks * 512);
+                let to_transfer = core::cmp::min(self.cbw.d_cbw_data_transfer_length, blocks.saturating_mul(512));
                 self.lba = lba;
                 self.remaining_bytes = to_transfer;
                 self.csw_residue = self.cbw.d_cbw_data_transfer_length - to_transfer;
@@ -3688,12 +3693,12 @@ impl UsbMsc {
                     return;
                 }
                 let (blk_cnt, _) = disk.capacity();
-                if lba + blocks > blk_cnt {
+                if lba.checked_add(blocks).map_or(true, |end| end > blk_cnt) {
                     self.set_sense(SenseKey::IllegalRequest, Asc::AddressOutOfRange);
                     self.abort_transfer(disk);
                     return;
                 }
-                let to_transfer = core::cmp::min(self.cbw.d_cbw_data_transfer_length, blocks * 512);
+                let to_transfer = core::cmp::min(self.cbw.d_cbw_data_transfer_length, blocks.saturating_mul(512));
                 self.lba = lba;
                 self.remaining_bytes = to_transfer;
                 self.csw_residue = self.cbw.d_cbw_data_transfer_length - to_transfer;
@@ -3709,8 +3714,13 @@ impl UsbMsc {
             }
 
             0x0A => { // WRITE_6
-                if (self.cbw.bm_cbw_flags & 0x80) != 0 || !disk.is_ready() {
+                if (self.cbw.bm_cbw_flags & 0x80) != 0 {
                     self.set_sense(SenseKey::IllegalRequest, Asc::InvalidCdb);
+                    self.abort_transfer(disk);
+                    return;
+                }
+                if !disk.is_ready() {
+                    self.set_sense(SenseKey::NotReady, Asc::MediumNotPresent);
                     self.abort_transfer(disk);
                     return;
                 }
@@ -3722,12 +3732,12 @@ impl UsbMsc {
                     blocks = self.cbw.d_cbw_data_transfer_length / 512;
                 }
                 let (blk_cnt, _) = disk.capacity();
-                if lba + blocks > blk_cnt {
+                if lba.checked_add(blocks).map_or(true, |end| end > blk_cnt) {
                     self.set_sense(SenseKey::IllegalRequest, Asc::AddressOutOfRange);
                     self.abort_transfer(disk);
                     return;
                 }
-                let to_transfer = core::cmp::min(self.cbw.d_cbw_data_transfer_length, blocks * 512);
+                let to_transfer = core::cmp::min(self.cbw.d_cbw_data_transfer_length, blocks.saturating_mul(512));
                 self.lba = lba;
                 self.remaining_bytes = to_transfer;
                 self.csw_residue = self.cbw.d_cbw_data_transfer_length - to_transfer;
@@ -3764,12 +3774,12 @@ impl UsbMsc {
                     return;
                 }
                 let (blk_cnt, _) = disk.capacity();
-                if lba + blocks > blk_cnt {
+                if lba.checked_add(blocks).map_or(true, |end| end > blk_cnt) {
                     self.set_sense(SenseKey::IllegalRequest, Asc::AddressOutOfRange);
                     self.abort_transfer(disk);
                     return;
                 }
-                let to_transfer = core::cmp::min(self.cbw.d_cbw_data_transfer_length, blocks * 512);
+                let to_transfer = core::cmp::min(self.cbw.d_cbw_data_transfer_length, blocks.saturating_mul(512));
                 self.lba = lba;
                 self.remaining_bytes = to_transfer;
                 self.csw_residue = self.cbw.d_cbw_data_transfer_length - to_transfer;
@@ -3938,7 +3948,7 @@ impl UsbMsc {
 
             if (oepintr & doepintf::STPF) != 0 {
                 self.usbfs.out_ep(0).doepintf.write(doepintf::STPF);
-                self.handle_setup();
+                self.handle_setup(disk);
             }
 
             if (oepintr & doepintf::TF) != 0 {
@@ -4114,7 +4124,7 @@ impl UsbMsc {
         }
     }
 
-    fn handle_setup(&mut self) {
+    fn handle_setup<D: MscBlockDevice>(&mut self, disk: &mut D) {
         self.usbfs.in_ep(0).diepctl.clear_bits(depctl::STALL);
         self.usbfs.out_ep(0).doepctl.clear_bits(depctl::STALL);
 
@@ -4254,6 +4264,7 @@ impl UsbMsc {
                     self.ep0_start_in(&[0]);
                 }
                 0xFF => { // REQ_BBB_RESET
+                    disk.end_multi_read();
                     self.state = BbbState::Idle;
                     self.need_read = false;
                     self.need_write = false;
@@ -4302,6 +4313,7 @@ impl UsbMsc {
         let intr = self.usbfs.global().gintf.read();
 
         if (intr & gintf::RST) != 0 {
+            disk.end_multi_read();
             self.handle_reset();
         }
 
@@ -4420,6 +4432,7 @@ impl UsbMsc {
                     self.arm_ep1_out(rx_len);
                 }
             } else {
+                self.cache.invalidate(self.lba);
                 self.set_sense(SenseKey::HardwareError, Asc::WriteFault);
                 self.abort_transfer(disk);
             }
