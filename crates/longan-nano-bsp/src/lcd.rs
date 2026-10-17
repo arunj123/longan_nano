@@ -15,13 +15,15 @@ pub enum Rotation {
     Rotated180 = 1, // 180° Landscape (MADCTL 0xB8: MY=1, MX=0, MV=1, ML=1, BGR=1)
 }
 
+use crate::bkp::BkpSlot;
+
 /// Backup Domain Register index and values for display rotation persistence.
-pub const BKP_REG_ROTATION: usize = 5;
+pub const BKP_REG_ROTATION: usize = BkpSlot::LcdRotation.index();
 pub const BKP_ROTATION_NORMAL: u16 = 0x5200; // 'R', 0
 pub const BKP_ROTATION_180: u16 = 0x5201;    // 'R', 1
 
 /// Backup Domain Register index and values for write-protect persistence.
-pub const BKP_REG_WRITE_PROTECT: usize = 6;
+pub const BKP_REG_WRITE_PROTECT: usize = BkpSlot::MscWriteProtect.index();
 pub const BKP_WRITE_PROTECT_RW: u16 = 0x5700; // 'W', 0 (Read-Write)
 pub const BKP_WRITE_PROTECT_RO: u16 = 0x5701; // 'W', 1 (Read-Only)
 

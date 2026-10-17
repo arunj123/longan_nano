@@ -1,5 +1,7 @@
 use core::fmt::Write;
-use longan_nano_bsp::CurrentMonitorBoard;
+use longan_nano_bsp::{
+    BkpSlot, CurrentMonitorBoard, Rotation, BKP_REG_ROTATION, BKP_ROTATION_180, BKP_ROTATION_NORMAL,
+};
 
 use crate::button::{fmt_hold_progress, BannerType, ButtonController};
 use crate::logger::SdDatalogger;
@@ -11,14 +13,45 @@ use crate::telemetry::TelemetryStreamer;
 use crate::ui::theme::{COL_AMBER, COL_BG_TOP, COL_CARD_BORDER, COL_CYAN, COL_DIVIDER, COL_MINT};
 use crate::ui::{
     BigDigitScreen, GraphScreen, HeroScreen, HistogramScreen, ScreenMode, StatsScreen, TriggerMode,
-    UsbDriveScreen, UsbDriveState,
+    TriggerState, UsbDriveScreen, UsbDriveState,
 };
 
 pub const BKP_MAGIC_KEY: u16 = 0x5A5A;
-pub const BKP_REG_CONFIG: usize = 1; // [15..8] screen_mode, [7..0] battery_profile
-pub const BKP_REG_TARE: usize = 2; // tare_offset_tenth (i16)
-pub const BKP_REG_LIMIT: usize = 3; // current_limit_ma (u16)
-pub const BKP_REG_MAGIC: usize = 4; // BKP_MAGIC_KEY
+pub const BKP_REG_CONFIG: usize = BkpSlot::MonitorConfig.index(); // [15..8] screen_mode, [7..0] battery_profile
+pub const BKP_REG_TARE: usize = BkpSlot::TareOffset.index(); // tare_offset_tenth (i16)
+pub const BKP_REG_LIMIT: usize = BkpSlot::CurrentLimit.index(); // current_limit_ma (u16)
+pub const BKP_REG_MAGIC: usize = BkpSlot::MonitorMagic.index(); // BKP_MAGIC_KEY
+
+/// Unified application command enum representing every user/host interaction across:
+/// - PA8 User Button (Single-Click, Double-Click, Long-Press Hold)
+/// - Rotary Encoder (CW/CCW Rotation, Switch Press)
+/// - UART0 Interactive Console (`'1'..'6'`, `'m'`, `'u'`, `'g'`, `'b'`, `'t'`, `'T'`, `'L'`, etc.)
+/// - USB HID Bidirectional OUT Reports (`HidCommand`)
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum AppCommand {
+    SetScreen(ScreenMode),
+    NextScreen,
+    PrevScreen,
+    ToggleUsbDrive,
+    CycleTriggerOrRearm { show_banner: bool },
+    AdjustTriggerLevel(i16),
+    CycleBatteryProfile { show_banner: bool },
+    SetBatteryProfile(BatteryProfile),
+    TareAndReset { show_banner: bool },
+    FlushSd,
+    RotateSdLog { show_banner: bool },
+    ToggleLcdRotation,
+    SetRtcEpoch(u32),
+    PrintRtcTime,
+    SetCurrentLimit(u16),
+    PrintCurrentLimit,
+    DumpSession,
+    PrintHelp,
+    SimButtonTap,
+    SimButtonDoubleTap,
+    SimButtonHoldTare,
+    SimButtonHoldAbort,
+}
 
 /// Maximum allowable uncompensated current magnitude (50.0 mA = 500 in 0.1 mA units)
 /// for zero-tare calibration. Prevents calibrating while an active load is connected.
@@ -342,6 +375,16 @@ impl<'a> App<'a> {
         true
     }
 
+    pub fn toggle_usb_drive(&mut self, board: &mut CurrentMonitorBoard, now: u32) {
+        if self.screen_mode != ScreenMode::UsbDrive {
+            self.set_screen_mode(board, ScreenMode::UsbDrive);
+        } else if self.usb_drive_screen.state == UsbDriveState::Standby {
+            self.enter_usb_drive_active(board, now);
+        } else {
+            self.exit_usb_drive_active(board, now);
+        }
+    }
+
     pub fn render_top_bar_overlay(&mut self, lcd: &mut longan_nano_bsp::Lcd) {
         if !self.button.overlay.is_active {
             return;
@@ -418,6 +461,250 @@ impl<'a> App<'a> {
         self.draw_current_layout(board);
         self.last_10hz_ms = board.delay.uptime_ms();
         true
+    }
+
+    /// Central command dispatcher for all hardware buttons, rotary encoder, UART CLI, and USB HID commands.
+    /// Ensures 100% consistent behavior across all input modalities and eliminates multi-place update bugs.
+    pub fn execute_command(
+        &mut self,
+        board: &mut CurrentMonitorBoard,
+        cmd: AppCommand,
+        now: u32,
+    ) {
+        match cmd {
+            AppCommand::SetScreen(mode) => {
+                self.set_screen_mode(board, mode);
+            }
+            AppCommand::NextScreen => {
+                self.cycle_screen_mode(board);
+            }
+            AppCommand::PrevScreen => {
+                self.cycle_screen_mode_rev(board);
+            }
+            AppCommand::ToggleUsbDrive => {
+                self.toggle_usb_drive(board, now);
+            }
+            AppCommand::CycleTriggerOrRearm { show_banner } => {
+                if self.graph_screen.trigger_mode == TriggerMode::Single
+                    && self.graph_screen.trigger_state == TriggerState::Halted
+                {
+                    self.graph_screen.rearm();
+                    writeln!(
+                        board.uart0,
+                        "[TRIG] Single sweep rearmed! Waiting for trigger..."
+                    )
+                    .ok();
+                } else {
+                    self.graph_screen.cycle_trigger_mode();
+                    writeln!(
+                        board.uart0,
+                        "[TRIG] Trigger Mode: {} | State: {} | Level: {}.{} mA",
+                        self.graph_screen.trigger_mode.name(),
+                        self.graph_screen.trigger_state_name(),
+                        self.graph_screen.trigger_level_tenth / 10,
+                        self.graph_screen.trigger_level_tenth % 10,
+                    )
+                    .ok();
+                    if show_banner {
+                        let banner = match self.graph_screen.trigger_mode {
+                            TriggerMode::Auto => " TRIG MODE: AUTO        ",
+                            TriggerMode::Norm => " TRIG MODE: NORMAL      ",
+                            TriggerMode::Single => " TRIG MODE: SINGLE      ",
+                        };
+                        self.button.overlay.show_context_banner(banner, now, 700);
+                        self.render_top_bar_overlay(&mut board.lcd);
+                    }
+                }
+            }
+            AppCommand::AdjustTriggerLevel(delta_tenth) => {
+                self.graph_screen.adjust_trigger_level(delta_tenth);
+                writeln!(
+                    board.uart0,
+                    "[TRIG] Level: {}.{} mA | Mode: {} | State: {}",
+                    self.graph_screen.trigger_level_tenth / 10,
+                    self.graph_screen.trigger_level_tenth % 10,
+                    self.graph_screen.trigger_mode.name(),
+                    self.graph_screen.trigger_state_name(),
+                )
+                .ok();
+            }
+            AppCommand::CycleBatteryProfile { show_banner } => {
+                self.battery.profile = self.battery.profile.next();
+                self.save_nvram(board);
+                writeln!(
+                    board.uart0,
+                    "[BATT] Switched battery profile to: {} (Nominal: {} mAh)",
+                    self.battery.profile.name(),
+                    self.battery.profile.capacity_mah()
+                )
+                .ok();
+                if show_banner {
+                    let banner = match self.battery.profile {
+                        BatteryProfile::None => " BATT: NONE (Disabled)  ",
+                        BatteryProfile::Lipo500 => " BATT: LIPO 500 mAh     ",
+                        BatteryProfile::Lipo1200 => " BATT: LIPO 1200 mAh    ",
+                        BatteryProfile::LiIon2500 => " BATT: LI-ION 2500 mAh  ",
+                        BatteryProfile::Alkaline1000 => " BATT: ALKALINE 1000 mAh",
+                    };
+                    self.button.overlay.show_context_banner(banner, now, 700);
+                    self.render_top_bar_overlay(&mut board.lcd);
+                }
+            }
+            AppCommand::SetBatteryProfile(profile) => {
+                self.battery.profile = profile;
+                self.save_nvram(board);
+                writeln!(
+                    board.uart0,
+                    "[HID-CMD] Battery profile set to: {}",
+                    self.battery.profile.name()
+                )
+                .ok();
+            }
+            AppCommand::TareAndReset { show_banner } => {
+                if self.tare_and_reset(board, now) {
+                    if show_banner {
+                        self.button.overlay.show_tare_confirmed(now, 1000);
+                        self.render_top_bar_overlay(&mut board.lcd);
+                    }
+                }
+            }
+            AppCommand::FlushSd => {
+                if self.datalogger.flush_buffer().is_ok() {
+                    writeln!(
+                        board.uart0,
+                        "[SD] Flushed buffer to {} (Total rows: {})",
+                        self.datalogger.file_name_str(),
+                        self.datalogger.total_logged_rows
+                    )
+                    .ok();
+                } else {
+                    writeln!(
+                        board.uart0,
+                        "[SD] Flush failed on {} (Pending bytes: {})",
+                        self.datalogger.file_name_str(),
+                        self.datalogger.buffered_bytes()
+                    )
+                    .ok();
+                }
+            }
+            AppCommand::RotateSdLog { show_banner } => {
+                if self.datalogger.rotate_session() {
+                    writeln!(
+                        board.uart0,
+                        "[SD] Rotated to new file: {}",
+                        self.datalogger.file_name_str()
+                    )
+                    .ok();
+                    if show_banner {
+                        self.button
+                            .overlay
+                            .show_context_banner(" SD: ROTATED LOG FILE   ", now, 700);
+                        self.render_top_bar_overlay(&mut board.lcd);
+                    }
+                } else {
+                    writeln!(
+                        board.uart0,
+                        "[SD] Cannot rotate: pending buffer flush failed ({})",
+                        self.datalogger.file_name_str()
+                    )
+                    .ok();
+                    if show_banner {
+                        self.button
+                            .overlay
+                            .show_context_banner(" SD ERR: ROTATE BLOCKED ", now, 700);
+                        self.render_top_bar_overlay(&mut board.lcd);
+                    }
+                }
+            }
+            AppCommand::ToggleLcdRotation => {
+                let new_rot = board.lcd.toggle_rotation();
+                let bkp_val = if new_rot == Rotation::Rotated180 {
+                    BKP_ROTATION_180
+                } else {
+                    BKP_ROTATION_NORMAL
+                };
+                board.rtc.write_backup_reg(BKP_REG_ROTATION, bkp_val);
+                writeln!(
+                    board.uart0,
+                    "[LCD] Toggled display rotation to {:?} (Saved BKP: 0x{:04X})",
+                    new_rot, bkp_val
+                )
+                .ok();
+                self.draw_current_layout(board);
+            }
+            AppCommand::SetRtcEpoch(epoch) => {
+                board.rtc.set_epoch(epoch);
+                let dt = board.rtc.get_datetime();
+                writeln!(
+                    board.uart0,
+                    "[RTC] Set Unix epoch to: {} ({:04}-{:02}-{:02} {:02}:{:02}:{:02} UTC)",
+                    epoch, dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second
+                )
+                .ok();
+            }
+            AppCommand::PrintRtcTime => {
+                let epoch = board.rtc.get_epoch();
+                let dt = board.rtc.get_datetime();
+                writeln!(
+                    board.uart0,
+                    "[RTC] Current Time: {:04}-{:02}-{:02} {:02}:{:02}:{:02} UTC | Epoch: {} | Synced: {}",
+                    dt.year,
+                    dt.month,
+                    dt.day,
+                    dt.hour,
+                    dt.minute,
+                    dt.second,
+                    epoch,
+                    if board.rtc.is_synced() { "YES" } else { "NO" }
+                )
+                .ok();
+            }
+            AppCommand::SetCurrentLimit(limit_ma) => {
+                self.current_limit_ma = limit_ma.min(3200);
+                self.save_nvram(board);
+                writeln!(
+                    board.uart0,
+                    "[LIMIT] Set Over-Current Alert Limit to: {} mA",
+                    self.current_limit_ma
+                )
+                .ok();
+            }
+            AppCommand::PrintCurrentLimit => {
+                writeln!(
+                    board.uart0,
+                    "[LIMIT] Over-Current Alert Limit: {} mA (Alert Active: {})",
+                    self.current_limit_ma,
+                    if self.over_current { "YES" } else { "NO" }
+                )
+                .ok();
+            }
+            AppCommand::DumpSession => {
+                self.dump_session(board, now);
+            }
+            AppCommand::PrintHelp => {
+                self.print_help(board);
+            }
+            AppCommand::SimButtonTap => {
+                self.button.simulate_tap(now, 80);
+                writeln!(board.uart0, "[SIM] Simulated button tap (80 ms)").ok();
+            }
+            AppCommand::SimButtonDoubleTap => {
+                self.button.simulate_double_tap(now, 80, 100);
+                writeln!(
+                    board.uart0,
+                    "[SIM] Simulated button double-tap (80ms + 100ms gap + 80ms)"
+                )
+                .ok();
+            }
+            AppCommand::SimButtonHoldTare => {
+                self.button.simulate_hold(now, 1600);
+                writeln!(board.uart0, "[SIM] Simulated button hold (1600 ms)").ok();
+            }
+            AppCommand::SimButtonHoldAbort => {
+                self.button.simulate_hold(now, 600);
+                writeln!(board.uart0, "[SIM] Simulated button aborted hold (600 ms)").ok();
+            }
+        }
     }
 
     pub fn dump_session(&self, board: &mut CurrentMonitorBoard, now: u32) {
@@ -666,5 +953,42 @@ mod tests {
         assert_eq!(validate_tare_offset(-501), Err(-501));
         assert_eq!(validate_tare_offset(20_000), Err(20_000));
         assert_eq!(validate_tare_offset(-20_000), Err(-20_000));
+    }
+
+    #[test]
+    fn test_bkp_slot_mappings() {
+        assert_eq!(BKP_REG_CONFIG, BkpSlot::MonitorConfig.index());
+        assert_eq!(BKP_REG_TARE, BkpSlot::TareOffset.index());
+        assert_eq!(BKP_REG_LIMIT, BkpSlot::CurrentLimit.index());
+        assert_eq!(BKP_REG_MAGIC, BkpSlot::MonitorMagic.index());
+        assert_eq!(BKP_REG_CONFIG, 1);
+        assert_eq!(BKP_REG_TARE, 2);
+        assert_eq!(BKP_REG_LIMIT, 3);
+        assert_eq!(BKP_REG_MAGIC, 4);
+    }
+
+    #[test]
+    fn test_app_command_variants() {
+        let cmd = AppCommand::SetScreen(ScreenMode::Hero);
+        assert_eq!(cmd, AppCommand::SetScreen(ScreenMode::Hero));
+        assert_ne!(cmd, AppCommand::NextScreen);
+        assert_eq!(AppCommand::ToggleUsbDrive, AppCommand::ToggleUsbDrive);
+        assert_eq!(AppCommand::AdjustTriggerLevel(100), AppCommand::AdjustTriggerLevel(100));
+        assert_eq!(
+            AppCommand::CycleBatteryProfile { show_banner: true },
+            AppCommand::CycleBatteryProfile { show_banner: true }
+        );
+        assert_eq!(
+            AppCommand::SetBatteryProfile(BatteryProfile::Lipo500),
+            AppCommand::SetBatteryProfile(BatteryProfile::Lipo500)
+        );
+        assert_eq!(
+            AppCommand::TareAndReset { show_banner: false },
+            AppCommand::TareAndReset { show_banner: false }
+        );
+        assert_eq!(
+            AppCommand::RotateSdLog { show_banner: true },
+            AppCommand::RotateSdLog { show_banner: true }
+        );
     }
 }

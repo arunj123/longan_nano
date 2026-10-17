@@ -235,10 +235,12 @@ flowchart TD
   - In `telemetry.rs`, incremented sequence counter `seq` unconditionally on every 10 Hz sample; set overflow bit (`1 << 2`) when `reading.power_tenth_mw > 655_350`; added strict HID OUT command packet length validation (`decode_hid_command`) (`[MON-SENS-06]`).
   - *Empirical Verification (Build 00E5)*: 81/81 host unit tests pass (`33` in `gd32vf103-hal`, `8` in `longan-nano-bsp`, `40` in `prj_current_monitor`); firmware `text = 124,346` bytes, `bss = 32,768` bytes; 12/12 hardware checks passed on `192.168.0.63` (`v_mv: 3320, seq: 93`, `LOG_0120.CSV -> LOG_0122.CSV`).
 
-- [ ] **Task 6.3: AI Maintainability & Unified Command Dispatcher (P1)**:
-  - Define `#[repr(usize)] pub enum BkpSlot` in `longan-nano-bsp` covering `BKP_DATA0..9` as the central NVRAM register authority (`[MON-MEM-01]`).
-  - Define `pub enum AppCommand` in `app.rs` and implement `App::execute_command(&mut self, board, cmd, now)` (`[MON-AI-01]`).
-  - Refactor `main.rs` to route Rotary Encoder, ButtonController, UART CLI, and HID OUT reports into `AppCommand` and invoke `execute_command`, eliminating duplicate logic.
+- [x] **Task 6.3: AI Maintainability & Unified Command Dispatcher (P1)** *(Verified in Build 00E6)*:
+  - In `crates/longan-nano-bsp/src/bkp.rs`, defined authoritative `#[repr(usize)] pub enum BkpSlot` covering `BKP_DATA0..9` with unit tests for uniqueness and slot bounds (`[MON-MEM-01]`).
+  - In `crates/longan-nano-bsp/src/lcd.rs` and `prj_current_monitor/src/app.rs`, unified all `BKP_REG_*` constants to reference `BkpSlot`.
+  - In `prj_current_monitor/src/app.rs`, defined `pub enum AppCommand` covering 22 discrete system actions, added `toggle_usb_drive()`, and implemented centralized `App::execute_command(&mut self, board, cmd, now)` (`[MON-AI-01]`).
+  - In `prj_current_monitor/src/main.rs`, refactored Rotary Encoder polling, UART0 interactive CLI, bidirectional USB HID OUT command polling, and PA8 ButtonController events into `AppCommand` dispatching, shrinking `main.rs` by 216 lines and eliminating ~1,820 bytes of flash text duplication.
+  - *Empirical Verification (Build 00E6)*: 87/87 host tests pass (`33` in `gd32vf103-hal`, `9` in `longan-nano-bsp`, `42` in `prj_current_monitor`, `3` doctests); firmware `text = 122,526` bytes (reduced by 1,820 bytes), `bss = 32,768` bytes; 12/12 hardware checks passed on `192.168.0.63` via `test_usb_drive_mode.py` (UART screen switching, simulated double-click mount, MSC block read, RO mount, single-click dismount, session rotation `LOG_0126.CSV -> LOG_0128.CSV`, clean HID restoration `28e9:1234`).
 
 - [ ] **Task 6.4: Real-Time Scheduling, Latency & Watchdog Safety (P1)**:
   - Lock 10 Hz and 1 Hz scheduler phases deterministically (`wrapping_add(100)` / `wrapping_add(1000)`) (`[MON-SCHED-01]`).
@@ -286,15 +288,17 @@ flowchart TD
      3. Explicitly direct/prompt the user to start a **new chat session**, informing them that the next session can resume directly from `docs/FIRMWARE_REVIEW_AND_ROADMAP.md`.
 
 ### 5.2 Active Session State & Next-Session Handoff
-- **Latest Verified Build**: `Build 00E5` (`prj_current_monitor`: `text = 124,346` bytes, `bss = 32,768` bytes; 81/81 host unit tests passing; 12/12 hardware checks passing on `192.168.0.63`).
+- **Latest Verified Build**: `Build 00E6` (`prj_current_monitor`: `text = 122,526` bytes, `bss = 32,768` bytes; 87/87 host tests passing; 12/12 hardware checks passing on `192.168.0.63`).
 - **Completed in Phase 6**:
   - **Task 6.1** (`Build 00E4`): Storage & Filesystem Data Integrity (`[MON-STOR-01]`, `[MON-STOR-02]`, `[MON-STOR-03]`, `[MON-UI-02]`).
   - **Task 6.2** (`Build 00E5`): Sensor DSP, Tare Calibration & Telemetry Correctness (`[MON-SENS-01]` through `[MON-SENS-06]`).
-- **Immediate Next Step for New Session**:
-  - **Task 6.3: AI Maintainability & Unified Command Dispatcher (P1)** (`Build 00E6`):
-    1. Define `#[repr(usize)] pub enum BkpSlot` in `crates/longan-nano-bsp` covering `BKP_DATA0..9` (`[MON-MEM-01]`).
-    2. Define `pub enum AppCommand` in `prj_current_monitor/src/app.rs` and implement `App::execute_command(&mut self, board, cmd, now)` (`[MON-AI-01]`).
-    3. Refactor `prj_current_monitor/src/main.rs` to map Rotary Encoder, ButtonController, UART CLI, and HID OUT reports into `AppCommand` and dispatch via `execute_command`.
-    4. Note: Reference draft implementations from the independent review are available in `review_current_monitor/application_state_unified_command_dispatcher.rs` and `review_current_monitor/firmware_main_entry_real_time_polling_loop.rs` (ensure Task 6.1 and Task 6.2 additions in `app.rs` and `main.rs` are preserved when adapting).
-  - Follow with **Task 6.4** and **Task 6.5**.
+  - **Task 6.3** (`Build 00E6`): AI Maintainability & Unified Command Dispatcher (`[MON-MEM-01]`, `[MON-AI-01]`).
+- **Immediate Next Step**:
+  - **Task 6.4: Real-Time Scheduling, Latency & Watchdog Safety (P1)** (`Build 00E7`):
+    1. Lock 10 Hz and 1 Hz scheduler phases deterministically (`wrapping_add(100)` / `wrapping_add(1000)`) (`[MON-SCHED-01]`).
+    2. Silence 1 Hz UART heartbeat during MSC Active mode to eliminate xHCI USB NAK timeout stalls (`[MON-SCHED-02]`).
+    3. Add explicit FWDGT watchdog feeds in long SD card operations (`init`, `iterate_dir`, `flush_buffer`) (`[MON-SCHED-03]`).
+    4. Move ADC internal MCU die temperature reading from 10 Hz block to 1 Hz block (`[MON-SCHED-04]`).
+    5. Fix `sdcard.rs` `delay_ms_internal` to use dynamic clock frequency rather than hardcoded 24,000 ticks/ms (`[MON-SCHED-05]`).
+  - Follow with **Task 6.5**.
 

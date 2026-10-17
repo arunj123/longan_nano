@@ -64,6 +64,9 @@ impl<P: InputPin> Button<P> {
 
 pub type KeyButton = Button<Pin<PortA, 8, mode::Input<mode::PullDown>>>;
 
+pub mod bkp;
+pub use bkp::BkpSlot;
+
 pub use lcd_font;
 pub mod lcd;
 pub use lcd::{
