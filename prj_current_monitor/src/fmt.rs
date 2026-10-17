@@ -175,3 +175,148 @@ pub fn fmt_time(cur: &mut BufferCursor, elapsed_sec: u32) {
     let secs = elapsed_sec % 60;
     write!(cur, "{:02}:{:02}:{:02}", hrs, mins, secs).ok();
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_buffer_cursor() {
+        let mut buf = [0u8; 16];
+        let mut cur = BufferCursor::new(&mut buf);
+        write!(cur, "Hello, {}", 123).unwrap();
+        assert_eq!(cur.as_str(), "Hello, 123");
+        assert_eq!(cur.as_bytes(), b"Hello, 123");
+
+        // Test truncation when exceeding buffer
+        let mut small_buf = [0u8; 4];
+        let mut cur2 = BufferCursor::new(&mut small_buf);
+        write!(cur2, "TooLongString").unwrap();
+        assert_eq!(cur2.as_str(), "TooL");
+    }
+
+    #[test]
+    fn test_dirty_field() {
+        let mut df = DirtyField::<16>::new();
+        assert!(df.update("12.3V")); // First update is new
+        assert!(!df.update("12.3V")); // Identical text is NOT dirty
+        assert!(df.update("12.4V")); // Changed text is dirty
+        assert!(!df.update("12.4V"));
+        df.invalidate();
+        assert!(df.update("12.4V")); // Invalidation forces dirty
+    }
+
+    #[test]
+    fn test_fmt_hero_current() {
+        let mut buf = [0u8; 16];
+        let mut cur = BufferCursor::new(&mut buf);
+        let (s, unit) = fmt_hero_current(&mut cur, 125);
+        assert_eq!(s, "12.5");
+        assert_eq!(unit, "mA");
+
+        let mut buf = [0u8; 16];
+        let mut cur = BufferCursor::new(&mut buf);
+        let (s, unit) = fmt_hero_current(&mut cur, -125);
+        assert_eq!(s, "-12.5");
+        assert_eq!(unit, "mA");
+
+        let mut buf = [0u8; 16];
+        let mut cur = BufferCursor::new(&mut buf);
+        let (s, unit) = fmt_hero_current(&mut cur, 15432);
+        assert_eq!(s, "1.543");
+        assert_eq!(unit, " A");
+
+        let mut buf = [0u8; 16];
+        let mut cur = BufferCursor::new(&mut buf);
+        let (s, unit) = fmt_hero_current(&mut cur, -25000);
+        assert_eq!(s, "-2.500");
+        assert_eq!(unit, " A");
+    }
+
+    #[test]
+    fn test_fmt_voltage() {
+        let mut buf = [0u8; 16];
+        let mut cur = BufferCursor::new(&mut buf);
+        fmt_voltage(&mut cur, 3320);
+        assert_eq!(cur.as_str(), " 3.320V");
+
+        let mut buf = [0u8; 16];
+        let mut cur = BufferCursor::new(&mut buf);
+        fmt_voltage(&mut cur, 12050);
+        assert_eq!(cur.as_str(), "12.050V");
+    }
+
+    #[test]
+    fn test_fmt_power() {
+        let mut buf = [0u8; 16];
+        let mut cur = BufferCursor::new(&mut buf);
+        fmt_power(&mut cur, 1234);
+        assert_eq!(cur.as_str(), " 123.4mW");
+
+        let mut buf = [0u8; 16];
+        let mut cur = BufferCursor::new(&mut buf);
+        fmt_power(&mut cur, 154321);
+        assert_eq!(cur.as_str(), " 15.43 W");
+    }
+
+    #[test]
+    fn test_fmt_energy_auto() {
+        let mut accum = Accumulators::new();
+        // 500 uWh
+        accum.energy_ticks = 500 * 36_000;
+        let mut buf = [0u8; 16];
+        let mut cur = BufferCursor::new(&mut buf);
+        fmt_energy_auto(&mut cur, &accum);
+        assert_eq!(cur.as_str(), "E:500uWh");
+
+        // 12.34 mWh
+        accum.energy_ticks = 12 * 36_000_000 + 34 * 360_000;
+        let mut buf = [0u8; 16];
+        let mut cur = BufferCursor::new(&mut buf);
+        fmt_energy_auto(&mut cur, &accum);
+        assert_eq!(cur.as_str(), "E:12.34mWh");
+
+        // 15.20 Wh (15,200 mWh)
+        accum.energy_ticks = 15_200 * 36_000_000;
+        let mut buf = [0u8; 16];
+        let mut cur = BufferCursor::new(&mut buf);
+        fmt_energy_auto(&mut cur, &accum);
+        assert_eq!(cur.as_str(), "E:15.20 Wh");
+    }
+
+    #[test]
+    fn test_fmt_resistance() {
+        let mut buf = [0u8; 16];
+        let mut cur = BufferCursor::new(&mut buf);
+        fmt_resistance(&mut cur, None);
+        assert_eq!(cur.as_str(), "  --- R");
+
+        let mut buf = [0u8; 16];
+        let mut cur = BufferCursor::new(&mut buf);
+        fmt_resistance(&mut cur, Some(124)); // 12.4 ohms
+        assert_eq!(cur.as_str(), " 12.4R");
+
+        let mut buf = [0u8; 16];
+        let mut cur = BufferCursor::new(&mut buf);
+        fmt_resistance(&mut cur, Some(4700)); // 470 ohms
+        assert_eq!(cur.as_str(), " 470R");
+
+        let mut buf = [0u8; 16];
+        let mut cur = BufferCursor::new(&mut buf);
+        fmt_resistance(&mut cur, Some(47000)); // 4700 ohms
+        assert_eq!(cur.as_str(), "4700R");
+
+        let mut buf = [0u8; 16];
+        let mut cur = BufferCursor::new(&mut buf);
+        fmt_resistance(&mut cur, Some(470000)); // 47.00 kOhms
+        assert_eq!(cur.as_str(), "47.00kR");
+    }
+
+    #[test]
+    fn test_fmt_time() {
+        let mut buf = [0u8; 16];
+        let mut cur = BufferCursor::new(&mut buf);
+        fmt_time(&mut cur, 3665);
+        assert_eq!(cur.as_str(), "01:01:05");
+    }
+}

@@ -252,7 +252,7 @@ flowchart TD
 
 ### Phase 2: Architecture Refactoring & Host Tests
 - [x] **Task 2.1**: Refactor `main.rs` macros in `prj_current_monitor` into an `App` struct. *(Verified in Build 00D5: 15/15 remote tests PASS, -12,322 bytes flash reduction)*
-- [ ] **Task 2.2**: Add host unit tests (`cargo test`) to `model.rs` and `fmt.rs`.
+- [x] **Task 2.2**: Add host unit tests (`cargo test`) to `model.rs` and `fmt.rs`. *(Verified in Build 00D6: 15/15 host tests PASS on x86_64)*
 - [ ] **Task 2.3**: Split `crates/gd32vf103-hal/src/usb.rs` into modular submodules (`usb/{dwc2, cdc_acm, hid, composite, msc/{bot, scsi, cache}}`).
 - [ ] **Task 2.4**: Implement pure-logic BOT 13-case validation in `msc/bot.rs` with unit tests.
 
@@ -262,6 +262,21 @@ flowchart TD
    - **Flash Optimization**: Decreased text section size from 119,940 bytes to 107,618 bytes (-12,322 bytes, **-10.3% flash reduction**), eliminating repetitive macro expansion bloat.
    - **BSP Ownership Refactoring**: Converted `CurrentMonitorBoard.sdcard` to `Option<SdCard>` so it can be extracted without partially moving `board`, preserving clean reference borrowing.
    - **Hardware Verification (`tools/test_remote_ui_cycling.py`)**: All 15 automated remote test suites passed (Help menu, 5 screen modes + cycling, battery profiles, session dump + JSON parse, SD flush, SD file rotation `LOG_0073.CSV` -> `LOG_0074.CSV`, zero-tare offset calibration, USB HID telemetry streaming, HID OUT commands for SetMode, SetBatteryProfile, SetEpoch, SetCurrentLimit).
+
+2. **`prj_current_monitor` Host Unit Tests (Build 00D6)**:
+   - **Host Harness (`cargo test`)**: Enabled conditional compilation (`#![cfg_attr(not(test), no_std)]`, `#[cfg(not(test))] use panic_halt as _`) allowing unit tests to run natively on the development host (`x86_64-pc-windows-msvc`).
+   - **Formatting & Model Test Suites (`fmt.rs`, `model.rs`)**: Implemented 15 comprehensive unit tests covering:
+     - `BufferCursor` string formatting and truncation bounds.
+     - `DirtyField` cache invalidation and redraw suppression.
+     - Auto-ranging current (`mA` vs `A`), voltage (`mV`), power (`mW` vs `W`), energy (`uWh`, `mWh`, `Wh`), resistance (`R`, `kR`), and time.
+     - `WaveformHistory` 137-sample circular buffer index wrapping and chronological retrieval.
+     - `Accumulators` drift-free integer millisecond energy and bidirectional charge integration (including 500 ms `dt_ms` clamping).
+     - `SessionStats` min/max/average tracking and load resistance estimation ($R = V/I$).
+     - `BatteryState` fuel gauge and SoC decay calculations.
+     - `HistogramData` 7-bin logarithmic current distribution.
+     - `EmaFilter` truncation-free convergence and step-jump bypass.
+     - `SampleAggregator` multi-sample arithmetic averaging for 1-second MicroSD logging.
+   - **Empirical Host Results**: `cargo test --target x86_64-pc-windows-msvc -p prj_current_monitor`: 15 passed, 0 failed. Target RISC-V release build retained zero bloat (107,618 bytes text).
 
 ### Phase 3: Performance & Driver Enhancements
 - [ ] **Task 3.1**: Convert USB FIFO read/write in `usb_msc` to 32-bit word transfers (`#[repr(align(4))]`).

@@ -557,3 +557,193 @@ impl SampleAggregator {
         res
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_waveform_history() {
+        let mut hist = WaveformHistory::new();
+        assert_eq!(hist.count, 0);
+
+        // Push 10 samples
+        for i in 0..10 {
+            hist.push(i as i16 * 10);
+        }
+        assert_eq!(hist.count, 10);
+        for i in 0..10 {
+            assert_eq!(hist.get_chronological(i), (i as i16) * 10);
+        }
+
+        // Fill past capacity (137)
+        for i in 10..200 {
+            hist.push(i as i16);
+        }
+        assert_eq!(hist.count, 137);
+        // The oldest remaining sample should be 200 - 137 = 63
+        assert_eq!(hist.get_chronological(0), 63);
+        assert_eq!(hist.get_chronological(136), 199);
+
+        hist.clear();
+        assert_eq!(hist.count, 0);
+        assert_eq!(hist.head, 0);
+    }
+
+    #[test]
+    fn test_accumulators_energy_and_charge() {
+        let mut accum = Accumulators::new();
+
+        // 1000.0 mW (10,000 tenth_mw), 1000.0 mA (10,000 tenth_ma), 1000 ms duration
+        // Over 3600 seconds = 1 hour, that would be 1 Wh and 1 Ah.
+        // Let's do 3600 ms of 1000 mW and 1000 mA -> 1 mWh and 1 mAh!
+        // We will call update in 8 chunks of 450 ms (to test dt_ms < 500)
+        for _ in 0..8 {
+            accum.update(10_000, 10_000, 450);
+        }
+        assert_eq!(accum.energy_mwh(), 1);
+        assert_eq!(accum.energy_mwh_frac(), 0);
+        assert_eq!(accum.energy_uwh(), 1000);
+        assert_eq!(accum.charge_mah(), 1);
+        assert_eq!(accum.charge_mah_frac(), 0);
+        assert_eq!(accum.charge_uah(), 1000);
+        assert_eq!(accum.net_charge_mah(), 1);
+
+        // Test bidirectional flow: charge into battery with negative current
+        accum.update(10_000, -10_000, 450 * 8); // Note: dt_ms clamped to 500
+        // Total charge ticks increased, but charge_in_ticks also increased
+        assert!(accum.charge_in_ticks > 0);
+
+        accum.reset();
+        assert_eq!(accum.energy_ticks, 0);
+        assert_eq!(accum.charge_ticks, 0);
+        assert_eq!(accum.charge_in_ticks, 0);
+        assert_eq!(accum.charge_out_ticks, 0);
+    }
+
+    #[test]
+    fn test_session_stats() {
+        let mut stats = SessionStats::new(1000);
+        assert!(!stats.has_samples);
+
+        // Ignored reading (v_mv <= 500)
+        stats.update(400, 100, 40);
+        assert!(!stats.has_samples);
+
+        // Valid readings
+        stats.update(5000, 1000, 50000); // 5.0V, 100.0 mA, 5000.0 mW
+        stats.update(4000, 2000, 80000); // 4.0V, 200.0 mA, 8000.0 mW
+        assert!(stats.has_samples);
+        assert_eq!(stats.samples, 2);
+        assert_eq!(stats.v_min, 4000);
+        assert_eq!(stats.v_max, 5000);
+        assert_eq!(stats.c_min, 1000);
+        assert_eq!(stats.c_max, 2000);
+        assert_eq!(stats.p_max, 80000);
+        assert_eq!(stats.avg_voltage_mv(), 4500);
+        assert_eq!(stats.avg_current_tenth_ma(), 1500);
+
+        // Load resistance: 5000 mV, 100.0 mA (1000 tenth_ma) -> 50.0 ohms (500 tenth_ohms)
+        let r = stats.load_resistance_tenth_ohms(5000, 1000);
+        assert_eq!(r, Some(500));
+
+        // Low current (< 2.0 mA) resistance returns None
+        assert_eq!(stats.load_resistance_tenth_ohms(5000, 15), None);
+
+        stats.reset(2000);
+        assert!(!stats.has_samples);
+        assert_eq!(stats.samples, 0);
+    }
+
+    #[test]
+    fn test_battery_profile_and_state() {
+        let mut batt = BatteryState::new();
+        let accum = Accumulators::new();
+
+        batt.profile = BatteryProfile::Lipo1200;
+        assert_eq!(batt.profile.capacity_mah(), 1200);
+        assert_eq!(batt.profile.cutoff_mv(), 3200);
+
+        batt.update(3800, &accum, 600); // 60.0 mA average
+        assert_eq!(batt.soc_pct, 100);
+        assert_eq!(batt.rem_mah, 1200);
+        assert!(!batt.is_low_voltage);
+        // Time remaining: 1200 mAh / 60 mA = 20 hours = 1200 mins
+        assert_eq!(batt.time_rem_mins, 1200);
+
+        // Low voltage trigger
+        batt.update(3100, &accum, 600);
+        assert!(batt.is_low_voltage);
+
+        // Profile cycling
+        assert_eq!(batt.profile.next(), BatteryProfile::LiIon2500);
+    }
+
+    #[test]
+    fn test_histogram_data() {
+        let mut hist = HistogramData::new();
+        hist.record(5);     // Bin 0 (< 1.0 mA)
+        hist.record(20);    // Bin 1 (1.0..5.0 mA)
+        hist.record(100);   // Bin 2 (5.0..20.0 mA)
+        hist.record(300);   // Bin 3 (20.0..50.0 mA)
+        hist.record(1000);  // Bin 4 (50.0..150.0 mA)
+        hist.record(2000);  // Bin 5 (150.0..500.0 mA)
+        hist.record(10000); // Bin 6 (>= 500.0 mA)
+        assert_eq!(hist.total, 7);
+        for i in 0..7 {
+            assert_eq!(hist.bins[i], 1);
+            assert_eq!(hist.pct(i), 14); // 1/7 = 14%
+        }
+        hist.clear();
+        assert_eq!(hist.total, 0);
+    }
+
+    #[test]
+    fn test_ema_filter() {
+        let mut ema = EmaFilter::new();
+        // First sample initializes filter
+        assert_eq!(ema.update(100), 100);
+
+        // Small step moves smoothly towards target
+        let mut val = 100;
+        for _ in 0..20 {
+            val = ema.update(120);
+        }
+        assert_eq!(val, 120);
+
+        // Large jump (> 100 tenth_ma = 10.0 mA) snaps instantly
+        assert_eq!(ema.update(500), 500);
+    }
+
+    #[test]
+    fn test_sample_aggregator() {
+        let mut agg = SampleAggregator::new();
+        let r1 = InaReading {
+            voltage_mv: 5000,
+            current_tenth_ma: 100,
+            power_tenth_mw: 5000,
+            overflow: false,
+            is_reverse: false,
+        };
+        let r2 = InaReading {
+            voltage_mv: 4000,
+            current_tenth_ma: 300,
+            power_tenth_mw: 12000,
+            overflow: true,
+            is_reverse: false,
+        };
+        agg.record(&r1);
+        agg.record(&r2);
+        assert_eq!(agg.count, 2);
+        assert_eq!(agg.c_min, 100);
+        assert_eq!(agg.c_max, 300);
+
+        let fallback = InaReading::default();
+        let avg = agg.finish_and_reset(&fallback);
+        assert_eq!(avg.voltage_mv, 4500);
+        assert_eq!(avg.current_tenth_ma, 200);
+        assert_eq!(avg.power_tenth_mw, 8500);
+        assert!(avg.overflow);
+        assert_eq!(agg.count, 0);
+    }
+}

@@ -1,16 +1,18 @@
-#![no_std]
-#![no_main]
+#![cfg_attr(not(test), no_std)]
+#![cfg_attr(not(test), no_main)]
 
 mod app;
-mod fmt;
+pub mod fmt;
 mod logger;
-mod model;
+pub mod model;
 mod telemetry;
 mod ui;
 
 use core::cell::RefCell;
 use core::fmt::Write;
+#[cfg(not(test))]
 use panic_halt as _;
+#[cfg(not(test))]
 use riscv_rt::entry;
 
 use longan_nano_bsp::Board;
@@ -21,6 +23,7 @@ use crate::model::{BatteryProfile, InaReading};
 use crate::telemetry::HidCommand;
 use crate::ui::{ScreenMode, SdStatus, TriggerMode, TriggerState};
 
+#[cfg(not(test))]
 #[entry]
 fn main() -> ! {
     let mut board = Board::take_current_monitor().expect("Board initialization failed");
@@ -690,3 +693,6 @@ fn main() -> ! {
         }
     }
 }
+
+#[cfg(test)]
+fn main() {}
