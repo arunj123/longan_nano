@@ -6,7 +6,7 @@ pub mod msc;
 pub use cdc_acm::UsbCdcAcm;
 pub use composite::UsbComposite;
 pub use hid::UsbHid;
-pub use msc::{MscBlockDevice, MscStats, UsbMsc, MSC_CONFIG_DESC};
+pub use msc::{MscBlockDevice, MscStats, SectorBuf, UsbMsc, MSC_CONFIG_DESC};
 
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub enum ControlState {

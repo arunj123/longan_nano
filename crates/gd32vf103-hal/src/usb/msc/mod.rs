@@ -84,8 +84,59 @@ const STR_MSC_SERIAL: [u8; 26] = [
     26, 0x03,
     b'L', 0, b'N', 0, b'M', 0, b'S', 0, b'C', 0,
     b'0', 0, b'0', 0, b'0', 0, b'0', 0, b'0', 0,
-    b'D', 0, b'4', 0,
+    b'D', 0, b'8', 0,
 ];
+
+#[repr(C, align(4))]
+#[derive(Copy, Clone)]
+pub struct SectorBuf(pub [u8; 512]);
+
+impl SectorBuf {
+    pub const fn new() -> Self {
+        Self([0u8; 512])
+    }
+
+    #[inline(always)]
+    pub fn as_slice(&self) -> &[u8; 512] {
+        &self.0
+    }
+
+    #[inline(always)]
+    pub fn as_mut_slice(&mut self) -> &mut [u8; 512] {
+        &mut self.0
+    }
+
+    #[inline(always)]
+    pub fn as_words(&self) -> &[u32; 128] {
+        unsafe { &*(self.0.as_ptr() as *const [u32; 128]) }
+    }
+
+    #[inline(always)]
+    pub fn as_mut_words(&mut self) -> &mut [u32; 128] {
+        unsafe { &mut *(self.0.as_mut_ptr() as *mut [u32; 128]) }
+    }
+}
+
+impl Default for SectorBuf {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl core::ops::Deref for SectorBuf {
+    type Target = [u8; 512];
+    #[inline(always)]
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl core::ops::DerefMut for SectorBuf {
+    #[inline(always)]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
 
 pub trait MscBlockDevice {
     fn is_ready(&self) -> bool;
@@ -139,7 +190,7 @@ pub struct UsbMsc {
     need_write: bool,
 
     pub cache: LbaCache,
-    media_buf: [[u8; 512]; 2],
+    media_buf: [SectorBuf; 2],
     buf_idx: usize,
     has_read_ahead: bool,
     read_ahead_len: usize,
@@ -262,7 +313,7 @@ impl UsbMsc {
             need_read: false,
             need_write: false,
             cache: LbaCache::new(),
-            media_buf: [[0u8; 512]; 2],
+            media_buf: [SectorBuf::new(), SectorBuf::new()],
             buf_idx: 0,
             has_read_ahead: false,
             read_ahead_len: 0,
@@ -404,13 +455,18 @@ impl UsbMsc {
             }
         }
 
-        for i in 0..word_count {
+        let chunks = data.chunks_exact(4);
+        let rem = chunks.remainder();
+        for chunk in chunks {
+            let word = u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+            unsafe {
+                core::ptr::write_volatile(fifo_ptr, word);
+            }
+        }
+        if !rem.is_empty() {
             let mut word = 0u32;
-            for b in 0..4 {
-                let idx = i * 4 + b;
-                if idx < len {
-                    word |= (data[idx] as u32) << (b * 8);
-                }
+            for (b, &byte) in rem.iter().enumerate() {
+                word |= (byte as u32) << (b * 8);
             }
             unsafe {
                 core::ptr::write_volatile(fifo_ptr, word);
@@ -502,18 +558,26 @@ impl UsbMsc {
             timeout -= 1;
         }
 
-        // Write all data words into DFIFO[1] (~12 µs)
+        // Fast 32-bit word transfer into DFIFO[1] (128 words for 512B)
         let fifo_ptr = self.usbfs.fifo(1);
-        for i in 0..word_count {
-            let mut word = 0u32;
-            for b in 0..4 {
-                let idx = i * 4 + b;
-                if idx < len {
-                    word |= (self.media_buf[buf_idx][idx] as u32) << (b * 8);
-                }
+        let full_words = len / 4;
+        let words = self.media_buf[buf_idx].as_words();
+
+        for i in 0..full_words {
+            unsafe {
+                core::ptr::write_volatile(fifo_ptr, words[i]);
+            }
+        }
+
+        let rem = len % 4;
+        if rem > 0 {
+            let offset = full_words * 4;
+            let mut last_word = 0u32;
+            for b in 0..rem {
+                last_word |= (self.media_buf[buf_idx][offset + b] as u32) << (b * 8);
             }
             unsafe {
-                core::ptr::write_volatile(fifo_ptr, word);
+                core::ptr::write_volatile(fifo_ptr, last_word);
             }
         }
 
@@ -1039,43 +1103,72 @@ impl UsbMsc {
             grstat::RSTAT_DATA_UPDT => {
                 if bcount > 0 {
                     let word_count = (bcount + 3) / 4;
-                    let mut byte_idx = 0;
-                    for _ in 0..word_count {
-                        let w = unsafe { core::ptr::read_volatile(self.usbfs.fifo(0)) };
-                        for b in 0..4 {
-                            if byte_idx < bcount {
-                                let byte = ((w >> (b * 8)) & 0xFF) as u8;
-                                if ep_num == 0 && byte_idx < self.ep0_out_buf.len() {
-                                    self.ep0_out_buf[byte_idx] = byte;
-                                } else if ep_num == 1 {
-                                    match self.state {
-                                        BbbState::Idle => {
-                                            if byte_idx < self.cbw_buf.len() {
-                                                self.cbw_buf[byte_idx] = byte;
-                                            }
+                    if ep_num == 1 && self.state == BbbState::DataOut {
+                        // High-throughput 32-bit word transfer for Bulk-OUT data phase
+                        let offset = self.media_rx_offset;
+                        if (offset & 3) == 0 && offset + bcount <= 512 {
+                            let word_offset = offset / 4;
+                            let full_words = bcount / 4;
+                            let rem = bcount % 4;
+
+                            let words_mut = self.media_buf[0].as_mut_words();
+                            for i in 0..full_words {
+                                let w = unsafe { core::ptr::read_volatile(self.usbfs.fifo(0)) };
+                                words_mut[word_offset + i] = w;
+                            }
+                            if rem > 0 {
+                                let w = unsafe { core::ptr::read_volatile(self.usbfs.fifo(0)) };
+                                let byte_base = offset + full_words * 4;
+                                for b in 0..rem {
+                                    self.media_buf[0][byte_base + b] = ((w >> (b * 8)) & 0xFF) as u8;
+                                }
+                            }
+                        } else {
+                            let mut byte_idx = 0;
+                            for _ in 0..word_count {
+                                let w = unsafe { core::ptr::read_volatile(self.usbfs.fifo(0)) };
+                                for b in 0..4 {
+                                    if byte_idx < bcount {
+                                        let off = self.media_rx_offset + byte_idx;
+                                        if off < self.media_buf[0].len() {
+                                            self.media_buf[0][off] = ((w >> (b * 8)) & 0xFF) as u8;
                                         }
-                                        BbbState::DataOut => {
-                                            let offset = self.media_rx_offset + byte_idx;
-                                            if offset < self.media_buf[0].len() {
-                                                self.media_buf[0][offset] = byte;
-                                            }
-                                        }
-                                        _ => {}
+                                        byte_idx += 1;
                                     }
                                 }
-                                byte_idx += 1;
                             }
                         }
-                    }
-                    if ep_num == 1 {
-                        match self.state {
-                            BbbState::Idle => {
-                                self.cbw_rx_len = bcount;
+                        self.media_rx_offset += bcount;
+                    } else if ep_num == 1 && self.state == BbbState::Idle {
+                        let mut byte_idx = 0;
+                        for _ in 0..word_count {
+                            let w = unsafe { core::ptr::read_volatile(self.usbfs.fifo(0)) };
+                            for b in 0..4 {
+                                if byte_idx < bcount {
+                                    if byte_idx < self.cbw_buf.len() {
+                                        self.cbw_buf[byte_idx] = ((w >> (b * 8)) & 0xFF) as u8;
+                                    }
+                                    byte_idx += 1;
+                                }
                             }
-                            BbbState::DataOut => {
-                                self.media_rx_offset += bcount;
+                        }
+                        self.cbw_rx_len = bcount;
+                    } else if ep_num == 0 {
+                        let mut byte_idx = 0;
+                        for _ in 0..word_count {
+                            let w = unsafe { core::ptr::read_volatile(self.usbfs.fifo(0)) };
+                            for b in 0..4 {
+                                if byte_idx < bcount {
+                                    if byte_idx < self.ep0_out_buf.len() {
+                                        self.ep0_out_buf[byte_idx] = ((w >> (b * 8)) & 0xFF) as u8;
+                                    }
+                                    byte_idx += 1;
+                                }
                             }
-                            _ => {}
+                        }
+                    } else {
+                        for _ in 0..word_count {
+                            let _ = unsafe { core::ptr::read_volatile(self.usbfs.fifo(0)) };
                         }
                     }
                 }
@@ -1594,5 +1687,54 @@ impl UsbMsc {
                 self.send_csw(self.csw_status);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sector_buf_alignment_and_size() {
+        assert_eq!(core::mem::align_of::<SectorBuf>(), 4);
+        assert_eq!(core::mem::size_of::<SectorBuf>(), 512);
+    }
+
+    #[test]
+    fn test_sector_buf_word_access() {
+        let mut buf = SectorBuf::new();
+        // Modify via words
+        {
+            let words = buf.as_mut_words();
+            assert_eq!(words.len(), 128);
+            words[0] = 0x12345678;
+            words[127] = 0xDEADBEEF;
+        }
+
+        // Verify little-endian byte ordering matches wire format
+        assert_eq!(buf[0], 0x78);
+        assert_eq!(buf[1], 0x56);
+        assert_eq!(buf[2], 0x34);
+        assert_eq!(buf[3], 0x12);
+
+        assert_eq!(buf[508], 0xEF);
+        assert_eq!(buf[509], 0xBE);
+        assert_eq!(buf[510], 0xAD);
+        assert_eq!(buf[511], 0xDE);
+
+        // Read back via words
+        assert_eq!(buf.as_words()[0], 0x12345678);
+        assert_eq!(buf.as_words()[127], 0xDEADBEEF);
+    }
+
+    #[test]
+    fn test_sector_buf_deref_slice() {
+        let mut buf = SectorBuf::new();
+        let test_data = [0xA5u8; 512];
+        buf.copy_from_slice(&test_data);
+        assert_eq!(buf[0], 0xA5);
+        assert_eq!(buf[511], 0xA5);
+        assert_eq!(buf.as_words()[0], 0xA5A5A5A5);
+        assert_eq!(buf.as_words()[127], 0xA5A5A5A5);
     }
 }
