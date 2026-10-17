@@ -84,7 +84,7 @@ const STR_MSC_SERIAL: [u8; 26] = [
     26, 0x03,
     b'L', 0, b'N', 0, b'M', 0, b'S', 0, b'C', 0,
     b'0', 0, b'0', 0, b'0', 0, b'0', 0, b'0', 0,
-    b'E', 0, b'2', 0,
+    b'E', 0, b'3', 0,
 ];
 
 #[repr(C, align(4))]
@@ -214,6 +214,7 @@ pub struct UsbMsc {
 
     lba: u32,
     remaining_bytes: u32,
+    total_blocks_requested: u32,
     data_done_time: u64,
     need_read: bool,
     need_write: bool,
@@ -343,6 +344,7 @@ impl UsbMsc {
             sense_asc: Asc::NoAsc,
             lba: 0,
             remaining_bytes: 0,
+            total_blocks_requested: 0,
             data_done_time: 0,
             need_read: false,
             need_write: false,
@@ -813,7 +815,7 @@ impl UsbMsc {
                             data[0] = 0x00;
                             data[1] = 0x80;
                             data[3] = 12;
-                            data[4..16].copy_from_slice(b"LNMSC00000E2");
+                            data[4..16].copy_from_slice(b"LNMSC00000E3");
                             let len = core::cmp::min(self.cbw.d_cbw_data_transfer_length as usize, 16);
                             self.send_data(&data[..len]);
                         }
@@ -990,6 +992,7 @@ impl UsbMsc {
                 self.lba = lba;
                 self.stats.last_lba = lba;
                 self.remaining_bytes = to_transfer;
+                self.total_blocks_requested = to_transfer / 512;
                 self.csw_residue = self.cbw.d_cbw_data_transfer_length - to_transfer;
                 self.state = BbbState::DataIn;
                 self.buf_idx = 0;
@@ -1044,6 +1047,7 @@ impl UsbMsc {
                 self.lba = lba;
                 self.stats.last_lba = lba;
                 self.remaining_bytes = to_transfer;
+                self.total_blocks_requested = to_transfer / 512;
                 self.csw_residue = self.cbw.d_cbw_data_transfer_length - to_transfer;
                 self.state = BbbState::DataIn;
                 self.buf_idx = 0;
@@ -1453,13 +1457,28 @@ impl UsbMsc {
                                 let next_len = core::cmp::min(self.remaining_bytes, 512) as usize;
                                 let lba = self.lba;
 
-                                let read_ok = if let Some(cached) = self.cache.lookup(lba) {
-                                    self.stats.cache_hits += 1;
-                                    disk.end_multi_read();
-                                    self.media_buf[next_idx].copy_from_slice(cached);
-                                    true
+                                let check_cache = !disk.is_streaming()
+                                    || self.total_blocks_requested <= 8
+                                    || self.remaining_bytes <= 512;
+                                let read_ok = if check_cache {
+                                    if let Some(cached) = self.cache.lookup(lba) {
+                                        self.stats.cache_hits += 1;
+                                        disk.end_multi_read();
+                                        self.media_buf[next_idx].copy_from_slice(cached);
+                                        true
+                                    } else {
+                                        self.stats.cache_misses += 1;
+                                        if !disk.is_streaming() && self.remaining_bytes > 512 {
+                                            disk.begin_multi_read(lba);
+                                        }
+                                        let ok = disk.read_sector(lba, &mut self.media_buf[next_idx]);
+                                        if ok && self.total_blocks_requested <= 8 {
+                                            self.cache.insert_lba(lba, &self.media_buf[next_idx]);
+                                        }
+                                        ok
+                                    }
                                 } else {
-                                    self.stats.cache_misses += 1;
+                                    // Sequential stream ongoing (> 8 blocks requested): bypass cache lookup to maintain CMD18 pipeline
                                     if !disk.is_streaming() && self.remaining_bytes > 512 {
                                         disk.begin_multi_read(lba);
                                     }
@@ -1770,13 +1789,28 @@ impl UsbMsc {
             let len = core::cmp::min(self.remaining_bytes, 512) as usize;
             let lba = self.lba;
 
-            let read_ok = if let Some(cached) = self.cache.lookup(lba) {
-                self.stats.cache_hits += 1;
-                disk.end_multi_read();
-                self.media_buf[0].copy_from_slice(cached);
-                true
+            let check_cache = !disk.is_streaming()
+                || self.total_blocks_requested <= 8
+                || self.remaining_bytes <= 512;
+            let read_ok = if check_cache {
+                if let Some(cached) = self.cache.lookup(lba) {
+                    self.stats.cache_hits += 1;
+                    disk.end_multi_read();
+                    self.media_buf[0].copy_from_slice(cached);
+                    true
+                } else {
+                    self.stats.cache_misses += 1;
+                    if !disk.is_streaming() && self.remaining_bytes > 512 {
+                        disk.begin_multi_read(lba);
+                    }
+                    let ok = disk.read_sector(lba, &mut self.media_buf[0]);
+                    if ok && self.total_blocks_requested <= 8 {
+                        self.cache.insert_lba(lba, &self.media_buf[0]);
+                    }
+                    ok
+                }
             } else {
-                self.stats.cache_misses += 1;
+                // Sequential stream ongoing (> 8 blocks requested): bypass cache lookup to maintain CMD18 pipeline
                 if !disk.is_streaming() && self.remaining_bytes > 512 {
                     disk.begin_multi_read(lba);
                 }
@@ -1798,13 +1832,28 @@ impl UsbMsc {
                     let next_len = core::cmp::min(self.remaining_bytes, 512) as usize;
                     let next_lba = self.lba;
 
-                    let next_ok = if let Some(cached) = self.cache.lookup(next_lba) {
-                        self.stats.cache_hits += 1;
-                        disk.end_multi_read();
-                        self.media_buf[1].copy_from_slice(cached);
-                        true
+                    let next_check_cache = !disk.is_streaming()
+                        || self.total_blocks_requested <= 8
+                        || self.remaining_bytes <= 512;
+                    let next_ok = if next_check_cache {
+                        if let Some(cached) = self.cache.lookup(next_lba) {
+                            self.stats.cache_hits += 1;
+                            disk.end_multi_read();
+                            self.media_buf[1].copy_from_slice(cached);
+                            true
+                        } else {
+                            self.stats.cache_misses += 1;
+                            if !disk.is_streaming() && self.remaining_bytes > 512 {
+                                disk.begin_multi_read(next_lba);
+                            }
+                            let ok = disk.read_sector(next_lba, &mut self.media_buf[1]);
+                            if ok && self.total_blocks_requested <= 8 {
+                                self.cache.insert_lba(next_lba, &self.media_buf[1]);
+                            }
+                            ok
+                        }
                     } else {
-                        self.stats.cache_misses += 1;
+                        // Sequential stream ongoing (> 8 blocks requested): bypass cache lookup to maintain CMD18 pipeline
                         if !disk.is_streaming() && self.remaining_bytes > 512 {
                             disk.begin_multi_read(next_lba);
                         }
@@ -2183,4 +2232,33 @@ mod tests {
         wp = false;
         assert!(!wp);
     }
+
+    #[test]
+    fn test_non_breaking_stream_cache_lookup_policy() {
+        // Define decision policy:
+        // Cache lookup is performed if:
+        // 1. disk is NOT actively streaming (!is_streaming), OR
+        // 2. requested transfer is small (total_blocks <= 8), OR
+        // 3. remaining_bytes <= 512 (last block)
+        fn should_check_cache(is_streaming: bool, total_blocks: u32, remaining_bytes: u32) -> bool {
+            !is_streaming || total_blocks <= 8 || remaining_bytes <= 512
+        }
+
+        // Case 1: Starting a new read when disk is idle (not streaming) -> MUST check cache
+        assert!(should_check_cache(false, 64, 32768));
+        assert!(should_check_cache(false, 1, 512));
+
+        // Case 2: Small read request (<= 8 blocks, e.g. 4 blocks) while streaming -> MUST check cache
+        assert!(should_check_cache(true, 4, 1536));
+        assert!(should_check_cache(true, 8, 3584));
+
+        // Case 3: Large streaming read (> 8 blocks, e.g. 64 blocks = 32 KiB) in mid-stream -> MUST BYPASS cache
+        assert!(!should_check_cache(true, 64, 30720)); // remaining: 60 blocks
+        assert!(!should_check_cache(true, 64, 1024));  // remaining: 2 blocks
+        assert!(!should_check_cache(true, 16, 4096));  // remaining: 8 blocks
+
+        // Case 4: Final block of any stream (remaining <= 512) -> CAN check cache
+        assert!(should_check_cache(true, 64, 512));
+    }
 }
+

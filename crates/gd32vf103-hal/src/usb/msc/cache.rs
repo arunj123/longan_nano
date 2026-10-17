@@ -11,6 +11,7 @@ static mut CACHE_DATA: [[u8; 512]; CACHE_SECTORS] = [[0u8; 512]; CACHE_SECTORS];
 
 pub struct LbaCache {
     pub entries: [CacheEntry; CACHE_SECTORS],
+    pub next_insert_slot: usize,
     #[cfg(test)]
     pub data: [[u8; 512]; CACHE_SECTORS],
 }
@@ -22,6 +23,7 @@ impl LbaCache {
                 lba: 0xFFFF_FFFF,
                 valid: false,
             }; CACHE_SECTORS],
+            next_insert_slot: 0,
             #[cfg(test)]
             data: [[0u8; 512]; CACHE_SECTORS],
         }
@@ -53,6 +55,14 @@ impl LbaCache {
             self.data[slot].copy_from_slice(buf);
         }
     }
+
+    /// Insert an LBA sector using a round-robin eviction policy across the cache slots.
+    pub fn insert_lba(&mut self, lba: u32, buf: &[u8; 512]) {
+        let slot = self.next_insert_slot;
+        self.insert(slot, lba, buf);
+        self.next_insert_slot = (slot + 1) % CACHE_SECTORS;
+    }
+
 
     pub fn invalidate(&mut self, lba: u32) {
         for entry in self.entries.iter_mut() {
@@ -119,4 +129,32 @@ mod tests {
         cache.insert(CACHE_SECTORS, 200, &b1);
         assert!(cache.lookup(200).is_none());
     }
+
+    #[test]
+    fn test_lba_cache_insert_lba_round_robin() {
+        let mut cache = LbaCache::new();
+        let mut buf = [0u8; 512];
+
+        // Insert 16 entries filling the cache
+        for i in 0..CACHE_SECTORS {
+            buf[0] = i as u8;
+            cache.insert_lba(i as u32, &buf);
+        }
+
+        // Verify all 16 are resident
+        for i in 0..CACHE_SECTORS {
+            let hit = cache.lookup(i as u32);
+            assert!(hit.is_some());
+            assert_eq!(hit.unwrap()[0], i as u8);
+        }
+
+        // Next insert should evict slot 0 (LBA 0)
+        buf[0] = 99;
+        cache.insert_lba(1000, &buf);
+        assert!(cache.lookup(0).is_none());
+        assert!(cache.lookup(1000).is_some());
+        assert_eq!(cache.lookup(1000).unwrap()[0], 99);
+        assert!(cache.lookup(1).is_some());
+    }
 }
+

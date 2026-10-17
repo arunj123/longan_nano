@@ -253,9 +253,10 @@ flowchart TD
   - Reject `WRITE_6` and `WRITE_10` with `SenseKey::DataProtect (0x07)`, `Asc::WriteProtected (0x27, 0x00)` when write-protect is active.
   - Add Write-Protect state toggle via UART command (`'w' | 'W'`) and PA8 double-click gesture in `prj_usb_msc`, persisting across reboots in Backup Domain register 6 (`BKP_DATA6`).
   - Display `[RO]` vs `[RW]` in the live LCD telemetry header badge.
-- [ ] **Task 5.3**: Implement Non-Breaking Stream Cache Lookup Policy ([MSC-PERF-04]):
-  - In `crates/gd32vf103-hal/src/usb/msc/mod.rs`, optimize read-ahead pipelining so that sequential cache hits during an active `CMD18` multi-block read do not invoke `disk.end_multi_read()`.
-  - Maintain the active SPI streaming read pipeline across cache hits for large block transfers (> 8 blocks), only consulting cache when starting a new transfer or for small isolated reads ($\le 8$ blocks).
+- [x] **Task 5.3**: Implement Non-Breaking Stream Cache Lookup Policy ([MSC-PERF-04]) (Verified in Build `00E3`):
+  - In `crates/gd32vf103-hal/src/usb/msc/mod.rs`, optimized read-ahead pipelining so that sequential cache hits during an active `CMD18` multi-block read do not invoke `disk.end_multi_read()`.
+  - Maintained the active SPI streaming read pipeline across cache hits for large block transfers (> 8 blocks), only consulting cache when starting a new transfer or for small isolated reads ($\le 8$ blocks).
+  - Added round-robin sector caching (`insert_lba`) across 16 cache slots for small transfers ($\le 8$ blocks), speeding up repeated partition table and FAT sector lookups.
 - [ ] **Task 5.4**: Fix Workspace-Wide Host Unit Test Harness & `panic_halt` Guarding:
   - Guard `panic_halt` in auxiliary crates (`prj_blink`, `prj_lcd_test`, `prj_sdcard_test`, `prj_sdcard_fs_test`, `prj_usb_serial`) with `#[cfg(not(test))] use panic_halt as _;`.
   - Ensure pure `cargo test --workspace --target x86_64-pc-windows-msvc` passes cleanly with 0 compilation errors across all workspace members.
@@ -317,7 +318,36 @@ flowchart TD
      - Tested BKP persistence across reboot: set WP to `RO` (`0x5701`), re-triggered hardware reset via OpenOCD, verified boot status retained `Write-Protect: RO (BKP6: 0x5701)`, restored to `RW`.
      - Clean unmount with zero USB resets or bus dropouts during testing.
 
+3. **`prj_usb_msc` Non-Breaking Stream Cache Lookup Policy & Round-Robin Cache Population (Build 00E3)**:
+   - **Stream Preservation Architecture (`crates/gd32vf103-hal/src/usb/msc/`)**:
+     - Added `total_blocks_requested: u32` tracking to `UsbMsc`, initialized from CDB byte counts in `READ_6` and `READ_10` (`to_transfer / 512`).
+     - Implemented intelligent cache lookup gating:
+       `let check_cache = !disk.is_streaming() || self.total_blocks_requested <= 8 || self.remaining_bytes <= 512;`
+     - When streaming large multi-block reads (> 8 blocks, e.g. 64 blocks = 32 KiB), the hardware `CMD18` SPI streaming pipeline remains open and unbroken across sector boundaries, eliminating artificial pipeline teardown and re-issuance latency.
+     - Cache lookups are executed unconditionally when starting a new transfer (`!disk.is_streaming()`), for small isolated reads ($\le 8$ blocks, such as MBR, BPB, FAT, and root directory sectors), and on the final sector of any transfer (`remaining_bytes <= 512`).
+   - **Round-Robin Cache Population (`cache.rs`)**:
+     - Added `next_insert_slot: usize` and `insert_lba(&mut self, lba: u32, buf: &[u8; 512])` to `LbaCache`.
+     - Automatically populates the 16-slot LBA cache on reads when `total_blocks_requested <= 8`, accelerating repeated filesystem lookups while preventing large streaming reads from flushing active directory metadata.
+     - Bumped USB serial string descriptor and SCSI VPD page 0x80 serial to `LNMSC00000E3`.
+   - **Host Unit Test Suite (`cargo test`)**:
+     - **84/84 host unit tests pass** across the workspace (32 in `gd32vf103-hal`, 7 in `longan-nano-bsp`, 34 in `prj_current_monitor`, 11 in `prj_usb_msc`).
+     - Added `test_lba_cache_insert_lba_round_robin` in `cache.rs` verifying full 16-slot filling, lookups, and round-robin eviction.
+     - Added `test_non_breaking_stream_cache_lookup_policy` in `msc/mod.rs` verifying all 4 policy decision cases.
+   - **Target Hardware Empirical Verification (`tools/verify_build_00e3.py`)**:
+     - Flashed to GD32VF103 over JTAG OpenOCD on remote Linux host `192.168.0.63`.
+     - Clean USB enumeration as `28e9:abd4` `Longan Nano SD Reader`, serial `LNMSC00000E3` (480 MiB / 983,040 blocks).
+     - Verified all UART commands and PA8 simulation hooks: Help (`?`), Status (`s`), WP toggle (`w`), PA8 double-click (`K`), PA8 single-click (`k`).
+     - Verified SCSI `TEST_UNIT_READY`, `MODE_SENSE_6`/`10` in RW and RO modes, and `WRITE_10` rejection in RO mode with Check Condition (`Data Protect: Write protected`).
+     - Switched to RW mode: all 7 isolated `sg_raw` sector queries passed (LBA 0 1/8 blks, LBA 528 8 blks, LBA 560 8 blks, LBA 1024 1/8 blks, OOB LBA cleanly rejected).
+     - Sustained 4.0 MiB read streaming (`dd bs=64k count=64`) achieved **846 kB/s** (up from 838 kB/s in Build 00E2) with uninterrupted continuous CMD18 streaming.
+     - Partition 1 (`/dev/sdb1`) mounted read-write cleanly (`mount code=0`).
+     - Single-file write & verification round-trip match verified on `/mnt/sdcard/build_00e3.txt`.
+     - Multi-block 128 KiB CMD25 write streaming with double buffering verified with 100% cryptographic match (`MD5: 9ec54e9020276f923d7a70ac1e28d5a6`).
+     - Tested BKP persistence across reboot: set WP to `RO` (`0x5701`), re-triggered hardware reset via OpenOCD, verified boot status retained `Write-Protect: RO (BKP6: 0x5701)`, restored to `RW`.
+     - Clean unmount with zero kernel errors or USB bus resets.
+
 ---
+
 
 ## 5. Mandatory AI Session Continuity & Handoff Protocol
 
