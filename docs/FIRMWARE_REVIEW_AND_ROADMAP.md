@@ -392,7 +392,7 @@ flowchart TD
 ### Phase 4: UI/UX & Advanced Features (ACTIVE PHASE)
 - [x] **Task 4.1**: Implement `PA8` button double-click context actions and long-press visual progress bar. *(Verified in Build 00DC: 48/48 host unit tests PASS, 21/21 remote hardware tests PASS, visual progress bar + tare trigger + context actions verified)*
 - [x] **Task 4.2**: Implement edge-triggered capture on `GraphScreen` and fix `Single` mode autoscale replotting. *(Verified in Build 00DD: 55/55 host unit tests PASS, 22/22 remote hardware tests PASS, rising edge trigger + autoscale freeze in Single mode + waveform preservation verified)*
-- [ ] **Task 4.3**: Add live LCD telemetry to `prj_usb_msc` during bus idle.
+- [x] **Task 4.3**: Add live LCD telemetry to `prj_usb_msc` during bus idle. *(Verified in Build 00DE: 66/66 host unit tests PASS, target hardware verified with 806 kB/s read streaming, 128 KiB write streaming MD5 match, live telemetry dashboard verified)*
 - [ ] **Task 4.4**: Add SD card hot-swap detection and `SenseKey::UnitAttention` handling.
 - [ ] **Task 4.5**: Add display 180° rotation toggle via `MADCTL` persisted in `BKP` register.
 
@@ -451,6 +451,40 @@ flowchart TD
      - All 22 remote automated test suites passed:
        - Tests 1–21 PASS (Screen modes, battery profiles, JSON dump, SD flush/rotate, tare reset, USB HID streaming/commands, RTC, PA8 single click, double-click in Graph/Stats/Hero, hold progress, tare trigger, aborted hold).
        - Test 22: Graph Trigger Mode Cycling via UART (`'g'` -> NORM, SNGL, AUTO) PASS.
+
+3. **`prj_usb_msc` Live LCD Telemetry Dashboard During Bus Idle (Build 00DE)**:
+   - **Bus-Idle Guard Invariant & Dirty Field Optimization (`telemetry.rs`)**:
+     - Created `TelemetryDashboard` managing 7 dirty-tracked fields (`DirtyField<const N: usize>`), redrawing strictly when field contents change.
+     - Enforced strict bus-idle gating (`board.usb_msc.is_idle()`): LCD drawing operations (SPI0) never execute during active BOT transfer packets, preserving wire transfer throughput without USB timeouts or packet drops.
+     - Added 20 ms post-transfer settle guard and 50 ms minimum redraw interval rate limiting.
+   - **Live Telemetry Layout & Metrics**:
+     - Line 0 (Header bar, Y: 0..12, Dark Navy): Title `"USB MSC TELEMETRY"` with status badge (`[DISC]` in Red, `[IDLE]` in Green, `[BUSY]` in Amber/Yellow).
+     - Divider line at Y: 13.
+     - Line 1 (Y: 15): SD card status & capacity alongside USB connection state (`SD: 480 MB  USB: READY`).
+     - Line 2 (Y: 26): Last LBA accessed in decimal and hexadecimal (`LBA: 983040  (0x000F0000)`).
+     - Line 3 (Y: 37): Total sectors read with auto-scaled human-readable capacity (`RD : 8192   (4.0 MB)`).
+     - Line 4 (Y: 48): Total sectors written with auto-scaled capacity (`WR : 256    (128 KB)`).
+     - Line 5 (Y: 59): Real-time cache hit rate percentage and counters (`HIT: 100.0%  (H:16 M:0)`).
+     - Line 6 (Y: 70): Real-time transfer throughput in integer fixed-point kB/s or MB/s (`SPD: 806 kB/s`).
+   - **MscStats Augmentation (`crates/gd32vf103-hal/src/usb/msc/mod.rs`)**:
+     - Added `last_lba: u32`, `cache_hits: u32`, and `cache_misses: u32` fields to `MscStats`.
+     - Implemented `cache_hit_rate_tenth_percent(&self) -> u16` helper for fixed-point percentage calculations without floating-point emulation.
+     - Hooked `process_scsi`, `poll()`, and `handle_ieptf` to track cache hit/miss outcomes and update `last_lba` across all `READ_6`, `READ_10`, `WRITE_6`, and `WRITE_10` transfers.
+     - Updated USB serial string to `LNMSC00000DE`.
+   - **Host Unit Test Suite (`cargo test`)**:
+     - 66/66 host unit tests pass across the workspace (22 in `gd32vf103-hal`, 31 in `prj_current_monitor`, 4 in `longan-nano-bsp`, 9 in `prj_usb_msc`).
+     - 9 new unit tests in `telemetry.rs` cover: `StrBuf` bounds and padding, `DirtyField` change detection and invalidation, `fmt_lba` decimal/hex rendering, `fmt_sectors` KB and MB thresholds, `fmt_cache_hit` zero and percentage scaling, `fmt_speed` kB/s and MB/s thresholds, `fmt_sd_usb_status`, `fmt_header_badge` state colors, and `calculate_speed_kbs` integer arithmetic.
+     - 2 new unit tests in `gd32vf103-hal` cover `MscStats` default state, field updates, and cache hit rate calculations.
+   - **Target Hardware Empirical Verification (`tools/verify_build_00de.py`)**:
+     - Flashed to GD32VF103 over JTAG OpenOCD on remote host `192.168.0.63`.
+     - Clean USB enumeration as `28e9:abd4` `Longan Nano SD Reader`, serial `LNMSC00000DE` (480 MiB / 983,040 blocks).
+     - All 7 isolated `sg_raw` sector queries passed (LBA 0 1/8 blks, LBA 528 8 blks, LBA 560 8 blks, LBA 1024 1/8 blks, and OOB LBA cleanly rejected with Check Condition).
+     - Single-block reads (512B & 4096B) verified.
+     - Sustained 4.0 MiB read streaming (`dd bs=64k count=64`) achieved **806 kB/s** with zero USB transaction errors, verifying that live LCD telemetry adds zero overhead to active streaming.
+     - Partition 1 (`/dev/sdb1`) mounted read-write cleanly (`mount code=0`).
+     - Single-file write & read back round-trip verified (`/mnt/sdcard/build_00de.txt`).
+     - Multi-block 128 KiB CMD25 write streaming with double buffering verified with 100% cryptographic match (`MD5: ba2813088e67be5e54537b0129c24007`).
+     - Clean unmount with zero dmesg errors or USB transaction errors.
 
 ---
 

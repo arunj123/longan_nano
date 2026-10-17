@@ -84,7 +84,7 @@ const STR_MSC_SERIAL: [u8; 26] = [
     26, 0x03,
     b'L', 0, b'N', 0, b'M', 0, b'S', 0, b'C', 0,
     b'0', 0, b'0', 0, b'0', 0, b'0', 0, b'0', 0,
-    b'D', 0, b'A', 0,
+    b'D', 0, b'E', 0,
 ];
 
 #[repr(C, align(4))]
@@ -162,11 +162,27 @@ pub trait MscBlockDevice {
     }
 }
 
-#[derive(Copy, Clone, Default)]
+#[derive(Copy, Clone, Default, Debug, PartialEq, Eq)]
 pub struct MscStats {
     pub sectors_read: u32,
     pub sectors_written: u32,
+    pub last_lba: u32,
+    pub cache_hits: u32,
+    pub cache_misses: u32,
     pub is_active: bool,
+}
+
+impl MscStats {
+    /// Returns the cache hit rate as tenths of a percent (e.g. 984 = 98.4%).
+    /// Returns 0 if no cache accesses have occurred.
+    pub fn cache_hit_rate_tenth_percent(&self) -> u16 {
+        let total = self.cache_hits.saturating_add(self.cache_misses);
+        if total == 0 {
+            0
+        } else {
+            ((self.cache_hits as u64 * 1000) / total as u64) as u16
+        }
+    }
 }
 
 pub struct UsbMsc {
@@ -873,6 +889,7 @@ impl UsbMsc {
                 }
                 let to_transfer = core::cmp::min(self.cbw.d_cbw_data_transfer_length, blocks.saturating_mul(512));
                 self.lba = lba;
+                self.stats.last_lba = lba;
                 self.remaining_bytes = to_transfer;
                 self.csw_residue = self.cbw.d_cbw_data_transfer_length - to_transfer;
                 self.state = BbbState::DataIn;
@@ -920,6 +937,7 @@ impl UsbMsc {
                 }
                 let to_transfer = core::cmp::min(self.cbw.d_cbw_data_transfer_length, blocks.saturating_mul(512));
                 self.lba = lba;
+                self.stats.last_lba = lba;
                 self.remaining_bytes = to_transfer;
                 self.csw_residue = self.cbw.d_cbw_data_transfer_length - to_transfer;
                 self.state = BbbState::DataIn;
@@ -959,6 +977,7 @@ impl UsbMsc {
                 }
                 let to_transfer = core::cmp::min(self.cbw.d_cbw_data_transfer_length, blocks.saturating_mul(512));
                 self.lba = lba;
+                self.stats.last_lba = lba;
                 self.remaining_bytes = to_transfer;
                 self.csw_residue = self.cbw.d_cbw_data_transfer_length - to_transfer;
                 self.state = BbbState::DataOut;
@@ -1002,6 +1021,7 @@ impl UsbMsc {
                 }
                 let to_transfer = core::cmp::min(self.cbw.d_cbw_data_transfer_length, blocks.saturating_mul(512));
                 self.lba = lba;
+                self.stats.last_lba = lba;
                 self.remaining_bytes = to_transfer;
                 self.csw_residue = self.cbw.d_cbw_data_transfer_length - to_transfer;
                 self.state = BbbState::DataOut;
@@ -1307,10 +1327,12 @@ impl UsbMsc {
                                 let lba = self.lba;
 
                                 let read_ok = if let Some(cached) = self.cache.lookup(lba) {
+                                    self.stats.cache_hits += 1;
                                     disk.end_multi_read();
                                     self.media_buf[next_idx].copy_from_slice(cached);
                                     true
                                 } else {
+                                    self.stats.cache_misses += 1;
                                     if !disk.is_streaming() && self.remaining_bytes > 512 {
                                         disk.begin_multi_read(lba);
                                     }
@@ -1319,6 +1341,7 @@ impl UsbMsc {
 
                                 if read_ok {
                                     self.stats.sectors_read += 1;
+                                    self.stats.last_lba = lba;
                                     self.stats.is_active = true;
                                     self.lba += 1;
                                     self.remaining_bytes -= next_len as u32;
@@ -1614,10 +1637,12 @@ impl UsbMsc {
             let lba = self.lba;
 
             let read_ok = if let Some(cached) = self.cache.lookup(lba) {
+                self.stats.cache_hits += 1;
                 disk.end_multi_read();
                 self.media_buf[0].copy_from_slice(cached);
                 true
             } else {
+                self.stats.cache_misses += 1;
                 if !disk.is_streaming() && self.remaining_bytes > 512 {
                     disk.begin_multi_read(lba);
                 }
@@ -1626,6 +1651,7 @@ impl UsbMsc {
 
             if read_ok {
                 self.stats.sectors_read += 1;
+                self.stats.last_lba = lba;
                 self.stats.is_active = true;
                 self.lba += 1;
                 self.remaining_bytes -= len as u32;
@@ -1639,10 +1665,12 @@ impl UsbMsc {
                     let next_lba = self.lba;
 
                     let next_ok = if let Some(cached) = self.cache.lookup(next_lba) {
+                        self.stats.cache_hits += 1;
                         disk.end_multi_read();
                         self.media_buf[1].copy_from_slice(cached);
                         true
                     } else {
+                        self.stats.cache_misses += 1;
                         if !disk.is_streaming() && self.remaining_bytes > 512 {
                             disk.begin_multi_read(next_lba);
                         }
@@ -1651,6 +1679,7 @@ impl UsbMsc {
 
                     if next_ok {
                         self.stats.sectors_read += 1;
+                        self.stats.last_lba = next_lba;
                         self.stats.is_active = true;
                         self.lba += 1;
                         self.remaining_bytes -= next_len as u32;
@@ -1699,6 +1728,7 @@ impl UsbMsc {
             if write_ok {
                 self.cache.update(self.lba, &self.media_buf[cur_idx]);
                 self.stats.sectors_written += 1;
+                self.stats.last_lba = self.lba;
                 self.stats.is_active = true;
                 self.lba += 1;
                 self.remaining_bytes -= len;
@@ -1850,5 +1880,50 @@ mod tests {
 
         assert_eq!(committed, [0, 1, 0, 1]);
         assert_eq!(rx_idx, 1);
+    }
+
+    #[test]
+    fn test_msc_stats_default_and_updates() {
+        let mut stats = MscStats::default();
+        assert_eq!(stats.sectors_read, 0);
+        assert_eq!(stats.sectors_written, 0);
+        assert_eq!(stats.last_lba, 0);
+        assert_eq!(stats.cache_hits, 0);
+        assert_eq!(stats.cache_misses, 0);
+        assert!(!stats.is_active);
+
+        stats.sectors_read += 16;
+        stats.last_lba = 1024;
+        stats.cache_hits += 12;
+        stats.cache_misses += 4;
+        stats.is_active = true;
+
+        assert_eq!(stats.sectors_read, 16);
+        assert_eq!(stats.last_lba, 1024);
+        assert_eq!(stats.cache_hits, 12);
+        assert_eq!(stats.cache_misses, 4);
+        assert!(stats.is_active);
+    }
+
+    #[test]
+    fn test_msc_stats_cache_hit_rate() {
+        let mut stats = MscStats::default();
+        // Zero total accesses
+        assert_eq!(stats.cache_hit_rate_tenth_percent(), 0);
+
+        // 100% hits
+        stats.cache_hits = 16;
+        stats.cache_misses = 0;
+        assert_eq!(stats.cache_hit_rate_tenth_percent(), 1000); // 100.0%
+
+        // 50% hits
+        stats.cache_hits = 10;
+        stats.cache_misses = 10;
+        assert_eq!(stats.cache_hit_rate_tenth_percent(), 500); // 50.0%
+
+        // 98.4% hits
+        stats.cache_hits = 984;
+        stats.cache_misses = 16;
+        assert_eq!(stats.cache_hit_rate_tenth_percent(), 984); // 98.4%
     }
 }
