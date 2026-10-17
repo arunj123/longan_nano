@@ -110,47 +110,29 @@ impl Ina219 {
         Ok(raw * 2)
     }
 
-    /// Reads bus voltage, shunt current and flags into an `Ina219Data` record.
-    /// Also clears the CNVR flag by reading the Power register per the INA219 datasheet.
-    ///
-    /// Resilience Enhancement:
-    /// Samples both Shunt Voltage (0x01) and Current (0x04).
-    /// If Current reads 0 while Shunt Voltage is non-zero, it detects volatile calibration
-    /// loss (e.g., from brownout/POR) and autonomously re-arms Calibration = 4096 and Config.
-    pub fn read_all(&mut self) -> Result<Ina219Data, I2cError> {
-        let v_raw = self.i2c.read_reg16(self.addr, Self::REG_BUSVOLTAGE)?;
-        let s_raw = self.i2c.read_reg16(self.addr, Self::REG_SHUNTVOLTAGE)?;
-        let c_raw = self.i2c.read_reg16(self.addr, Self::REG_CURRENT)?;
-        // Reading Power register clears CNVR per INA219 specification
-        let _ = self.i2c.read_reg16(self.addr, Self::REG_POWER);
-
+    /// Pure decoder for INA219 raw register measurements.
+    /// Decodes Bus Voltage (0x02) and Shunt Voltage (0x01) registers,
+    /// and applies tare compensation using fixed-point integer arithmetic.
+    #[inline]
+    pub fn decode_raw(v_raw: u16, s_raw: u16, tare_offset_tenth: i16) -> Ina219Data {
         let math_overflow = (v_raw & 0x01) != 0;
         let conversion_ready = (v_raw & 0x02) != 0;
         let voltage_mv = (v_raw >> 3) * 4;
 
-        let s_val = s_raw as i16;
-        let c_val = c_raw as i16;
-
-        // Auto-heal: If shunt voltage shows current (>0.2 mA) but INA219 current register is 0,
-        // the INA219 volatile calibration register was wiped (brownout/POR).
-        // Immediately restore calibration and 128x averaging!
-        let raw_c_tenth = if c_val == 0 && s_val.abs() > 2 {
-            let _ = self.init(4096);
-            s_val
-        } else if c_val != 0 {
-            c_val
-        } else {
-            s_val
-        };
+        // 1 LSB of Shunt Voltage = 10 uV.
+        // Across 0.1 ohm shunt: 10 uV / 0.1 ohm = 100 uA = 0.1 mA (1 tenth of a mA).
+        // Direct read from Shunt Voltage eliminates the redundant Current register (0x04)
+        // read and is completely immune to volatile calibration wipes (brownout/POR).
+        let raw_c_tenth = s_raw as i16;
 
         // Apply tare compensation with saturation guarding
-        let current_tenth_ma = raw_c_tenth.saturating_sub(self.tare_offset_tenth);
+        let current_tenth_ma = raw_c_tenth.saturating_sub(tare_offset_tenth);
 
         let abs_c_tenth = current_tenth_ma.unsigned_abs() as u32;
         let power_tenth_mw = (voltage_mv as u32 * abs_c_tenth) / 1000;
         let power_mw = (power_tenth_mw / 10) as u16;
 
-        Ok(Ina219Data {
+        Ina219Data {
             voltage_mv,
             current_ma: current_tenth_ma / 10,
             current_tenth_ma,
@@ -158,6 +140,94 @@ impl Ina219 {
             power_tenth_mw,
             overflow: math_overflow,
             conversion_ready,
-        })
+        }
+    }
+
+    /// Reads bus voltage, shunt current and flags into an `Ina219Data` record.
+    /// Also clears the CNVR flag by reading the Power register per the INA219 datasheet.
+    ///
+    /// Optimized I2C Transaction Pipeline:
+    /// Reads Bus Voltage (0x02), Shunt Voltage (0x01), and Power (0x03) to clear CNVR.
+    /// Eliminates the redundant Current register (0x04) read, cutting I2C bus transactions
+    /// from 4 to 3 (and eliminating redundant pre-conversion polling).
+    pub fn read_all(&mut self) -> Result<Ina219Data, I2cError> {
+        let v_raw = self.i2c.read_reg16(self.addr, Self::REG_BUSVOLTAGE)?;
+        let s_raw = self.i2c.read_reg16(self.addr, Self::REG_SHUNTVOLTAGE)?;
+        // Reading Power register clears CNVR per INA219 specification
+        let _ = self.i2c.read_reg16(self.addr, Self::REG_POWER);
+
+        Ok(Self::decode_raw(v_raw, s_raw, self.tare_offset_tenth))
+    }
+}
+
+/// Pure decoder helper for INA219 raw register measurements.
+#[inline]
+pub fn decode_ina219_raw(v_raw: u16, s_raw: u16, tare_offset_tenth: i16) -> Ina219Data {
+    Ina219::decode_raw(v_raw, s_raw, tare_offset_tenth)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_decode_positive_measurement() {
+        // 5000 mV bus voltage: (5000 / 4) << 3 = 1250 << 3 = 10000 = 0x2710
+        // CNVR = 1 (bit 1), OVF = 0 (bit 0) -> v_raw = 0x2712 = 10002
+        let v_raw = 10002u16;
+        // 500.0 mA current -> 5000 tenths-mA across 0.1 ohm shunt = 5000
+        let s_raw = 5000u16;
+        let data = decode_ina219_raw(v_raw, s_raw, 0);
+
+        assert_eq!(data.voltage_mv, 5000);
+        assert_eq!(data.current_tenth_ma, 5000);
+        assert_eq!(data.current_ma, 500);
+        // Power: (5000 mV * 5000 tenth-mA) / 1000 = 25000 tenth-mW = 2500 mW
+        assert_eq!(data.power_tenth_mw, 25000);
+        assert_eq!(data.power_mw, 2500);
+        assert!(data.conversion_ready);
+        assert!(!data.overflow);
+    }
+
+    #[test]
+    fn test_decode_negative_reverse_current() {
+        let v_raw = 10002u16; // 5000 mV
+        // -250.4 mA -> -2504 tenth-mA = 0xF638
+        let s_raw = (-2504i16) as u16;
+        let data = decode_ina219_raw(v_raw, s_raw, 0);
+
+        assert_eq!(data.voltage_mv, 5000);
+        assert_eq!(data.current_tenth_ma, -2504);
+        assert_eq!(data.current_ma, -250);
+        // Power: (5000 * 2504) / 1000 = 12520 tenth-mW = 1252 mW
+        assert_eq!(data.power_tenth_mw, 12520);
+        assert_eq!(data.power_mw, 1252);
+    }
+
+    #[test]
+    fn test_decode_tare_offset_compensation() {
+        let v_raw = 10000u16; // 5000 mV, CNVR=0, OVF=0
+        let s_raw = 1500u16;  // raw 150.0 mA
+        let tare_offset = 500i16; // 50.0 mA offset
+        let data = decode_ina219_raw(v_raw, s_raw, tare_offset);
+
+        assert_eq!(data.voltage_mv, 5000);
+        assert_eq!(data.current_tenth_ma, 1000); // 1500 - 500 = 1000 (100.0 mA)
+        assert_eq!(data.current_ma, 100);
+        assert!(!data.conversion_ready);
+        assert!(!data.overflow);
+    }
+
+    #[test]
+    fn test_decode_overflow_and_cnvr_flags() {
+        let v_raw = (825u16 << 3) | 0x03; // 3300 mV, CNVR=1, OVF=1
+        let s_raw = 0u16;
+        let data = decode_ina219_raw(v_raw, s_raw, 0);
+
+        assert_eq!(data.voltage_mv, 3300);
+        assert_eq!(data.current_tenth_ma, 0);
+        assert_eq!(data.power_mw, 0);
+        assert!(data.conversion_ready);
+        assert!(data.overflow);
     }
 }

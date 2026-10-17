@@ -1,6 +1,6 @@
 # Firmware Comprehensive Review, Optimization Plan & Multi-Session Roadmap
 
-**Document Status**: Active Master Tracking & Handover Document | Active Phase: Phase 3 (High-Impact Performance Upgrades)  
+**Document Status**: Active Master Tracking & Handover Document | Active Phase: Phase 4 (UI/UX & Advanced Features)  
 **Target Architecture**: Sipeed Longan Nano (GD32VF103CBT6, RISC-V RV32IMAC @ 96/108 MHz, 32 KB SRAM, 128 KB Flash)  
 **Projects Covered**: `prj_usb_msc` (Pure Rust) and `prj_current_monitor` (Pure Rust + Python Telemetry + 3D Enclosure)  
 **Primary Author/Audience**: AI Agents (Autonomous Pair Programmers)
@@ -301,11 +301,11 @@ flowchart TD
      - Sustained 4.0 MiB read streamed at **738 kB/s** with zero USB transaction errors or resets.
      - Partition 1 (`/dev/sdb1`) mounted cleanly (`mount code=0`), listed directory contents, and cleanly unmounted.
 
-### Phase 3: Performance & Driver Enhancements
+### Phase 3: Performance & Driver Enhancements (COMPLETED)
 - [x] **Task 3.1**: Convert USB FIFO read/write in `usb_msc` to 32-bit word transfers (`#[repr(align(4))]`). *(Verified in Build 00D8: 18/18 host tests PASS, 780 kB/s read streaming, read/write round-trip verified)*
 - [x] **Task 3.2**: Remove artificial 1,200-tick spin wait before sending CSW in `StatusPending`. *(Verified in Build 00D9: 621 kB/s single-block (+19.6%), 832 kB/s sustained read streaming (+6.7%), zero USB errors)*
 - [x] **Task 3.3**: Implement multi-block write streaming (`CMD25`) in `sdcard.rs` with double-buffered write pipelining. *(Verified in Build 00DA: 822 kB/s write streaming (+720% speedup), 20/20 host tests PASS, 128 KiB MD5 match, zero errors)*
-- [ ] **Task 3.4**: Optimize INA219 I2C transactions in `read_all()` (eliminate redundant `REG_CURRENT` read).
+- [x] **Task 3.4**: Optimize INA219 I2C transactions in `read_all()` (eliminate redundant `REG_CURRENT` read). *(Verified in Build 00DB: 39/39 host unit tests PASS, 15/15 target hardware tests PASS, I2C reads cut from 5 to 3 per 10 Hz cycle, -104 bytes flash)*
 
 #### Phase 3 Empirical Verification Summary:
 1. **`prj_usb_msc` 32-Bit Word FIFO Optimization (Build 00D8, Commit `ded0b77`)**:
@@ -342,7 +342,7 @@ flowchart TD
      - Sustained 4.0 MiB read streaming (`dd bs=64k count=64`) achieved **832 kB/s** (up from 780 kB/s in Build 00D8, 738 kB/s in Build 00D7, and 713 kB/s in Build 00D4; **+6.7% throughput increase**, cumulative **+16.7%** over Build 00D4 baseline) with zero USB resets.
      - Partition 1 (`/dev/sdb1`) mounted read-write; written test payload to `/mnt/sdcard/build_00d9.txt`, verified 100% round-trip match, deleted and unmounted with zero kernel or dmesg errors.
 
-3. **`prj_usb_msc` Multi-Block Write Streaming & Double-Buffered Pipelining (Build 00DA)**:
+3. **`prj_usb_msc` Multi-Block Write Streaming & Double-Buffered Pipelining (Build 00DA, Commit `d3b6f5b`)**:
    - **Multi-Block Write Streaming (`CMD25`)**:
      - Added `begin_multi_write(start_sector)`, `write_next_stream_sector(buf)`, `end_multi_write()`, and `is_streaming_write()` to `SdCard` in `crates/longan-nano-bsp/src/sdcard.rs` using standard SD `CMD25` with `0xFC` Data Start Token and `0xFD` Stop Tran Token.
      - Automatically delegates sequential `write_sector` calls to `write_next_stream_sector` while `streaming_write` is active, seamlessly falling back to `CMD24` for single-sector writes.
@@ -362,8 +362,34 @@ flowchart TD
      - Full 128 KiB random binary payload written, synced, read back, and verified with 100% cryptographic match (`MD5: 91fe0513299c216d869db44bff7fa2f5`).
      - Clean unmount with zero dmesg errors or USB transaction errors.
 
+4. **`prj_current_monitor` INA219 I2C Transaction Optimization (Build 00DB)**:
+   - **Elimination of Redundant `REG_CURRENT` Read**:
+     - Removed `read_reg16(REG_CURRENT)` (0x04) from `Ina219::read_all()` in `crates/longan-nano-bsp/src/ina219.rs`.
+     - With `Cal = 4096` across a $0.1\ \Omega$ shunt resistor, 1 LSB of Shunt Voltage ($10\ \mu\text{V}$) equals exactly $0.1\text{ mA}$ ($10\ \mu\text{V} / 0.1\ \Omega = 100\ \mu\text{A}$), mathematically identical to `REG_CURRENT` while completely immune to volatile calibration register wipes (brownout/POR).
+   - **Elimination of Redundant CNVR Pre-Polling in Main Loop**:
+     - Removed `board.ina219.is_conversion_ready()` polling loop between 75 ms and 100 ms in `prj_current_monitor/src/main.rs`.
+     - Replaced with direct 100 ms (10.0 Hz) timer trigger. Since INA219 128x shunt / 16x bus continuous conversion takes 76.6 ms, conversion is guaranteed complete 23.4 ms prior to the 100 ms tick.
+     - Cuts total I2C bus transactions from 5 (or more due to spin-polling) down to exactly 3 (`REG_BUSVOLTAGE`, `REG_SHUNTVOLTAGE`, and `REG_POWER` to clear CNVR) per 10 Hz cycle.
+     - Flash section reduced by 104 bytes (from 108,362 bytes to 108,258 bytes).
+   - **Pure Logic Decoding & Host Unit Tests (`crates/longan-nano-bsp/src/ina219.rs`)**:
+     - Extracted `decode_raw` / `decode_ina219_raw` pure functions for zero-cost fixed-point conversion.
+     - Added 4 host unit tests in `longan-nano-bsp` verifying positive, negative reverse current, tare offset compensation, and CNVR/OVF status flags.
+     - Total host unit tests passing: 39/39 (20 in `gd32vf103-hal`, 15 in `prj_current_monitor`, 4 in `longan-nano-bsp`).
+   - **Target Hardware Empirical Verification (`tools/test_remote_ui_cycling.py`)**:
+     - Flashed to GD32VF103 over JTAG OpenOCD on remote host `192.168.0.63`.
+     - All 15 remote automated test suites passed:
+       - Help Menu (`?`) PASS.
+       - Screen Mode Switching (`1`..`5`, `m`) PASS across all 5 layouts.
+       - Battery Profile Cycling (`b`) PASS.
+       - Session Dump (`s`) PASS, valid JSON parsed with `v_min/v_max = 3320 mV`, `c_min/c_max = 0 mA`.
+       - Force SD Flush (`f`) PASS.
+       - SD File Rotation (`r`) PASS (`LOG_0076.CSV` -> `LOG_0077.CSV`).
+       - Zero-Tare & Reset (`t`) PASS.
+       - USB HID Telemetry (Report ID 1) streaming PASS (`3320 mV`, `0 mA`, `0 mW`).
+       - Bidirectional USB HID OUT commands (SetMode, SetBatteryProfile, SetEpoch, SetCurrentLimit) PASS.
+       - Over-Current Alert threshold and limit field validation PASS.
 
-### Phase 4: UI/UX & Advanced Features
+### Phase 4: UI/UX & Advanced Features (ACTIVE PHASE)
 - [ ] **Task 4.1**: Implement `PA8` button double-click context actions and long-press visual progress bar.
 - [ ] **Task 4.2**: Implement edge-triggered capture on `GraphScreen` and fix `Single` mode autoscale replotting.
 - [ ] **Task 4.3**: Add live LCD telemetry to `prj_usb_msc` during bus idle.

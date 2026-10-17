@@ -468,14 +468,11 @@ fn main() -> ! {
             }
         }
 
-        // 4. CNVR Synchronized Periodic Measurement, Analytics & Display Rendering
+        // 4. Periodic 10 Hz Measurement, Analytics & Display Rendering
+        // Triggered every 100 ms (10.0 Hz). Conversion (~76.6 ms) is guaranteed complete,
+        // avoiding redundant I2C pre-polling and reducing bus transactions to exactly 3.
         let dt_ms = now.wrapping_sub(app.last_10hz_ms);
-        let conv_ready = if app.ina_present && dt_ms >= 75 {
-            board.ina219.is_conversion_ready().unwrap_or(false)
-        } else {
-            false
-        };
-        if conv_ready || dt_ms >= 100 {
+        if dt_ms >= 100 {
             app.last_10hz_ms = now;
 
             let mut reading = InaReading::default();
