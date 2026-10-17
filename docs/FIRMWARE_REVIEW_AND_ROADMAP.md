@@ -303,7 +303,7 @@ flowchart TD
 
 ### Phase 3: Performance & Driver Enhancements
 - [x] **Task 3.1**: Convert USB FIFO read/write in `usb_msc` to 32-bit word transfers (`#[repr(align(4))]`). *(Verified in Build 00D8: 18/18 host tests PASS, 780 kB/s read streaming, read/write round-trip verified)*
-- [ ] **Task 3.2**: Remove artificial 1,200-tick spin wait before sending CSW in `StatusPending`.
+- [x] **Task 3.2**: Remove artificial 1,200-tick spin wait before sending CSW in `StatusPending`. *(Verified in Build 00D9: 621 kB/s single-block (+19.6%), 832 kB/s sustained read streaming (+6.7%), zero USB errors)*
 - [ ] **Task 3.3**: Implement multi-block write streaming (`CMD25`) in `sdcard.rs` with double-buffered write pipelining.
 - [ ] **Task 3.4**: Optimize INA219 I2C transactions in `read_all()` (eliminate redundant `REG_CURRENT` read).
 
@@ -327,6 +327,20 @@ flowchart TD
      - Sustained 4.0 MiB read streaming (`dd bs=64k count=64`) achieved **780 kB/s** (up from 738 kB/s in Build 00D7 and 713 kB/s in Build 00D4) with zero USB resets.
      - Partition 1 (`/dev/sdb1`) mounted read-write (`mount -t vfat /dev/sdb1 /mnt/sdcard`).
      - Written test payload to `/mnt/sdcard/build_00d8.txt` through the new 32-bit FIFO write path; `cat` read back 100% matched, verified, deleted, and unmounted with zero kernel or dmesg errors.
+
+2. **`prj_usb_msc` StatusPending 50 µs Spin Wait Elimination (Build 00D9)**:
+   - **Elimination of Artificial 1,200-Tick (50 µs) Spin Wait**:
+     - Removed `elapsed >= 1_200` gating in `crates/gd32vf103-hal/src/usb/msc/mod.rs` (`StatusPending` branch).
+     - Immediate dispatch: as soon as hardware transfer completes (`(dieplen & 0x7FFFF) == 0 && ((dieplen >> 19) & 0x7FF) == 0`), TX1 FIFO drains completely (`(dieptfstat & 0xFFFF) >= 192`), and EP1 IN confirms NAKing (`(diepctl & depctl::NAKS) != 0`), the 13-byte CSW is dispatched without artificial spin delay.
+     - Retained 2.0-second watchdog (`elapsed >= 48_000_000` @ 24 MHz mtime) to guarantee recovery against bus errors.
+     - Updated USB serial string and SCSI VPD page 0x80 serial to `LNMSC00000D9`.
+   - **Target Hardware Empirical Verification (`tools/verify_build_00d9.py`)**:
+     - Flashed to GD32VF103 over JTAG OpenOCD; enumerated cleanly on Linux host as `28e9:abd4` (serial `LNMSC00000D9`, 480 MiB / 983,040 blocks).
+     - All 7 isolated `sg_raw` tests passed (LBA 0 1/8 blks, LBA 528 8 blks, LBA 560 8 blks, LBA 1024 1/8 blks, and fuzzed OOB LBA cleanly rejected with Check Condition).
+     - Single-block `dd bs=512 count=1` throughput increased from 519 kB/s to **621 kB/s (+19.6% speedup)** due to eliminating 50 µs of CSW dead time.
+     - 4K block `dd bs=4096 count=1` achieved **958 kB/s** (0.00427 s).
+     - Sustained 4.0 MiB read streaming (`dd bs=64k count=64`) achieved **832 kB/s** (up from 780 kB/s in Build 00D8, 738 kB/s in Build 00D7, and 713 kB/s in Build 00D4; **+6.7% throughput increase**, cumulative **+16.7%** over Build 00D4 baseline) with zero USB resets.
+     - Partition 1 (`/dev/sdb1`) mounted read-write; written test payload to `/mnt/sdcard/build_00d9.txt`, verified 100% round-trip match, deleted and unmounted with zero kernel or dmesg errors.
 
 
 ### Phase 4: UI/UX & Advanced Features

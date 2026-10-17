@@ -84,7 +84,7 @@ const STR_MSC_SERIAL: [u8; 26] = [
     26, 0x03,
     b'L', 0, b'N', 0, b'M', 0, b'S', 0, b'C', 0,
     b'0', 0, b'0', 0, b'0', 0, b'0', 0, b'0', 0,
-    b'D', 0, b'8', 0,
+    b'D', 0, b'9', 0,
 ];
 
 #[repr(C, align(4))]
@@ -723,7 +723,7 @@ impl UsbMsc {
                             data[0] = 0x00;
                             data[1] = 0x80;
                             data[3] = 12;
-                            data[4..16].copy_from_slice(b"LNMSC00000D4");
+                            data[4..16].copy_from_slice(b"LNMSC00000D9");
                             let len = core::cmp::min(self.cbw.d_cbw_data_transfer_length as usize, 16);
                             self.send_data(&data[..len]);
                         }
@@ -1683,7 +1683,12 @@ impl UsbMsc {
             let ctl = self.usbfs.in_ep(1).diepctl.read();
             let ep_naking = (ctl & depctl::NAKS) != 0;
 
-            if (elapsed >= 1_200 && hw_done && fifo_empty && ep_naking) || (elapsed >= 48_000_000) {
+            // Task 3.2: Eliminate artificial 1,200-tick (50 µs) spin wait before sending CSW.
+            // As soon as the previous data transfer has completed in hardware (hw_done),
+            // the TX1 FIFO has completely emptied (fifo_empty), and Endpoint 1 is confirmed
+            // responding NAK to host IN tokens (ep_naking), dispatch CSW immediately without delay.
+            // Retain 2.0s watchdog (48,000,000 ticks @ 24 MHz) to recover from any bus stalls.
+            if (hw_done && fifo_empty && ep_naking) || (elapsed >= 48_000_000) {
                 self.send_csw(self.csw_status);
             }
         }
