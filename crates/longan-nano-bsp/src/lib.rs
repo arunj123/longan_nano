@@ -167,6 +167,9 @@ impl hal::MscBlockDevice for SdCard {
     fn end_multi_read(&mut self) {
         self.end_multi_read();
     }
+    fn is_streaming(&self) -> bool {
+        self.streaming_read
+    }
 }
 
 impl Board {

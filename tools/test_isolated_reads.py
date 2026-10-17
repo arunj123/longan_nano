@@ -29,7 +29,7 @@ tests = [
 
 for label, cdb, rlen in tests:
     time.sleep(0.5)
-    cmd = f"sg_raw -r {rlen} -b /dev/sdb {cdb} > /tmp/out.bin 2> /tmp/err.txt"
+    cmd = f"sg_raw --timeout=5 -r {rlen} -b /dev/sdb {cdb} > /tmp/out.bin 2> /tmp/err.txt"
     code, _, _ = run(cmd, sudo=True)
     _, sz, _ = run("stat -c %s /tmp/out.bin", sudo=True)
     _, err, _ = run("cat /tmp/err.txt", sudo=True)
