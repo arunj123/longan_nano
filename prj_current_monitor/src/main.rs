@@ -621,8 +621,10 @@ fn main() -> ! {
                 }
             }
 
-            // Update waveform circular history buffer
-            app.history.push(reading.current_tenth_ma);
+            // Update waveform circular history buffer (pause when Single capture is halted)
+            if !(app.graph_screen.trigger_mode == TriggerMode::Single && app.graph_screen.trigger_state == TriggerState::Halted) {
+                app.history.push(reading.current_tenth_ma);
+            }
 
             // Update current distribution histogram
             app.histogram.record(reading.abs_current_tenth());

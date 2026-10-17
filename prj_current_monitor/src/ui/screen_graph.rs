@@ -13,7 +13,7 @@ pub const GRAPH_Y_TOP: u16 = 22;
 pub const GRAPH_Y_BASE: u16 = 76;
 pub const GRAPH_HEIGHT: u16 = GRAPH_Y_BASE - GRAPH_Y_TOP; // 54 pixels
 
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum TriggerMode {
     Auto,
     Norm,
@@ -38,7 +38,7 @@ impl TriggerMode {
     }
 }
 
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum TriggerState {
     Armed,
     Triggered,
@@ -65,6 +65,7 @@ pub struct GraphScreen {
     pub trigger_level_tenth: i16,
     pub single_samples_captured: u16,
     prev_trig_marker_y: Option<u16>,
+    pub prev_plot_val: Option<i32>,
 }
 
 impl GraphScreen {
@@ -88,6 +89,7 @@ impl GraphScreen {
             trigger_level_tenth: 200, // 20.0 mA default trigger threshold
             single_samples_captured: 0,
             prev_trig_marker_y: None,
+            prev_plot_val: None,
         }
     }
 
@@ -122,6 +124,138 @@ impl GraphScreen {
         }
     }
 
+    /// Evaluates rising-edge trigger condition against the current sample value.
+    ///
+    /// Returns `true` if a rising edge occurred (`prev < trigger_level && curr >= trigger_level`).
+    /// Always updates `self.prev_plot_val = Some(plot_val)`.
+    pub fn evaluate_edge(&mut self, plot_val: i32) -> bool {
+        let trig_level = self.trigger_level_tenth as i32;
+        let is_edge = self.prev_plot_val.map_or(false, |prev| prev < trig_level) && plot_val >= trig_level;
+        self.prev_plot_val = Some(plot_val);
+        is_edge
+    }
+
+    /// Process trigger state machine for an incoming sample.
+    ///
+    /// Returns `true` if the sample should be plotted/drawn to the screen,
+    /// or `false` if holding (waiting for rising edge or halted).
+    pub fn process_sample_trigger(&mut self, plot_val: i32) -> bool {
+        let is_edge = self.evaluate_edge(plot_val);
+
+        match self.trigger_mode {
+            TriggerMode::Auto => {
+                self.trigger_state = TriggerState::Triggered;
+                true
+            }
+            TriggerMode::Norm => {
+                match self.trigger_state {
+                    TriggerState::Armed => {
+                        if is_edge {
+                            self.trigger_state = TriggerState::Triggered;
+                            self.sweep_x = GRAPH_X_MIN;
+                            self.prev_y = GRAPH_Y_BASE;
+                            self.peak_in_sweep = 0;
+                            true
+                        } else {
+                            false // Hold display, wait for rising edge
+                        }
+                    }
+                    TriggerState::Triggered => true,
+                    TriggerState::Halted => false,
+                }
+            }
+            TriggerMode::Single => {
+                match self.trigger_state {
+                    TriggerState::Armed => {
+                        if is_edge {
+                            self.trigger_state = TriggerState::Triggered;
+                            self.single_samples_captured = 0;
+                            self.sweep_x = GRAPH_X_MIN;
+                            self.prev_y = GRAPH_Y_BASE;
+                            self.peak_in_sweep = 0;
+                            true
+                        } else {
+                            false // Hold display, wait for rising edge
+                        }
+                    }
+                    TriggerState::Triggered => true,
+                    TriggerState::Halted => false, // Display frozen!
+                }
+            }
+        }
+    }
+
+    /// Evaluates autoscale tier adjustment for an incoming sample.
+    ///
+    /// Autoscale is active ONLY in Auto and Norm modes. In Single mode, autoscale
+    /// is completely disabled to guarantee uniform vertical scale and avoid
+    /// corrupting the capture sweep with circular history replots.
+    ///
+    /// Returns `true` if `scale_tier` changed and full screen needs replotting.
+    pub fn evaluate_autoscale(&mut self, plot_val: i32) -> bool {
+        if self.trigger_mode == TriggerMode::Single {
+            return false;
+        }
+
+        if plot_val > self.peak_in_sweep {
+            self.peak_in_sweep = plot_val;
+        }
+
+        let num_tiers = CURRENT_TIERS.len();
+        let current_max = CURRENT_TIERS[self.scale_tier].max_val;
+        let mut scale_changed = false;
+
+        // Upscale if sample exceeds tier ceiling
+        if plot_val > current_max && self.scale_tier + 1 < num_tiers {
+            while self.scale_tier + 1 < num_tiers {
+                if plot_val > CURRENT_TIERS[self.scale_tier].max_val {
+                    self.scale_tier += 1;
+                } else {
+                    break;
+                }
+            }
+            scale_changed = true;
+        }
+
+        // Downscale on wrap if signal fits well in lower tier
+        if self.sweep_x == GRAPH_X_MIN && !scale_changed {
+            if self.scale_tier > 0 {
+                let lower_ceiling = CURRENT_TIERS[self.scale_tier - 1].max_val;
+                if self.peak_in_sweep < (lower_ceiling * 65 / 100) {
+                    self.scale_tier -= 1;
+                    scale_changed = true;
+                }
+            }
+            self.peak_in_sweep = 0;
+        }
+
+        scale_changed
+    }
+
+    /// Advances sweep cursor by 1 column and updates trigger state on wrap/completion.
+    ///
+    /// In Single mode, counts captured samples up to 137 and transitions to `Halted`.
+    /// In Norm mode, wraps to `GRAPH_X_MIN` and transitions back to `Armed`.
+    pub fn advance_sweep(&mut self, y_curr: u16) {
+        self.prev_y = y_curr;
+        self.sweep_x += 1;
+        if self.sweep_x > GRAPH_X_MAX {
+            self.sweep_x = GRAPH_X_MIN;
+            if self.trigger_mode == TriggerMode::Norm {
+                // Re-arm NORM mode after completing a full sweep
+                self.trigger_state = TriggerState::Armed;
+            }
+        }
+
+        // Check SINGLE mode completion (1 full screen capture = 137 columns)
+        if self.trigger_mode == TriggerMode::Single && self.trigger_state == TriggerState::Triggered {
+            self.single_samples_captured += 1;
+            if self.single_samples_captured >= (GRAPH_X_MAX - GRAPH_X_MIN + 1) {
+                self.trigger_state = TriggerState::Halted;
+            }
+        }
+    }
+
     pub fn draw_layout(&mut self, lcd: &mut Lcd) {
         lcd.clear(COL_BLACK);
         lcd.fill_rect(0, 0, 160, 19, COL_BG_TOP);
@@ -142,6 +276,7 @@ impl GraphScreen {
         self.prev_usb_cfg = None;
         self.prev_sd_status = None;
         self.prev_trig_marker_y = None;
+        self.prev_plot_val = None;
 
         if self.trigger_mode != TriggerMode::Auto {
             self.trigger_state = TriggerState::Armed;
@@ -382,77 +517,12 @@ impl GraphScreen {
 
         // --- 4. Trigger Capture State Machine & Evaluation ---
         let plot_val: i32 = reading.abs_current_tenth() as i32;
-        let is_triggered = plot_val >= (self.trigger_level_tenth as i32);
-
-        match self.trigger_mode {
-            TriggerMode::Auto => {
-                self.trigger_state = TriggerState::Triggered;
-            }
-            TriggerMode::Norm => {
-                if self.trigger_state == TriggerState::Armed {
-                    if is_triggered {
-                        self.trigger_state = TriggerState::Triggered;
-                    } else {
-                        return; // Hold display, wait for signal >= trigger level
-                    }
-                }
-            }
-            TriggerMode::Single => {
-                match self.trigger_state {
-                    TriggerState::Armed => {
-                        if is_triggered {
-                            self.trigger_state = TriggerState::Triggered;
-                            self.single_samples_captured = 0;
-                            self.sweep_x = GRAPH_X_MIN;
-                            self.prev_y = GRAPH_Y_BASE;
-                        } else {
-                            return; // Hold display, wait for trigger event
-                        }
-                    }
-                    TriggerState::Triggered => {
-                        // Sweep active towards completion
-                    }
-                    TriggerState::Halted => {
-                        return; // Sweep completed, display frozen!
-                    }
-                }
-            }
+        if !self.process_sample_trigger(plot_val) {
+            return;
         }
 
-        // --- 5. Autoscale Logic (Active during live sweeping) ---
-        if plot_val > self.peak_in_sweep {
-            self.peak_in_sweep = plot_val;
-        }
-
-        let num_tiers = CURRENT_TIERS.len();
-        let current_max = CURRENT_TIERS[self.scale_tier].max_val;
-        let mut scale_changed = false;
-
-        // Upscale if sample exceeds tier ceiling
-        if plot_val > current_max && self.scale_tier + 1 < num_tiers {
-            while self.scale_tier + 1 < num_tiers {
-                if plot_val > CURRENT_TIERS[self.scale_tier].max_val {
-                    self.scale_tier += 1;
-                } else {
-                    break;
-                }
-            }
-            scale_changed = true;
-        }
-
-        // Downscale on wrap if signal fits well in lower tier
-        if self.sweep_x == GRAPH_X_MIN && !scale_changed {
-            if self.scale_tier > 0 {
-                let lower_ceiling = CURRENT_TIERS[self.scale_tier - 1].max_val;
-                if self.peak_in_sweep < (lower_ceiling * 65 / 100) {
-                    self.scale_tier -= 1;
-                    scale_changed = true;
-                }
-            }
-            self.peak_in_sweep = 0;
-        }
-
-        if scale_changed {
+        // --- 5. Autoscale Logic (Active in Auto and Norm modes; frozen in Single mode) ---
+        if self.evaluate_autoscale(plot_val) {
             // Replot full waveform history without wiping signal!
             self.replot_history(lcd, history);
             return;
@@ -518,22 +588,176 @@ impl GraphScreen {
 
         lcd.write_pixels(self.sweep_x, GRAPH_Y_TOP, 1, GRAPH_HEIGHT + 1, &col_buf);
 
-        self.prev_y = y_curr;
-        self.sweep_x += 1;
-        if self.sweep_x > GRAPH_X_MAX {
-            self.sweep_x = GRAPH_X_MIN;
-            if self.trigger_mode == TriggerMode::Norm {
-                // Re-arm NORM mode after completing a full sweep
-                self.trigger_state = TriggerState::Armed;
-            }
+        self.advance_sweep(y_curr);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_edge_trigger_rising_edge() {
+        let mut screen = GraphScreen::new();
+        screen.trigger_mode = TriggerMode::Norm;
+        screen.trigger_state = TriggerState::Armed;
+        screen.trigger_level_tenth = 200; // 20.0 mA
+
+        // Initial zero current should not trigger
+        assert!(!screen.process_sample_trigger(0));
+        assert_eq!(screen.trigger_state, TriggerState::Armed);
+
+        // Sub-threshold current should not trigger
+        assert!(!screen.process_sample_trigger(100)); // 10.0 mA
+        assert_eq!(screen.trigger_state, TriggerState::Armed);
+
+        assert!(!screen.process_sample_trigger(199)); // 19.9 mA
+        assert_eq!(screen.trigger_state, TriggerState::Armed);
+
+        // Rising edge transition crossing 20.0 mA threshold
+        assert!(screen.process_sample_trigger(200)); // 20.0 mA
+        assert_eq!(screen.trigger_state, TriggerState::Triggered);
+        assert_eq!(screen.sweep_x, GRAPH_X_MIN);
+        assert_eq!(screen.prev_y, GRAPH_Y_BASE);
+
+        // Subsequent samples while sweeping should be plotted
+        assert!(screen.process_sample_trigger(250)); // 25.0 mA
+        assert_eq!(screen.trigger_state, TriggerState::Triggered);
+    }
+
+    #[test]
+    fn test_edge_trigger_starting_high_no_false_trigger() {
+        let mut screen = GraphScreen::new();
+        screen.trigger_mode = TriggerMode::Norm;
+        screen.trigger_state = TriggerState::Armed;
+        screen.trigger_level_tenth = 200; // 20.0 mA
+
+        // Signal is already high (30.0 mA) when armed
+        // Must NOT trigger immediately without seeing a rising edge transition!
+        assert!(!screen.process_sample_trigger(300));
+        assert_eq!(screen.trigger_state, TriggerState::Armed);
+
+        // Signal remains high
+        assert!(!screen.process_sample_trigger(350));
+        assert_eq!(screen.trigger_state, TriggerState::Armed);
+
+        // Signal drops below threshold (5.0 mA)
+        assert!(!screen.process_sample_trigger(50));
+        assert_eq!(screen.trigger_state, TriggerState::Armed);
+
+        // Now signal jumps high again (25.0 mA) -> Rising Edge!
+        assert!(screen.process_sample_trigger(250));
+        assert_eq!(screen.trigger_state, TriggerState::Triggered);
+    }
+
+    #[test]
+    fn test_single_mode_sweep_and_halt() {
+        let mut screen = GraphScreen::new();
+        screen.trigger_mode = TriggerMode::Single;
+        screen.trigger_state = TriggerState::Armed;
+        screen.trigger_level_tenth = 200; // 20.0 mA
+        screen.single_samples_captured = 0;
+
+        // Waiting for trigger
+        assert!(!screen.process_sample_trigger(100));
+        assert_eq!(screen.trigger_state, TriggerState::Armed);
+        assert_eq!(screen.single_samples_captured, 0);
+
+        // Trigger on rising edge
+        assert!(screen.process_sample_trigger(250));
+        assert_eq!(screen.trigger_state, TriggerState::Triggered);
+        assert_eq!(screen.single_samples_captured, 0);
+
+        // Advance 137 samples (full screen sweep)
+        let total_cols = (GRAPH_X_MAX - GRAPH_X_MIN + 1) as usize; // 137
+        for i in 0..total_cols {
+            assert_eq!(screen.trigger_state, TriggerState::Triggered);
+            screen.advance_sweep(50);
+            assert_eq!(screen.single_samples_captured as usize, i + 1);
         }
 
-        // Check SINGLE mode completion (1 full screen capture = 137 columns)
-        if self.trigger_mode == TriggerMode::Single && self.trigger_state == TriggerState::Triggered {
-            self.single_samples_captured += 1;
-            if self.single_samples_captured >= (GRAPH_X_MAX - GRAPH_X_MIN + 1) {
-                self.trigger_state = TriggerState::Halted;
-            }
+        // After 137 samples, state MUST be Halted and sweep_x wrapped
+        assert_eq!(screen.trigger_state, TriggerState::Halted);
+        assert_eq!(screen.single_samples_captured as usize, total_cols);
+
+        // Subsequent samples must be rejected / not plotted to preserve frozen trace
+        assert!(!screen.process_sample_trigger(300));
+        assert_eq!(screen.trigger_state, TriggerState::Halted);
+    }
+
+    #[test]
+    fn test_single_mode_rearm() {
+        let mut screen = GraphScreen::new();
+        screen.trigger_mode = TriggerMode::Single;
+        screen.trigger_state = TriggerState::Halted;
+        screen.trigger_level_tenth = 200;
+        screen.single_samples_captured = 137;
+        screen.prev_plot_val = Some(250); // was high when halted
+
+        // Re-arm Single mode
+        screen.rearm();
+        assert_eq!(screen.trigger_state, TriggerState::Armed);
+        assert_eq!(screen.single_samples_captured, 0);
+
+        // If current is still high, it must NOT trigger immediately
+        assert!(!screen.process_sample_trigger(250));
+        assert_eq!(screen.trigger_state, TriggerState::Armed);
+
+        // Drop below threshold
+        assert!(!screen.process_sample_trigger(50));
+        assert_eq!(screen.trigger_state, TriggerState::Armed);
+
+        // Jump above threshold -> Triggers new single capture!
+        assert!(screen.process_sample_trigger(220));
+        assert_eq!(screen.trigger_state, TriggerState::Triggered);
+    }
+
+    #[test]
+    fn test_single_mode_autoscale_freeze() {
+        let mut screen = GraphScreen::new();
+        screen.trigger_mode = TriggerMode::Single;
+        screen.scale_tier = 0; // 10.0 mA tier (max_val = 100)
+
+        // Even with a huge 500 mA signal (50x tier ceiling), autoscale is frozen in Single mode!
+        assert!(!screen.evaluate_autoscale(5000));
+        assert_eq!(screen.scale_tier, 0); // tier unchanged!
+    }
+
+    #[test]
+    fn test_auto_mode_autoscale_active() {
+        let mut screen = GraphScreen::new();
+        screen.trigger_mode = TriggerMode::Auto;
+        screen.scale_tier = 0; // 10.0 mA tier (max_val = 100)
+
+        // 25.0 mA signal exceeds 10 mA ceiling -> autoscale triggers upscale!
+        assert!(screen.evaluate_autoscale(250));
+        assert!(screen.scale_tier > 0);
+    }
+
+    #[test]
+    fn test_norm_mode_rearm_on_wrap() {
+        let mut screen = GraphScreen::new();
+        screen.trigger_mode = TriggerMode::Norm;
+        screen.trigger_state = TriggerState::Armed;
+        screen.trigger_level_tenth = 200;
+
+        // Sub-threshold baseline sample establishes prev_plot_val < trigger_level
+        assert!(!screen.process_sample_trigger(100));
+        assert_eq!(screen.trigger_state, TriggerState::Armed);
+
+        // Trigger on rising edge (100 -> 250)
+        assert!(screen.process_sample_trigger(250));
+        assert_eq!(screen.trigger_state, TriggerState::Triggered);
+
+        // Advance 136 samples
+        for _ in 0..136 {
+            screen.advance_sweep(50);
+            assert_eq!(screen.trigger_state, TriggerState::Triggered);
         }
+
+        // 137th sample wraps and re-arms NORM mode
+        screen.advance_sweep(50);
+        assert_eq!(screen.trigger_state, TriggerState::Armed);
+        assert_eq!(screen.sweep_x, GRAPH_X_MIN);
     }
 }

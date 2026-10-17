@@ -11,7 +11,7 @@ use crate::model::{
 use crate::telemetry::TelemetryStreamer;
 use crate::ui::theme::{COL_AMBER, COL_BG_TOP, COL_CARD_BORDER, COL_CYAN, COL_DIVIDER, COL_MINT};
 use crate::ui::{
-    BigDigitScreen, GraphScreen, HeroScreen, HistogramScreen, ScreenMode, StatsScreen,
+    BigDigitScreen, GraphScreen, HeroScreen, HistogramScreen, ScreenMode, StatsScreen, TriggerMode,
 };
 
 pub const BKP_MAGIC_KEY: u16 = 0x5A5A;
@@ -143,7 +143,9 @@ impl<'a> App<'a> {
             ScreenMode::Hero => self.hero_screen.draw_layout(&mut board.lcd),
             ScreenMode::Graph => {
                 self.graph_screen.draw_layout(&mut board.lcd);
-                self.graph_screen.replot_history(&mut board.lcd, &self.history);
+                if self.graph_screen.trigger_mode != TriggerMode::Single {
+                    self.graph_screen.replot_history(&mut board.lcd, &self.history);
+                }
             }
             ScreenMode::Stats => self.stats_screen.draw_layout(&mut board.lcd),
             ScreenMode::Histogram => self.histogram_screen.draw_layout(&mut board.lcd),

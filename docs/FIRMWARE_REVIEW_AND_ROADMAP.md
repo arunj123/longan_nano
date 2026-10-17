@@ -391,7 +391,7 @@ flowchart TD
 
 ### Phase 4: UI/UX & Advanced Features (ACTIVE PHASE)
 - [x] **Task 4.1**: Implement `PA8` button double-click context actions and long-press visual progress bar. *(Verified in Build 00DC: 48/48 host unit tests PASS, 21/21 remote hardware tests PASS, visual progress bar + tare trigger + context actions verified)*
-- [ ] **Task 4.2**: Implement edge-triggered capture on `GraphScreen` and fix `Single` mode autoscale replotting.
+- [x] **Task 4.2**: Implement edge-triggered capture on `GraphScreen` and fix `Single` mode autoscale replotting. *(Verified in Build 00DD: 55/55 host unit tests PASS, 22/22 remote hardware tests PASS, rising edge trigger + autoscale freeze in Single mode + waveform preservation verified)*
 - [ ] **Task 4.3**: Add live LCD telemetry to `prj_usb_msc` during bus idle.
 - [ ] **Task 4.4**: Add SD card hot-swap detection and `SenseKey::UnitAttention` handling.
 - [ ] **Task 4.5**: Add display 180° rotation toggle via `MADCTL` persisted in `BKP` register.
@@ -428,6 +428,29 @@ flowchart TD
        - Test 19: PA8 Simulated Double-Click in Hero (`[BUTTON] Double-click: SD Rotated to new file: LOG_0086.CSV`) PASS.
        - Test 20: PA8 Simulated Long-Press Hold & Tare (`[BUTTON] Holding PA8: 300..1380 ms [Step 0..9/10]`, `[SYS] Session Reset!`, `[BUTTON] Long press (1500 ms): Tare Zero & Reset triggered!`) PASS.
        - Test 21: PA8 Simulated Aborted Hold (`[BUTTON] Holding PA8: 300..540 ms`, `[BUTTON] Hold aborted (< 1500 ms)`) PASS.
+
+2. **`prj_current_monitor` GraphScreen Edge Trigger & Autoscale Freeze (Build 00DD)**:
+   - **Rising-Edge Triggering (`screen_graph.rs`)**:
+     - Implemented `evaluate_edge(plot_val)`: detects true rising-edge transitions (`prev < trig_level && curr >= trig_level`) across all trigger modes.
+     - Tracks `prev_plot_val = Some(plot_val)` across all evaluation states.
+     - Immune to false immediate triggering when signal is already high prior to arming; requires signal to drop below threshold and rise before firing.
+     - Extracted pure-logic trigger state machine into `process_sample_trigger(plot_val) -> bool`, eliminating nested code duplication in `update()`.
+   - **Autoscale Freeze & Replotting Suppression in Single Mode**:
+     - Extracted `evaluate_autoscale(plot_val) -> bool`, active strictly in `Auto` and `Norm` modes and completely disabled in `Single` mode (`if self.trigger_mode == TriggerMode::Single { return false; }`).
+     - Prevents autoscale tier switching during Single acquisition sweeps, guaranteeing uniform vertical sensitivity (mA/div) across all 137 columns without clipping or distortion.
+     - Eliminates `replot_history` during Single sweep, completely preventing pre-trigger circular history samples from overwriting active or frozen captures.
+     - Extracted `advance_sweep(y_curr)` to manage column advancement, NORM re-arm on wrap, and SINGLE sweep capture count (137 columns) transitioning to `TriggerState::Halted`.
+   - **Waveform Preservation Across Screen Switching & Pausing in Single Mode**:
+     - In `app.rs:draw_current_layout`, suppressed `replot_history` when entering Graph layout in `Single` mode, presenting a clean armed grid awaiting trigger rather than overwriting with stale rolling history.
+     - In `main.rs:625`, paused `app.history.push` while Single mode is `Halted`, preserving the exact 137 captured samples in memory without aging out.
+   - **Host Unit Test Suite (`cargo test`)**:
+     - 55/55 host unit tests pass across the workspace (31 in `prj_current_monitor`, 20 in `gd32vf103-hal`, 4 in `longan-nano-bsp`).
+     - 7 new unit tests in `screen_graph.rs` cover: rising-edge trigger crossing, false-trigger immunity when starting high, single sweep capture to 137 samples and transition to Halted, rejection of samples while halted, re-arm with high signal immunity, autoscale freeze in Single mode with 50x over-ceiling signal, autoscale active in Auto mode, and Norm mode re-arm on sweep wrap.
+   - **Target Hardware Empirical Verification (`tools/test_remote_ui_cycling.py`)**:
+     - Flashed to GD32VF103 over JTAG OpenOCD on remote host `192.168.0.63`.
+     - All 22 remote automated test suites passed:
+       - Tests 1–21 PASS (Screen modes, battery profiles, JSON dump, SD flush/rotate, tare reset, USB HID streaming/commands, RTC, PA8 single click, double-click in Graph/Stats/Hero, hold progress, tare trigger, aborted hold).
+       - Test 22: Graph Trigger Mode Cycling via UART (`'g'` -> NORM, SNGL, AUTO) PASS.
 
 ---
 

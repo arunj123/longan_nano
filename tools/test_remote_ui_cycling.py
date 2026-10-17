@@ -289,6 +289,26 @@ time.sleep(0.4)
 ok_ha, lines_ha = send_and_expect('p', ['[BUTTON] Holding PA8:', '[BUTTON] Hold aborted (< 1500 ms)'], timeout=2.0)
 results['test_btn_hold_abort'] = {'pass': ok_ha, 'lines': lines_ha}
 
+# TEST 22: Graph Trigger Mode Cycling via UART ('g' -> cycle through AUTO, NORM, SNGL)
+time.sleep(0.4)
+send_and_expect('2', ['[UI] Screen mode: 2: GRAPH'], timeout=1.5)
+time.sleep(0.2)
+modes_seen = set()
+lines_g = []
+for _ in range(3):
+    ok_g, l_g = send_and_expect('g', ['[TRIG] Trigger Mode:'], timeout=2.0)
+    lines_g.extend(l_g)
+    for line in l_g:
+        if 'Trigger Mode: AUTO' in line:
+            modes_seen.add('AUTO')
+        elif 'Trigger Mode: NORM' in line:
+            modes_seen.add('NORM')
+        elif 'Trigger Mode: SNGL' in line:
+            modes_seen.add('SNGL')
+    time.sleep(0.1)
+results['test_trig_cycle'] = {'pass': len(modes_seen) == 3, 'modes': list(modes_seen), 'lines': lines_g}
+send_and_expect('1', ['[UI] Screen mode: 1: HERO'], timeout=1.5)
+
 ser.close()
 print("FINAL_RESULTS:" + json.dumps(results))
 """
@@ -483,9 +503,15 @@ def main():
     all_passed &= bhap
     print(f" [TEST 21] PA8 Simulated Aborted Hold (< 1500 ms): {'PASS' if bhap else 'FAIL'}")
 
+    # Test 22: Graph Trigger Mode Cycling (AUTO -> NORM -> SNGL -> AUTO)
+    trig_c = res.get('test_trig_cycle', {})
+    tcp = trig_c.get('pass', False)
+    all_passed &= tcp
+    print(f" [TEST 22] Graph Trigger Cycling via UART ('g' -> NORM, SNGL, AUTO): {'PASS' if tcp else 'FAIL'}")
+
     print("=" * 70)
     if all_passed:
-        print(" >>> ALL 21 TEST SUITES PASSED CLEANLY ON TARGET HARDWARE <<<")
+        print(" >>> ALL 22 TEST SUITES PASSED CLEANLY ON TARGET HARDWARE <<<")
         print("=" * 70)
         sys.exit(0)
     else:
