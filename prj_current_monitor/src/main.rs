@@ -409,8 +409,11 @@ fn main() -> ! {
                         app.cmd_len = 1;
                     }
                     b'r' | b'R' | b'n' | b'N' => {
-                        app.datalogger.rotate_session();
-                        writeln!(board.uart0, "[SD] Rotated to new file: {}", app.datalogger.file_name_str()).ok();
+                        if app.datalogger.rotate_session() {
+                            writeln!(board.uart0, "[SD] Rotated to new file: {}", app.datalogger.file_name_str()).ok();
+                        } else {
+                            writeln!(board.uart0, "[SD] Cannot rotate: pending buffer flush failed ({})", app.datalogger.file_name_str()).ok();
+                        }
                     }
                     b'o' | b'O' => {
                         let new_rot = board.lcd.toggle_rotation();
@@ -428,8 +431,11 @@ fn main() -> ! {
                         app.draw_current_layout(&mut board);
                     }
                     b'f' | b'F' => {
-                        app.datalogger.flush_buffer();
-                        writeln!(board.uart0, "[SD] Flushed buffer to {} (Total rows: {})", app.datalogger.file_name_str(), app.datalogger.total_logged_rows).ok();
+                        if app.datalogger.flush_buffer().is_ok() {
+                            writeln!(board.uart0, "[SD] Flushed buffer to {} (Total rows: {})", app.datalogger.file_name_str(), app.datalogger.total_logged_rows).ok();
+                        } else {
+                            writeln!(board.uart0, "[SD] Flush failed on {} (Pending bytes: {})", app.datalogger.file_name_str(), app.datalogger.buffered_bytes()).ok();
+                        }
                     }
                     b's' | b'S' => {
                         app.dump_session(&mut board, now);
@@ -482,11 +488,11 @@ fn main() -> ! {
                     }
                 HidCommand::TareZero => app.tare_and_reset(&mut board, now),
                 HidCommand::FlushSd => {
-                    app.datalogger.flush_buffer();
+                    let _ = app.datalogger.flush_buffer();
                     writeln!(board.uart0, "[HID-CMD] Flushed SD buffer to {}", app.datalogger.file_name_str()).ok();
                 }
                 HidCommand::RotateLog => {
-                    app.datalogger.rotate_session();
+                    let _ = app.datalogger.rotate_session();
                     writeln!(board.uart0, "[HID-CMD] Rotated log file to {}", app.datalogger.file_name_str()).ok();
                 }
                 HidCommand::RequestSummary => app.dump_session(&mut board, now),
@@ -602,13 +608,21 @@ fn main() -> ! {
                         app.render_top_bar_overlay(&mut board.lcd);
                     }
                     ScreenMode::Hero | ScreenMode::Histogram => {
-                        app.datalogger.rotate_session();
-                        writeln!(
-                            board.uart0,
-                            "[BUTTON] Double-click: SD Rotated to new file: {}",
-                            app.datalogger.file_name_str(),
-                        ).ok();
-                        app.button.overlay.show_context_banner(" SD: ROTATED LOG FILE   ", now, 700);
+                        if app.datalogger.rotate_session() {
+                            writeln!(
+                                board.uart0,
+                                "[BUTTON] Double-click: SD Rotated to new file: {}",
+                                app.datalogger.file_name_str(),
+                            ).ok();
+                            app.button.overlay.show_context_banner(" SD: ROTATED LOG FILE   ", now, 700);
+                        } else {
+                            writeln!(
+                                board.uart0,
+                                "[BUTTON] Double-click: SD Rotate blocked (flush error on {})",
+                                app.datalogger.file_name_str(),
+                            ).ok();
+                            app.button.overlay.show_context_banner(" SD ERR: ROTATE BLOCKED ", now, 700);
+                        }
                         app.render_top_bar_overlay(&mut board.lcd);
                     }
                 }

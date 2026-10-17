@@ -218,11 +218,13 @@ flowchart TD
 
 ### Phase 6: Multi-Model Independent Review Hardening & Reliability Upgrades (ACTIVE)
 
-- [ ] **Task 6.1: Storage & Filesystem Data Integrity (P0)**:
-  - In `logger.rs`, change `flush_buffer(&mut self) -> Result<(), ()>`.
-  - In `app.rs`, verify `flush_buffer()` success before mounting MSC in `enter_usb_drive_active()`; abort and alert if flush fails or `buf_len > 0` (`[MON-STOR-01]`).
-  - In `logger.rs`, prevent `rotate_session()` from advancing `session_file_num` when `buf_len > 0`; prevent silent buffer clearing in `log_sample()` and track `dropped_rows` (`[MON-STOR-02]`).
-  - In `crates/gd32vf103-hal/src/usb/msc/mod.rs` and `app.rs`, default Screen 6 MSC to Read-Only mode for log extraction safety; track host eject state via SCSI `START_STOP_UNIT` (`[MON-STOR-03]`).
+- [x] **Task 6.1: Storage & Filesystem Data Integrity (P0)** *(Verified in Build 00E4)*:
+  - In `logger.rs`, changed `flush_buffer(&mut self) -> Result<(), ()>` and added `push_row_with_flush` / `rotate_session_with_flush` with host unit tests.
+  - In `app.rs`, verified `flush_buffer().is_ok() && !has_pending_data()` before mounting MSC in `enter_usb_drive_active()`; aborts with `" SD FLUSH ERR: NO MOUNT"` if flush fails or `buf_len > 0` (`[MON-STOR-01]`).
+  - In `logger.rs`, prevented `rotate_session()` from advancing `session_file_num` when `buf_len > 0`; prevented silent buffer clearing on flush failure and tracked `committed_rows` / `dropped_rows` (`[MON-STOR-02]`).
+  - Clamped `session_file_num` at `9999` (`num.min(9999)`) to prevent 4-digit wrap collision with `LOG_0000.CSV` (`[MON-UI-02]`).
+  - In `crates/gd32vf103-hal/src/usb/msc/` (`scsi.rs`, `mod.rs`) and `app.rs`, defaulted Screen 6 MSC to Read-Only (`write_protected = true`), bounded `handle_reset()` FIFO flush spin-loops (`100_000` iterations), and tracked host eject state via SCSI `START_STOP_UNIT` (`decode_start_stop_eject`) (`[MON-STOR-03]`).
+  - *Empirical Verification (Build 00E4)*: 70/70 host unit tests pass (`33` in `gd32vf103-hal`, `37` in `prj_current_monitor`); firmware `text = 124,112` bytes, `bss = 32,768` bytes; 12/12 hardware checks passed on `192.168.0.63` via `test_usb_drive_mode.py` (Read-Only mount `/dev/sdb1`, `sg_raw` LBA 0 `55aa`, clean HID restore `28e9:1234`, session rotation `LOG_0117.CSV`).
 
 - [ ] **Task 6.2: Sensor DSP, Tare Calibration & Telemetry Correctness (P1)**:
   - In `ina219.rs` and `app.rs`, remove 8-read tare loop; read `REG_SHUNTVOLTAGE` directly once (`read_uncompensated_tenth_ma()`, hardware 128-sample average); add load sanity check rejecting tare if `|offset| > 50.0 mA` (`[MON-SENS-01]`).
@@ -246,7 +248,7 @@ flowchart TD
 
 - [ ] **Task 6.5: UI Performance, Memory Alignment & Documentation Integrity (P2)**:
   - In `screen_graph.rs`, stream historical columns directly via `write_pixels` in `replot_history` without redundant dot pre-clearing (`[MON-UI-01]`).
-  - Clamp session numbering at 9999 or handle wrap cleanly (`[MON-UI-02]`).
+  - [x] Clamp session numbering at 9999 or handle wrap cleanly (`[MON-UI-02]`) *(Completed in Build 00E4)*.
   - In `crates/gd32vf103-hal/src/usb/msc/cache.rs`, wrap cache entries with `#[repr(align(4))]` (`[MSC-MEM-01]`).
   - Clean up documentation: remove legacy C/C++ references, replace absolute paths with relative paths, remove plaintext credentials (`[MON-AI-02]`).
   - Add host unit tests (`cargo test`) covering command dispatcher, logger failure paths, and tare sanity checks (`[MON-AI-03]`).

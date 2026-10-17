@@ -55,3 +55,21 @@ pub mod scsi_cmd {
     pub const SERVICE_ACTION_IN_16: u8 = 0x9E;
     pub const SECURITY_PROTOCOL_IN: u8 = 0xA2;
 }
+
+/// Decodes the SCSI `START_STOP_UNIT` (`0x1B`) CDB byte 4 (`[LOEJ, START]`).
+/// Returns `Some(true)` if the host requested media eject (`LOEJ=1, START=0`),
+/// `Some(false)` if the host requested media start/load (`START=1`),
+/// or `None` if neither transition applies (`LOEJ=0, START=0`).
+#[inline(always)]
+pub const fn decode_start_stop_eject(cdb_byte4: u8) -> Option<bool> {
+    let loej = (cdb_byte4 & 0x02) != 0;
+    let start = (cdb_byte4 & 0x01) != 0;
+    if loej && !start {
+        Some(true)
+    } else if start {
+        Some(false)
+    } else {
+        None
+    }
+}
+

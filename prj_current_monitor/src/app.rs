@@ -227,8 +227,19 @@ impl<'a> App<'a> {
             return false;
         }
 
-        // 1. Flush any pending buffered log records to SD
-        self.datalogger.flush_buffer();
+        // 1. Flush any pending buffered log records to SD before handing sector ownership to host
+        if self.datalogger.flush_buffer().is_err() || self.datalogger.has_pending_data() {
+            writeln!(
+                board.uart0,
+                "[USB-DRIVE] Cannot mount: failed to flush pending log buffer to SD"
+            )
+            .ok();
+            self.button
+                .overlay
+                .show_context_banner(" SD FLUSH ERR: NO MOUNT", now, 1000);
+            self.render_top_bar_overlay(&mut board.lcd);
+            return false;
+        }
 
         // 2. Terminate any SPI streaming states in SdCard
         {
@@ -244,10 +255,11 @@ impl<'a> App<'a> {
             return false;
         }
 
-        // 4. Update MSC media readiness
+        // 4. Update MSC media readiness and default to Read-Only for safe log extraction
         if let Some(msc) = board.usb_msc() {
             let sectors = self.sdcard.borrow().sector_count;
             msc.set_media_present(sectors > 0);
+            msc.set_write_protected(true);
         }
 
         // 5. Update state & UI
@@ -367,8 +379,8 @@ impl<'a> App<'a> {
                 .ok();
             }
         }
-        self.datalogger.flush_buffer();
-        self.datalogger.rotate_session();
+        let _ = self.datalogger.flush_buffer();
+        let _ = self.datalogger.rotate_session();
         self.accum.reset();
         self.sec_agg.finish_and_reset(&InaReading::default());
         self.history.clear();
@@ -504,15 +516,17 @@ impl<'a> App<'a> {
         .ok();
         writeln!(
             board.uart0,
-            "SD File: {} (Rows: {}, Status: {:?})",
+            "SD File: {} (Rows: {}, Committed: {}, Dropped: {}, Status: {:?})",
             self.datalogger.file_name_str(),
             self.datalogger.total_logged_rows,
+            self.datalogger.committed_rows,
+            self.datalogger.dropped_rows,
             self.datalogger.status
         )
         .ok();
         writeln!(
             board.uart0,
-            "[JSON] {{\"uptime_s\":{},\"mode\":\"{}\",\"epoch\":{},\"time\":\"{:04}-{:02}-{:02} {:02}:{:02}:{:02}\",\"rtc_synced\":{},\"v_min\":{},\"v_max\":{},\"c_min\":{},\"c_max\":{},\"c_avg\":{},\"p_peak_mw\":{},\"mwh\":{},\"mah\":{},\"mcu_temp_c\":{}.{},\"vdda_mv\":{},\"bat_soc\":{},\"sd_file\":\"{}\",\"sd_rows\":{},\"limit_ma\":{},\"alert\":{},\"over_current\":{},\"low_voltage\":{}}}",
+            "[JSON] {{\"uptime_s\":{},\"mode\":\"{}\",\"epoch\":{},\"time\":\"{:04}-{:02}-{:02} {:02}:{:02}:{:02}\",\"rtc_synced\":{},\"v_min\":{},\"v_max\":{},\"c_min\":{},\"c_max\":{},\"c_avg\":{},\"p_peak_mw\":{},\"mwh\":{},\"mah\":{},\"mcu_temp_c\":{}.{},\"vdda_mv\":{},\"bat_soc\":{},\"sd_file\":\"{}\",\"sd_rows\":{},\"sd_committed\":{},\"sd_dropped\":{},\"limit_ma\":{},\"alert\":{},\"over_current\":{},\"low_voltage\":{}}}",
             uptime_s,
             mode_name,
             rtc_epoch,
@@ -532,6 +546,8 @@ impl<'a> App<'a> {
             self.battery.soc_pct,
             self.datalogger.file_name_str(),
             self.datalogger.total_logged_rows,
+            self.datalogger.committed_rows,
+            self.datalogger.dropped_rows,
             self.current_limit_ma,
             is_alert,
             is_over,

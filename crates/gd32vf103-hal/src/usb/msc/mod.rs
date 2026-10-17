@@ -4,7 +4,7 @@ pub mod scsi;
 
 pub use bot::{validate_bot_case, BbbCbw, BbbCsw, BbbState, BotCase, BotValidation, CswStatus};
 pub use cache::{CacheEntry, LbaCache, CACHE_SECTORS};
-pub use scsi::{scsi_cmd, Asc, SenseKey, MSC_INQUIRY_DATA};
+pub use scsi::{decode_start_stop_eject, scsi_cmd, Asc, SenseKey, MSC_INQUIRY_DATA};
 
 use embedded_hal::delay::DelayNs;
 use gd32vf103_pac::rcu::{ahben, Rcu};
@@ -173,6 +173,8 @@ pub struct MscStats {
     pub cache_hits: u32,
     pub cache_misses: u32,
     pub is_active: bool,
+    pub host_ejected: bool,
+    pub write_protected: bool,
 }
 
 impl MscStats {
@@ -414,6 +416,12 @@ impl UsbMsc {
     #[inline(always)]
     pub fn set_write_protected(&mut self, wp: bool) {
         self.write_protected = wp;
+        self.stats.write_protected = wp;
+    }
+
+    #[inline(always)]
+    pub fn is_host_ejected(&self) -> bool {
+        self.stats.host_ejected
     }
 
     pub fn set_sense(&mut self, key: SenseKey, asc: Asc) {
@@ -943,7 +951,19 @@ impl UsbMsc {
                 }
             }
 
-            scsi_cmd::START_STOP_UNIT | scsi_cmd::PREVENT_ALLOW_MEDIUM_REMOVAL | 0x2F => { // START_STOP_UNIT, PREVENT_ALLOW_REMOVAL, VERIFY_10
+            scsi_cmd::START_STOP_UNIT => {
+                if let Some(ejected) = decode_start_stop_eject(self.cbw.cbwcb[4]) {
+                    self.stats.host_ejected = ejected;
+                    if ejected {
+                        disk.end_multi_read();
+                        disk.end_multi_write();
+                    }
+                }
+                self.csw_residue = 0;
+                self.send_csw(CswStatus::CmdPassed);
+            }
+
+            scsi_cmd::PREVENT_ALLOW_MEDIUM_REMOVAL | 0x2F => { // PREVENT_ALLOW_REMOVAL, VERIFY_10
                 self.csw_residue = 0;
                 self.send_csw(CswStatus::CmdPassed);
             }
@@ -1173,9 +1193,15 @@ impl UsbMsc {
         self.usbfs.device().dctl.clear_bits(dctl::RWKUP);
 
         self.usbfs.global().grstctl.write((0x10 << 6) | grstctl::TXFF);
-        while (self.usbfs.global().grstctl.read() & grstctl::TXFF) != 0 {}
+        let mut timeout = 100_000u32;
+        while (self.usbfs.global().grstctl.read() & grstctl::TXFF) != 0 && timeout > 0 {
+            timeout -= 1;
+        }
         self.usbfs.global().grstctl.write(grstctl::RXFF);
-        while (self.usbfs.global().grstctl.read() & grstctl::RXFF) != 0 {}
+        timeout = 100_000;
+        while (self.usbfs.global().grstctl.read() & grstctl::RXFF) != 0 && timeout > 0 {
+            timeout -= 1;
+        }
 
         for i in 1..4 {
             let epctl = self.usbfs.in_ep(i).diepctl.read();
@@ -1223,6 +1249,7 @@ impl UsbMsc {
         self.need_write = false;
         self.csw_pending = false;
         self.ep1_in_prearmed = false;
+        self.stats.host_ejected = false;
         self.usbfs.device().dcfg.clear_bits(dcfg::DAR_MASK);
 
         self.usbfs.device().daepint.write(0xFFFF_FFFF);
@@ -2259,6 +2286,18 @@ mod tests {
 
         // Case 4: Final block of any stream (remaining <= 512) -> CAN check cache
         assert!(should_check_cache(true, 64, 512));
+    }
+
+    #[test]
+    fn test_decode_start_stop_eject() {
+        // LOEJ=0, START=0 -> Standby / Stop motor (no eject)
+        assert_eq!(decode_start_stop_eject(0x00), None);
+        // LOEJ=0, START=1 -> Start / Active
+        assert_eq!(decode_start_stop_eject(0x01), Some(false));
+        // LOEJ=1, START=0 -> Eject media
+        assert_eq!(decode_start_stop_eject(0x02), Some(true));
+        // LOEJ=1, START=1 -> Load / Mount media
+        assert_eq!(decode_start_stop_eject(0x03), Some(false));
     }
 }
 

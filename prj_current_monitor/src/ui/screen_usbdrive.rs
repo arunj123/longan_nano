@@ -75,7 +75,10 @@ impl UsbDriveScreen {
         current_file: &str,
         msc_stats: Option<&MscStats>,
     ) {
-        // 1. Header Badge: [STANDBY] vs [PC MOUNTED]
+        // 1. Header Badge: [STANDBY] vs [PC MOUNTED] vs [EJECTED]
+        let host_ejected = msc_stats.map_or(false, |s| s.host_ejected);
+        let write_protected = msc_stats.map_or(false, |s| s.write_protected);
+
         let mut b_buf = [0u8; 16];
         let mut b_cur = BufferCursor::new(&mut b_buf);
         let (badge_col, is_active) = match self.state {
@@ -84,8 +87,13 @@ impl UsbDriveScreen {
                 (COL_AMBER, false)
             }
             UsbDriveState::Active => {
-                write!(b_cur, "[PC MOUNTED]").ok();
-                (COL_MINT, true)
+                if host_ejected {
+                    write!(b_cur, "[EJECTED]").ok();
+                    (COL_CYAN, true)
+                } else {
+                    write!(b_cur, "[PC MOUNTED]").ok();
+                    (COL_MINT, true)
+                }
             }
         };
         let b_str = b_cur.as_str();
@@ -98,8 +106,16 @@ impl UsbDriveScreen {
         let mut s_buf = [0u8; 24];
         let mut s_cur = BufferCursor::new(&mut s_buf);
         let s_col = if is_active {
-            write!(s_cur, "ACTIVE (MSC)").ok();
-            COL_MINT
+            if host_ejected {
+                write!(s_cur, "EJECTED (SAFE)").ok();
+                COL_CYAN
+            } else if write_protected {
+                write!(s_cur, "ACTIVE (MSC RO)").ok();
+                COL_MINT
+            } else {
+                write!(s_cur, "ACTIVE (MSC)").ok();
+                COL_MINT
+            }
         } else {
             write!(s_cur, "STANDBY (HID)").ok();
             COL_AMBER
