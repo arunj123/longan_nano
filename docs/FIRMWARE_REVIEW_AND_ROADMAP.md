@@ -575,7 +575,7 @@ flowchart TD
   - **UI/UX & Screen 6 Component**:
     - Extended `ScreenMode` with `ScreenMode::UsbDrive` (Screen 6).
     - Implemented `screen_usbdrive.rs` with clean status badges (`[STANDBY]` vs `[PC MOUNTED]`), active log file, MicroSD capacity, live read/write sector counters, and PA8 gesture prompts (`DBL-CLICK/HOLD: MOUNT`, `CLICK PA8: EXIT/RESUME`).
-- [ ] **Task 5.2**: Implement Hardware/Software Write-Protect Toggle & SCSI `MODE_SENSE_6`/`10` Protection Handling in `prj_usb_msc`:
+- [x] **Task 5.2**: Implement Hardware/Software Write-Protect Toggle & SCSI `MODE_SENSE_6`/`10` Protection Handling in `prj_usb_msc` (Verified in Build `00E2`):
   - Add Write-Protect (WP) bit reporting in SCSI `MODE_SENSE_6` (Byte 2, bit 7 `0x80`) and `MODE_SENSE_10` (Byte 3, bit 7 `0x80`).
   - Reject `WRITE_6` and `WRITE_10` with `SenseKey::DataProtect (0x07)`, `Asc::WriteProtected (0x27, 0x00)` when write-protect is active.
   - Add Write-Protect state toggle via UART command (`'w' | 'W'`) and PA8 double-click gesture in `prj_usb_msc`, persisting across reboots in Backup Domain register 6 (`BKP_DATA6`).
@@ -611,6 +611,38 @@ flowchart TD
        - Direct SCSI `READ_10` of LBA 0 via `sg_raw` succeeded (valid MBR signature `0x55aa`).
        - Host OS mounted `/dev/sdb1` FAT32 partition cleanly and verified 77 `LOG_*.CSV` files on disk (`LOG_0109.CSV`).
        - Simulated PA8 single-click (`'k'`) automatically unmounted MSC, restored `28e9:1234` HID, advanced to Screen 1 (`HERO`), re-probed the SD card, rotated the active session file (`LOG_0109.CSV -> LOG_0111.CSV`), and resumed 10 Hz USB HID telemetry (`v_mv: 3320, seq: 7`) on `/dev/hidraw1`.
+
+2. **`prj_usb_msc` Hardware & Software Write-Protect Support & BKP6 Persistence (Build 00E2)**:
+   - **SCSI Write-Protect Compliance (`scsi_cmd::MODE_SENSE_6` / `MODE_SENSE_10` & `WRITE_6` / `WRITE_10`)**:
+     - In `crates/gd32vf103-hal/src/usb/msc/mod.rs`, added `pub write_protected: bool` with `is_write_protected()` and `set_write_protected()`.
+     - In `MODE_SENSE_6`, Byte 2 (Device-Specific Parameter) bit 7 (WP) dynamically reports `0x80` when write-protected and `0x00` in read-write mode.
+     - In `MODE_SENSE_10`, Byte 3 bit 7 (WP) dynamically reports `0x80` when write-protected and `0x00` in read-write mode.
+     - On receiving `WRITE_6` or `WRITE_10` while `self.write_protected` is active: immediately sets `SenseKey::DataProtect (0x07)` and `Asc::WriteProtected (0x27)`, invokes `abort_transfer(disk)` (stalling OUT EP1 and pending CSW), cleanly rejecting write attempts without card damage or silent corruption.
+     - Bumped USB serial string descriptor and SCSI VPD page 0x80 serial to `LNMSC00000E2`.
+   - **Backup Domain Register 6 (`BKP_DATA6`) Persistence & PA8 Gestures (`prj_usb_msc/src/main.rs`, `bsp/lcd.rs`)**:
+     - Defined `BKP_REG_WRITE_PROTECT: usize = 6`, `BKP_WRITE_PROTECT_RW: u16 = 0x5700` (`'W'`, 0), `BKP_WRITE_PROTECT_RO: u16 = 0x5701` (`'W'`, 1) in `longan-nano-bsp`.
+     - On boot, restores Write-Protect state directly from `BKP_DATA6`.
+     - Added PA8 button gesture discrimination:
+       - Single-Click: toggles display rotation (saved to `BKP_DATA5`).
+       - Double-Click (second tap within 280 ms): toggles Write-Protect mode (`RW` <-> `RO`, saved to `BKP_DATA6`).
+     - Added UART interactive commands: `'w' | 'W'` toggles Write-Protect; `'k'` simulates single-click; `'K'` simulates double-click; `'s'` queries rotation (`BKP5`) and WP (`BKP6`); `'?'` prints command help.
+   - **Live LCD Telemetry Dashboard Header Badge (`telemetry.rs`)**:
+     - Added `fmt_wp_badge(write_protected: bool) -> (&'static str, u16)` returning `[RO]` (Yellow) vs `[RW]` (Green).
+     - Renders WP badge at X: 90, Y: 2 alongside header status badge `[DISC]` / `[IDLE]` / `[BUSY]` at X: 118, Y: 2.
+     - Repositioned header bar title to `"USB MSC"` (X: 4, Y: 2) providing clean pixel layout.
+   - **Host Unit Test Suite (`cargo test`)**:
+     - **82/82 host unit tests pass** across the workspace (30 in `gd32vf103-hal`, 7 in `longan-nano-bsp`, 34 in `prj_current_monitor`, 11 in `prj_usb_msc`), with 5 new tests verifying `MODE_SENSE_6`/`10` WP bytes, `SenseKey::DataProtect` & `Asc::WriteProtected` constants, `write_protected` flag operations, `BKP_REG_WRITE_PROTECT` constants, and `fmt_wp_badge` rendering.
+   - **Target Hardware Empirical Verification (`tools/verify_build_00e2.py`)**:
+     - Flashed to GD32VF103 over JTAG OpenOCD on remote Linux host `192.168.0.63`.
+     - Clean USB enumeration as `28e9:abd4` `Longan Nano SD Reader`, serial `LNMSC00000E2` (480 MiB / 983,040 blocks).
+     - All UART commands and simulated gestures verified: help menu (`?`), status (`s`), UART WP toggle (`w`), PA8 simulated double-click (`K`), PA8 simulated single-click (`k`).
+     - Verified `MODE_SENSE_6` byte 2 = `0x00` and `MODE_SENSE_10` byte 3 = `0x00` in RW mode.
+     - Switched to RO mode: verified `MODE_SENSE_6` byte 2 = `0x80` and `MODE_SENSE_10` byte 3 = `0x80`.
+     - Verified `WRITE_10` in RO mode was rejected with exit code 7 (`SCSI Status: Check Condition`, `Sense key: Data Protect`, `Additional sense: Write protected`).
+     - Switched back to RW mode: all 7 isolated `sg_raw` reads passed, sustained 4.0 MiB read streaming achieved **838 kB/s**.
+     - Partition 1 (`/dev/sdb1`) mounted read-write cleanly, single-file write verified, and multi-block 128 KiB CMD25 write streaming verified with 100% cryptographic MD5 match (`51d30322d34685b9a8417e116bee0a3c`).
+     - Tested BKP persistence across reboot: set WP to `RO` (`0x5701`), re-triggered hardware reset via OpenOCD, verified boot status retained `Write-Protect: RO (BKP6: 0x5701)`, restored to `RW`.
+     - Clean unmount with zero USB resets or bus dropouts during testing.
 
 ---
 

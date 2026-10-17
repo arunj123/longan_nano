@@ -165,6 +165,15 @@ pub fn fmt_header_badge(is_configured: bool, is_active: bool) -> (&'static str, 
     }
 }
 
+/// Returns write-protect badge string and color: `"[RO]"` in Yellow vs `"[RW]"` in Green.
+pub fn fmt_wp_badge(write_protected: bool) -> (&'static str, u16) {
+    if write_protected {
+        ("[RO]", lcd_color::YELLOW)
+    } else {
+        ("[RW]", lcd_color::GREEN)
+    }
+}
+
 /// Calculates integer throughput in kB/s (1 kB = 1024 bytes) given sector delta and millisecond interval.
 #[inline]
 pub fn calculate_speed_kbs(delta_sectors: u32, dt_ms: u32) -> u32 {
@@ -187,6 +196,7 @@ pub struct TelemetryDashboard {
     pub current_speed_kbs: u32,
     pub is_active_latch: bool,
 
+    field_wp: DirtyField<8>,
     field_badge: DirtyField<8>,
     field_status: DirtyField<32>,
     field_lba: DirtyField<32>,
@@ -209,6 +219,7 @@ impl TelemetryDashboard {
             current_speed_kbs: 0,
             is_active_latch: false,
 
+            field_wp: DirtyField::new(),
             field_badge: DirtyField::new(),
             field_status: DirtyField::new(),
             field_lba: DirtyField::new(),
@@ -224,12 +235,13 @@ impl TelemetryDashboard {
         lcd.clear(lcd_color::BLACK);
         // Header bar: Y: 0..12
         lcd.fill_rect(0, 0, LCD_WIDTH, 13, lcd_color::DARK_NAVY);
-        lcd.draw_string(4, 2, "USB MSC TELEMETRY", &FONT_5X7, lcd_color::CYAN, lcd_color::DARK_NAVY);
+        lcd.draw_string(4, 2, "USB MSC", &FONT_5X7, lcd_color::CYAN, lcd_color::DARK_NAVY);
 
         // Divider line: Y: 13
         lcd.fill_rect(0, 13, LCD_WIDTH, 1, lcd_color::GRAY);
 
         // Invalidate all fields to force complete initial draw on next update
+        self.field_wp.invalidate();
         self.field_badge.invalidate();
         self.field_status.invalidate();
         self.field_lba.invalidate();
@@ -257,7 +269,7 @@ impl TelemetryDashboard {
 
     /// Updates dirty fields on the LCD display.
     /// MUST ONLY BE INVOKED WHEN THE USB BUS IS IDLE (`board.usb_msc.is_idle()`).
-    pub fn update(&mut self, lcd: &mut Lcd, stats: &MscStats, configured: bool, now: u32) {
+    pub fn update(&mut self, lcd: &mut Lcd, stats: &MscStats, configured: bool, write_protected: bool, now: u32) {
         // Enforce rate limiting: update LCD at most every 50 ms
         let dt_draw = now.wrapping_sub(self.last_draw_time);
         if dt_draw < 50 && self.last_draw_time != 0 {
@@ -295,7 +307,13 @@ impl TelemetryDashboard {
 
         let mut buf = StrBuf::<32>::new();
 
-        // 1. Header Badge: X: 118, Y: 2
+        // 1a. WP Badge: X: 90, Y: 2
+        let (wp_str, wp_color) = fmt_wp_badge(write_protected);
+        if self.field_wp.update(wp_str) {
+            lcd.draw_string(90, 2, self.field_wp.as_str(), &FONT_5X7, wp_color, lcd_color::DARK_NAVY);
+        }
+
+        // 1b. Header Status Badge: X: 118, Y: 2
         let (badge_str, badge_color) = fmt_header_badge(configured, is_active);
         if self.field_badge.update(badge_str) {
             lcd.draw_string(118, 2, self.field_badge.as_str(), &FONT_5X7, badge_color, lcd_color::DARK_NAVY);
@@ -513,5 +531,16 @@ mod tests {
         dashboard.update_sd_status(true, 480);
         assert!(dashboard.sd_ok);
         assert_eq!(dashboard.cap_mb, 480);
+    }
+
+    #[test]
+    fn test_fmt_wp_badge() {
+        let (text, color) = fmt_wp_badge(false);
+        assert_eq!(text, "[RW]");
+        assert_eq!(color, lcd_color::GREEN);
+
+        let (text, color) = fmt_wp_badge(true);
+        assert_eq!(text, "[RO]");
+        assert_eq!(color, lcd_color::YELLOW);
     }
 }

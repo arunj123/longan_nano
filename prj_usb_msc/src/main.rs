@@ -13,6 +13,7 @@ use core::fmt::Write;
 #[cfg(not(test))]
 use longan_nano_bsp::{
     Board, Rotation, BKP_REG_ROTATION, BKP_ROTATION_180, BKP_ROTATION_NORMAL,
+    BKP_REG_WRITE_PROTECT, BKP_WRITE_PROTECT_RW, BKP_WRITE_PROTECT_RO,
 };
 #[cfg(not(test))]
 use longan_nano_bsp::hal::usb::MSC_CONFIG_DESC;
@@ -38,11 +39,11 @@ fn main() -> ! {
     );
     let _ = writeln!(
         board.uart0,
-        "Build: 00E0 | Display 180° Toggle & BKP Persistence | Hot-Swap"
+        "Build: 00E2 | Write-Protect (WP) SCSI Support & BKP Persistence | Hot-Swap"
     );
     let _ = writeln!(
         board.uart0,
-        "Commands: 'r' / 'o' Toggle Display Rotation, 's' Query Status, '?' Help"
+        "Commands: 'w' Toggle Write-Protect, 'r'/'o' Toggle Display, 's' Status, '?' Help"
     );
     let _ = writeln!(board.uart0, "===================================================");
 
@@ -116,9 +117,19 @@ fn main() -> ! {
         initial_rot, bkp_rot
     );
 
+    let bkp_wp = board.bkp.read_reg(BKP_REG_WRITE_PROTECT);
+    let initial_wp = bkp_wp == BKP_WRITE_PROTECT_RO;
+    board.usb_msc.set_write_protected(initial_wp);
+    let _ = writeln!(
+        board.uart0,
+        "[MSC] Write-Protect: {} (BKP: 0x{:04X})",
+        if initial_wp { "READ-ONLY [RO]" } else { "READ-WRITE [RW]" },
+        bkp_wp
+    );
+
     let mut dashboard = TelemetryDashboard::new(sd_ok, cap_mb);
     dashboard.draw_layout(&mut board.lcd);
-    dashboard.update(&mut board.lcd, &board.usb_msc.stats, false, board.delay.uptime_ms());
+    dashboard.update(&mut board.lcd, &board.usb_msc.stats, false, initial_wp, board.delay.uptime_ms());
 
     // 4. Initialize USB
     let _ = write!(board.uart0, "CfgDesc [len={}]: ", MSC_CONFIG_DESC.len());
@@ -131,7 +142,10 @@ fn main() -> ! {
     let mut last_heartbeat = board.delay.uptime_ms();
     let mut last_sd_check = board.delay.uptime_ms();
     let mut last_btn_check = board.delay.uptime_ms();
-    let mut btn_was_pressed = false;
+    let mut btn_was_down = false;
+    let mut btn_pressed_time = 0u32;
+    let mut btn_release_time = 0u32;
+    let mut btn_waiting_second = false;
     let mut usb_was_configured = false;
 
     loop {
@@ -173,12 +187,38 @@ fn main() -> ! {
             }
         }
 
-        // Handle PA8 button press to toggle LCD rotation (debounced every 40 ms)
-        if board.usb_msc.is_idle() && now.wrapping_sub(last_btn_check) >= 40 {
+        // Handle PA8 button gestures: Single-Click (Rotation) vs Double-Click (Write-Protect)
+        if board.usb_msc.is_idle() && now.wrapping_sub(last_btn_check) >= 20 {
             last_btn_check = now;
-            let pressed = board.button.is_pressed();
-            if pressed && !btn_was_pressed {
-                btn_was_pressed = true;
+            let is_down = board.button.is_pressed();
+            if is_down && !btn_was_down {
+                btn_was_down = true;
+                btn_pressed_time = now;
+            } else if !is_down && btn_was_down {
+                btn_was_down = false;
+                let press_duration = now.wrapping_sub(btn_pressed_time);
+                if press_duration >= 40 {
+                    if btn_waiting_second && now.wrapping_sub(btn_release_time) <= 280 {
+                        // Double-click detected!
+                        btn_waiting_second = false;
+                        let new_wp = !board.usb_msc.is_write_protected();
+                        board.usb_msc.set_write_protected(new_wp);
+                        let bkp_val = if new_wp { BKP_WRITE_PROTECT_RO } else { BKP_WRITE_PROTECT_RW };
+                        board.bkp.write_reg(BKP_REG_WRITE_PROTECT, bkp_val);
+                        let _ = writeln!(
+                            board.uart0,
+                            "[BUTTON] PA8 Double-click -> Toggled Write-Protect to {} (Saved BKP6: 0x{:04X})",
+                            if new_wp { "RO" } else { "RW" }, bkp_val
+                        );
+                        dashboard.update(&mut board.lcd, &board.usb_msc.stats, configured, new_wp, now);
+                    } else {
+                        btn_waiting_second = true;
+                        btn_release_time = now;
+                    }
+                }
+            } else if btn_waiting_second && !btn_was_down && now.wrapping_sub(btn_release_time) > 280 {
+                // 280 ms timeout expired without second click -> Single-click detected!
+                btn_waiting_second = false;
                 let new_rot = board.lcd.toggle_rotation();
                 let bkp_val = if new_rot == Rotation::Rotated180 {
                     BKP_ROTATION_180
@@ -188,13 +228,11 @@ fn main() -> ! {
                 board.bkp.write_reg(BKP_REG_ROTATION, bkp_val);
                 let _ = writeln!(
                     board.uart0,
-                    "[BUTTON] PA8 pressed -> Toggled LCD rotation to {:?} (Saved BKP: 0x{:04X})",
+                    "[BUTTON] PA8 Single-click -> Toggled LCD rotation to {:?} (Saved BKP5: 0x{:04X})",
                     new_rot, bkp_val
                 );
                 dashboard.draw_layout(&mut board.lcd);
-                dashboard.update(&mut board.lcd, &board.usb_msc.stats, configured, now);
-            } else if !pressed && btn_was_pressed {
-                btn_was_pressed = false;
+                dashboard.update(&mut board.lcd, &board.usb_msc.stats, configured, board.usb_msc.is_write_protected(), now);
             }
         }
 
@@ -202,6 +240,48 @@ fn main() -> ! {
         if board.usb_msc.is_idle() {
             if let Some(cmd) = board.uart0.read_byte() {
                 match cmd {
+                    b'w' | b'W' => {
+                        let new_wp = !board.usb_msc.is_write_protected();
+                        board.usb_msc.set_write_protected(new_wp);
+                        let bkp_val = if new_wp { BKP_WRITE_PROTECT_RO } else { BKP_WRITE_PROTECT_RW };
+                        board.bkp.write_reg(BKP_REG_WRITE_PROTECT, bkp_val);
+                        let _ = writeln!(
+                            board.uart0,
+                            "[UART] Command '{}' -> Toggled Write-Protect to {} (Saved BKP6: 0x{:04X})",
+                            cmd as char, if new_wp { "RO" } else { "RW" }, bkp_val
+                        );
+                        dashboard.update(&mut board.lcd, &board.usb_msc.stats, configured, new_wp, now);
+                    }
+                    b'k' => {
+                        // Simulated Single-Click: Toggle Display Rotation
+                        let new_rot = board.lcd.toggle_rotation();
+                        let bkp_val = if new_rot == Rotation::Rotated180 {
+                            BKP_ROTATION_180
+                        } else {
+                            BKP_ROTATION_NORMAL
+                        };
+                        board.bkp.write_reg(BKP_REG_ROTATION, bkp_val);
+                        let _ = writeln!(
+                            board.uart0,
+                            "[SIM] Simulated PA8 Single-click -> Toggled LCD rotation to {:?} (Saved BKP5: 0x{:04X})",
+                            new_rot, bkp_val
+                        );
+                        dashboard.draw_layout(&mut board.lcd);
+                        dashboard.update(&mut board.lcd, &board.usb_msc.stats, configured, board.usb_msc.is_write_protected(), now);
+                    }
+                    b'K' => {
+                        // Simulated Double-Click: Toggle Write-Protect
+                        let new_wp = !board.usb_msc.is_write_protected();
+                        board.usb_msc.set_write_protected(new_wp);
+                        let bkp_val = if new_wp { BKP_WRITE_PROTECT_RO } else { BKP_WRITE_PROTECT_RW };
+                        board.bkp.write_reg(BKP_REG_WRITE_PROTECT, bkp_val);
+                        let _ = writeln!(
+                            board.uart0,
+                            "[SIM] Simulated PA8 Double-click -> Toggled Write-Protect to {} (Saved BKP6: 0x{:04X})",
+                            if new_wp { "RO" } else { "RW" }, bkp_val
+                        );
+                        dashboard.update(&mut board.lcd, &board.usb_msc.stats, configured, new_wp, now);
+                    }
                     b'r' | b'R' | b'o' | b'O' => {
                         let new_rot = board.lcd.toggle_rotation();
                         let bkp_val = if new_rot == Rotation::Rotated180 {
@@ -212,24 +292,26 @@ fn main() -> ! {
                         board.bkp.write_reg(BKP_REG_ROTATION, bkp_val);
                         let _ = writeln!(
                             board.uart0,
-                            "[UART] Command '{}' -> Toggled LCD rotation to {:?} (Saved BKP: 0x{:04X})",
+                            "[UART] Command '{}' -> Toggled LCD rotation to {:?} (Saved BKP5: 0x{:04X})",
                             cmd as char, new_rot, bkp_val
                         );
                         dashboard.draw_layout(&mut board.lcd);
-                        dashboard.update(&mut board.lcd, &board.usb_msc.stats, configured, now);
+                        dashboard.update(&mut board.lcd, &board.usb_msc.stats, configured, board.usb_msc.is_write_protected(), now);
                     }
                     b's' | b'S' => {
-                        let bkp_val = board.bkp.read_reg(BKP_REG_ROTATION);
+                        let bkp_rot = board.bkp.read_reg(BKP_REG_ROTATION);
+                        let bkp_wp = board.bkp.read_reg(BKP_REG_WRITE_PROTECT);
                         let _ = writeln!(
                             board.uart0,
-                            "[STATUS] LCD Rotation: {:?} | BKP Register 5: 0x{:04X}",
-                            board.lcd.rotation(), bkp_val
+                            "[STATUS] LCD Rotation: {:?} (BKP5: 0x{:04X}) | Write-Protect: {} (BKP6: 0x{:04X})",
+                            board.lcd.rotation(), bkp_rot,
+                            if board.usb_msc.is_write_protected() { "RO" } else { "RW" }, bkp_wp
                         );
                     }
                     b'?' => {
                         let _ = writeln!(
                             board.uart0,
-                            "[HELP] Commands: 'r' / 'o' Toggle Display 180° Rotation, 's' Status & BKP, '?' Help"
+                            "[HELP] Commands: 'w' Toggle Write-Protect, 'r'/'o' Toggle Display Rotation, 's' Status & BKP, 'k' Sim Single-Click, 'K' Sim Double-Click, '?' Help"
                         );
                     }
                     _ => {}
@@ -245,7 +327,7 @@ fn main() -> ! {
 
         // Live telemetry update: only when USB bus is idle
         if board.usb_msc.is_idle() {
-            dashboard.update(&mut board.lcd, &board.usb_msc.stats, configured, now);
+            dashboard.update(&mut board.lcd, &board.usb_msc.stats, configured, board.usb_msc.is_write_protected(), now);
         }
 
         if now.wrapping_sub(last_heartbeat) >= 1000 {

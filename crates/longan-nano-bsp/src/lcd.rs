@@ -20,6 +20,11 @@ pub const BKP_REG_ROTATION: usize = 5;
 pub const BKP_ROTATION_NORMAL: u16 = 0x5200; // 'R', 0
 pub const BKP_ROTATION_180: u16 = 0x5201;    // 'R', 1
 
+/// Backup Domain Register index and values for write-protect persistence.
+pub const BKP_REG_WRITE_PROTECT: usize = 6;
+pub const BKP_WRITE_PROTECT_RW: u16 = 0x5700; // 'W', 0 (Read-Write)
+pub const BKP_WRITE_PROTECT_RO: u16 = 0x5701; // 'W', 1 (Read-Only)
+
 pub mod color {
     pub const BLACK: u16     = 0x0000;
     pub const WHITE: u16     = 0xFFFF;
@@ -399,5 +404,15 @@ mod tests {
         // Verify 'R' ASCII tag
         assert_eq!((BKP_ROTATION_NORMAL >> 8) as u8, b'R');
         assert_eq!((BKP_ROTATION_180 >> 8) as u8, b'R');
+    }
+
+    #[test]
+    fn test_bkp_write_protect_constants() {
+        assert_eq!(BKP_REG_WRITE_PROTECT, 6);
+        assert_eq!(BKP_WRITE_PROTECT_RW, 0x5700);
+        assert_eq!(BKP_WRITE_PROTECT_RO, 0x5701);
+        // Verify 'W' ASCII tag
+        assert_eq!((BKP_WRITE_PROTECT_RW >> 8) as u8, b'W');
+        assert_eq!((BKP_WRITE_PROTECT_RO >> 8) as u8, b'W');
     }
 }

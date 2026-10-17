@@ -84,7 +84,7 @@ const STR_MSC_SERIAL: [u8; 26] = [
     26, 0x03,
     b'L', 0, b'N', 0, b'M', 0, b'S', 0, b'C', 0,
     b'0', 0, b'0', 0, b'0', 0, b'0', 0, b'0', 0,
-    b'E', 0, b'0', 0,
+    b'E', 0, b'2', 0,
 ];
 
 #[repr(C, align(4))]
@@ -227,6 +227,7 @@ pub struct UsbMsc {
 
     pub media_present: bool,
     pub unit_attention: bool,
+    pub write_protected: bool,
 
     pub stats: MscStats,
 }
@@ -353,6 +354,7 @@ impl UsbMsc {
             media_rx_offset: 0,
             media_present: false,
             unit_attention: false,
+            write_protected: false,
             stats: MscStats::default(),
         };
 
@@ -400,6 +402,16 @@ impl UsbMsc {
     #[inline(always)]
     pub fn clear_active(&mut self) {
         self.stats.is_active = false;
+    }
+
+    #[inline(always)]
+    pub fn is_write_protected(&self) -> bool {
+        self.write_protected
+    }
+
+    #[inline(always)]
+    pub fn set_write_protected(&mut self, wp: bool) {
+        self.write_protected = wp;
     }
 
     pub fn set_sense(&mut self, key: SenseKey, asc: Asc) {
@@ -801,7 +813,7 @@ impl UsbMsc {
                             data[0] = 0x00;
                             data[1] = 0x80;
                             data[3] = 12;
-                            data[4..16].copy_from_slice(b"LNMSC00000E0");
+                            data[4..16].copy_from_slice(b"LNMSC00000E2");
                             let len = core::cmp::min(self.cbw.d_cbw_data_transfer_length as usize, 16);
                             self.send_data(&data[..len]);
                         }
@@ -829,13 +841,15 @@ impl UsbMsc {
             }
 
             scsi_cmd::MODE_SENSE_6 => {
-                let data: [u8; 4] = [0x03, 0x00, 0x00, 0x00];
+                let wp_byte = if self.write_protected { 0x80 } else { 0x00 };
+                let data: [u8; 4] = [0x03, 0x00, wp_byte, 0x00];
                 let len = core::cmp::min(self.cbw.d_cbw_data_transfer_length as usize, 4);
                 self.send_data(&data[..len]);
             }
 
             scsi_cmd::MODE_SENSE_10 => {
-                let data: [u8; 8] = [0x00, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+                let wp_byte = if self.write_protected { 0x80 } else { 0x00 };
+                let data: [u8; 8] = [0x00, 0x06, 0x00, wp_byte, 0x00, 0x00, 0x00, 0x00];
                 let len = core::cmp::min(self.cbw.d_cbw_data_transfer_length as usize, 8);
                 self.send_data(&data[..len]);
             }
@@ -1059,6 +1073,11 @@ impl UsbMsc {
                     self.abort_transfer(disk);
                     return;
                 }
+                if self.write_protected {
+                    self.set_sense(SenseKey::DataProtect, Asc::WriteProtected);
+                    self.abort_transfer(disk);
+                    return;
+                }
                 let lba = (((self.cbw.cbwcb[1] & 0x1F) as u32) << 16)
                     | ((self.cbw.cbwcb[2] as u32) << 8)
                     | (self.cbw.cbwcb[3] as u32);
@@ -1098,6 +1117,11 @@ impl UsbMsc {
                 }
                 if !disk.is_ready() {
                     self.set_sense(SenseKey::NotReady, Asc::MediumNotPresent);
+                    self.abort_transfer(disk);
+                    return;
+                }
+                if self.write_protected {
+                    self.set_sense(SenseKey::DataProtect, Asc::WriteProtected);
                     self.abort_transfer(disk);
                     return;
                 }
@@ -2127,5 +2151,36 @@ mod tests {
         assert_eq!(SenseKey::UnitAttention as u8, 0x06);
         assert_eq!(Asc::NotReadyToReadyTransition as u8, 0x28);
         assert_eq!(Asc::MediumNotPresent as u8, 0x3A);
+    }
+
+    #[test]
+    fn test_scsi_data_protect_sense_code() {
+        assert_eq!(SenseKey::DataProtect as u8, 0x07);
+        assert_eq!(Asc::WriteProtected as u8, 0x27);
+    }
+
+    #[test]
+    fn test_write_protect_mode_sense_bytes() {
+        // Mode Sense 6: Byte 2 bit 7 is Write Protect (WP)
+        let wp_false_6: [u8; 4] = [0x03, 0x00, if false { 0x80 } else { 0x00 }, 0x00];
+        assert_eq!(wp_false_6[2], 0x00);
+        let wp_true_6: [u8; 4] = [0x03, 0x00, if true { 0x80 } else { 0x00 }, 0x00];
+        assert_eq!(wp_true_6[2], 0x80);
+
+        // Mode Sense 10: Byte 3 bit 7 is Write Protect (WP)
+        let wp_false_10: [u8; 8] = [0x00, 0x06, 0x00, if false { 0x80 } else { 0x00 }, 0x00, 0x00, 0x00, 0x00];
+        assert_eq!(wp_false_10[3], 0x00);
+        let wp_true_10: [u8; 8] = [0x00, 0x06, 0x00, if true { 0x80 } else { 0x00 }, 0x00, 0x00, 0x00, 0x00];
+        assert_eq!(wp_true_10[3], 0x80);
+    }
+
+    #[test]
+    fn test_msc_write_protect_flag() {
+        let mut wp = false;
+        assert!(!wp);
+        wp = true;
+        assert!(wp);
+        wp = false;
+        assert!(!wp);
     }
 }

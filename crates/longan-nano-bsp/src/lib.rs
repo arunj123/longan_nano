@@ -68,7 +68,7 @@ pub use lcd_font;
 pub mod lcd;
 pub use lcd::{
     color as lcd_color, Lcd, Rotation, BKP_REG_ROTATION, BKP_ROTATION_180, BKP_ROTATION_NORMAL,
-    LCD_HEIGHT, LCD_WIDTH,
+    BKP_REG_WRITE_PROTECT, BKP_WRITE_PROTECT_RW, BKP_WRITE_PROTECT_RO, LCD_HEIGHT, LCD_WIDTH,
 };
 
 pub mod sdcard;
