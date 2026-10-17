@@ -251,10 +251,17 @@ flowchart TD
      - Partition 1 (`/dev/sdb1`) mounted read-only (`mount code=0`), all SD files listed cleanly, and unmounted with zero kernel errors.
 
 ### Phase 2: Architecture Refactoring & Host Tests
-- [ ] **Task 2.1**: Refactor `main.rs` macros in `prj_current_monitor` into an `App` struct.
+- [x] **Task 2.1**: Refactor `main.rs` macros in `prj_current_monitor` into an `App` struct. *(Verified in Build 00D5: 15/15 remote tests PASS, -12,322 bytes flash reduction)*
 - [ ] **Task 2.2**: Add host unit tests (`cargo test`) to `model.rs` and `fmt.rs`.
 - [ ] **Task 2.3**: Split `crates/gd32vf103-hal/src/usb.rs` into modular submodules (`usb/{dwc2, cdc_acm, hid, composite, msc/{bot, scsi, cache}}`).
 - [ ] **Task 2.4**: Implement pure-logic BOT 13-case validation in `msc/bot.rs` with unit tests.
+
+#### Phase 2 Empirical Verification Summary (In Progress):
+1. **`prj_current_monitor` (Build 00D5)**:
+   - **App Struct Refactoring (`app.rs`)**: Replaced 4 monolithic macro families (`set_screen_mode!`, `tare_and_reset!`, `dump_session!`, `print_help!`) with structured `App` state methods (`set_screen_mode`, `tare_and_reset`, `dump_session`, `print_help`, `cycle_screen_mode`).
+   - **Flash Optimization**: Decreased text section size from 119,940 bytes to 107,618 bytes (-12,322 bytes, **-10.3% flash reduction**), eliminating repetitive macro expansion bloat.
+   - **BSP Ownership Refactoring**: Converted `CurrentMonitorBoard.sdcard` to `Option<SdCard>` so it can be extracted without partially moving `board`, preserving clean reference borrowing.
+   - **Hardware Verification (`tools/test_remote_ui_cycling.py`)**: All 15 automated remote test suites passed (Help menu, 5 screen modes + cycling, battery profiles, session dump + JSON parse, SD flush, SD file rotation `LOG_0073.CSV` -> `LOG_0074.CSV`, zero-tare offset calibration, USB HID telemetry streaming, HID OUT commands for SetMode, SetBatteryProfile, SetEpoch, SetCurrentLimit).
 
 ### Phase 3: Performance & Driver Enhancements
 - [ ] **Task 3.1**: Convert USB FIFO read/write in `usb_msc` to 32-bit word transfers (`#[repr(align(4))]`).
