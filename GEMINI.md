@@ -52,6 +52,9 @@
   - Remote xHCI Port Unsticking:
     - When Linux xHCI disables the root hub port after enumeration or timeout loops (`unable to enumerate USB device`), re-enable it via sysfs without host reboot:
       `echo 1 | sudo tee /sys/bus/usb/devices/usb1/1-0:1.0/usb1-port1/disable; sleep 1; echo 0 | sudo tee /sys/bus/usb/devices/usb1/1-0:1.0/usb1-port1/disable`
+  - Non-Hanging Remote Block/SCSI Testing:
+    - Never run bare `dd`, `sg_raw`, or `mount` commands over SSH without a Linux `timeout` wrapper. A wedged USB MSC transfer blocks the Linux SCSI error handler for 30–180 seconds, hanging the SSH session.
+    - Always wrap remote disk commands in `timeout -k 2 5 ...` (or `timeout -k 2 15 ...` for multi-megabyte `dd` streams) and set SSH `command_timeout`, testing isolated LBAs with `sg_raw` before running bulk `dd` reads.
 
 
 ## Hardware & Architecture Reference
@@ -61,6 +64,9 @@
 - **Clock Configuration**:
   - **96 MHz** for applications using USB (`__SYSTEM_CLOCK_96M_PLL_HXTAL`, generates exact 48 MHz USB clock).
   - **108 MHz** for non-USB applications (`__SYSTEM_CLOCK_108M_PLL_HXTAL` for maximum CPU performance).
+  - **`RCU_CFG0` PLL Multiplier Encoding (`PLLMF[4:0]`)**: Because `PLLMF = 13` (`0b01101`) encodes `PLL × 6.5` and `PLLMF = 14` (`0b01110`) encodes `PLL × 16`, all `PLLMF[4] = 1` (`bit 29`) multipliers (`16x..30x`) use `pllmf = multiplier - 1`:
+    - `RCU_PLL_MUL24` (96 MHz SYSCLK / 48 MHz USB): `(0x7 << 18) | (1 << 29)` (`PLLMF = 23`), **never** `(0x6 << 18) | (1 << 29)` (`MUL23` = 92 MHz SYSCLK / 46 MHz USB, $-4.17\%$ clock error that causes USB NRZI bit-stuffing CRC failures `EPROTO -71` on `0xFF`-filled sectors like LBA 1024 while passing `0x00`-filled sectors).
+    - `RCU_PLL_MUL27` (108 MHz SYSCLK): `(0xA << 18) | (1 << 29)` (`PLLMF = 26`).
 - **Timing & Timers**:
   - Hardware `mtime` timer runs at `SystemCoreClock / 4` (24 MHz at 96 MHz SYSCLK, 27 MHz at 108 MHz SYSCLK).
   - Always use typed `hal::time` utilities (`ms_to_ticks`, `us_to_ticks`, `Instant`, `Duration`) for delays and debouncing. Never compare raw ticks directly to millisecond values.
@@ -77,6 +83,7 @@
 - **Power-Up Sequence**: Send $\ge 80$ dummy clocks ($\ge 10$ bytes of `0xFF`) with CS held HIGH at $\le 400\text{ kHz}$ SPI clock before issuing `CMD0`.
 - **Prescaler Switching**: Probe and initialize at $\le 400\text{ kHz}$ (SPI Mode 0: CPOL=0, CPHA=0, `BaudRatePrescaler::Div256`); switch dynamically to high speed (`BaudRatePrescaler::Div8`, ~6.75 MHz) only after operational initialization completes for sustained signal integrity over jumper wires.
 - **Write Busy Polling**: Always poll card ready (`wait_ready()`) after writing sector data before releasing CS or initiating subsequent commands.
+- **`CMD12` (`STOP_TRANSMISSION`) Mandatory Stuff Byte**: Per SD Physical Layer Spec Section 7.2.3, when terminating a `CMD18` multi-block read with `CMD12`, always discard 1 mandatory stuff byte immediately after sending `CMD12` before polling for the `R1b` response (`(b & 0x80) == 0`), and then poll until `MISO == 0xFF` before deasserting `CS`.
 
 ## FatFs Architecture on 32-Bit RISC-V
 - **Version**: ChaN's FatFs R0.15 w/patch2 (`FFCONF_DEF 80286`) in `lib/fatfs/`.
@@ -135,6 +142,7 @@
       2. Poll `while (!(DIEPCTL & DEPCTL_NAKS) && --timeout) {}` to guarantee hardware confirmation of NAK status.
       3. Program `DIEPLEN`.
       4. Only then assert `DEPCTL_EPEN`.
+    - **Diagnostic Signature (`actual_length % 64 == 13`, e.g. `resid=563` on 4096B or `resid=51` on 512B)**: In `usbmon` / `dmesg`, `Unaligned partial completion` where `transferred_bytes = K * 64 + 13` proves that a 64-byte data packet was dropped by the DWC2 empty-FIFO race and the 13-byte CSW was prematurely absorbed into the host's still-open Data URB.
   - **Immediate Inter-Phase NAK Pre-Arming (Elimination of xHCI EPROTO -71)**:
     - Host controllers (e.g. xHCI) submit the Bulk-IN data phase URB immediately upon receiving the CBW ACK (often within $\le 35\ \mu\text{s}$). If endpoint arming is deferred to the main application loop (`poll()`), the IN endpoint remains disabled (`EPEN=0`).
     - An in-flight IN token arriving while the endpoint is disabled triggers an xHCI transaction error (`COMP_USB_TRANSACTION_ERROR` / `stat=-71 EPROTO`), causing the host to issue a bus reset.
