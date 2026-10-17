@@ -11,7 +11,9 @@ use riscv_rt::entry;
 #[cfg(not(test))]
 use core::fmt::Write;
 #[cfg(not(test))]
-use longan_nano_bsp::Board;
+use longan_nano_bsp::{
+    Board, Rotation, BKP_REG_ROTATION, BKP_ROTATION_180, BKP_ROTATION_NORMAL,
+};
 #[cfg(not(test))]
 use longan_nano_bsp::hal::usb::MSC_CONFIG_DESC;
 #[cfg(not(test))]
@@ -34,7 +36,14 @@ fn main() -> ! {
         board.uart0,
         "Mass Storage Class (SCSI transparent / Bulk-Only Transport)"
     );
-    let _ = writeln!(board.uart0, "Build: 00DF | SD Card Hot-Swap & Unit Attention Enabled");
+    let _ = writeln!(
+        board.uart0,
+        "Build: 00E0 | Display 180° Toggle & BKP Persistence | Hot-Swap"
+    );
+    let _ = writeln!(
+        board.uart0,
+        "Commands: 'r' / 'o' Toggle Display Rotation, 's' Query Status, '?' Help"
+    );
     let _ = writeln!(board.uart0, "===================================================");
 
     // 2. Initialize SD Card
@@ -91,7 +100,22 @@ fn main() -> ! {
         let _ = writeln!(board.uart0, "[MSC_DISK] SD Card init failed: {:?}", sd_res);
     }
 
-    // 3. Initialize ST7735 LCD Live Telemetry Dashboard
+    // 3. Initialize ST7735 LCD & Restore Rotation from BKP
+    board.lcd.init(&mut board.delay);
+
+    let bkp_rot = board.bkp.read_reg(BKP_REG_ROTATION);
+    let initial_rot = if bkp_rot == BKP_ROTATION_180 {
+        Rotation::Rotated180
+    } else {
+        Rotation::Normal
+    };
+    board.lcd.set_rotation(initial_rot);
+    let _ = writeln!(
+        board.uart0,
+        "[LCD] Initialized ST7735 160x80 | Rotation: {:?} (BKP: 0x{:04X})",
+        initial_rot, bkp_rot
+    );
+
     let mut dashboard = TelemetryDashboard::new(sd_ok, cap_mb);
     dashboard.draw_layout(&mut board.lcd);
     dashboard.update(&mut board.lcd, &board.usb_msc.stats, false, board.delay.uptime_ms());
@@ -106,6 +130,8 @@ fn main() -> ! {
 
     let mut last_heartbeat = board.delay.uptime_ms();
     let mut last_sd_check = board.delay.uptime_ms();
+    let mut last_btn_check = board.delay.uptime_ms();
+    let mut btn_was_pressed = false;
     let mut usb_was_configured = false;
 
     loop {
@@ -143,6 +169,70 @@ fn main() -> ! {
                     board.led_green.off();
                     board.led_red.on();
                     let _ = writeln!(board.uart0, "[HOT-SWAP] SD Card REMOVED. Media not present.");
+                }
+            }
+        }
+
+        // Handle PA8 button press to toggle LCD rotation (debounced every 40 ms)
+        if board.usb_msc.is_idle() && now.wrapping_sub(last_btn_check) >= 40 {
+            last_btn_check = now;
+            let pressed = board.button.is_pressed();
+            if pressed && !btn_was_pressed {
+                btn_was_pressed = true;
+                let new_rot = board.lcd.toggle_rotation();
+                let bkp_val = if new_rot == Rotation::Rotated180 {
+                    BKP_ROTATION_180
+                } else {
+                    BKP_ROTATION_NORMAL
+                };
+                board.bkp.write_reg(BKP_REG_ROTATION, bkp_val);
+                let _ = writeln!(
+                    board.uart0,
+                    "[BUTTON] PA8 pressed -> Toggled LCD rotation to {:?} (Saved BKP: 0x{:04X})",
+                    new_rot, bkp_val
+                );
+                dashboard.draw_layout(&mut board.lcd);
+                dashboard.update(&mut board.lcd, &board.usb_msc.stats, configured, now);
+            } else if !pressed && btn_was_pressed {
+                btn_was_pressed = false;
+            }
+        }
+
+        // Handle UART0 interactive commands (when USB bus is idle)
+        if board.usb_msc.is_idle() {
+            if let Some(cmd) = board.uart0.read_byte() {
+                match cmd {
+                    b'r' | b'R' | b'o' | b'O' => {
+                        let new_rot = board.lcd.toggle_rotation();
+                        let bkp_val = if new_rot == Rotation::Rotated180 {
+                            BKP_ROTATION_180
+                        } else {
+                            BKP_ROTATION_NORMAL
+                        };
+                        board.bkp.write_reg(BKP_REG_ROTATION, bkp_val);
+                        let _ = writeln!(
+                            board.uart0,
+                            "[UART] Command '{}' -> Toggled LCD rotation to {:?} (Saved BKP: 0x{:04X})",
+                            cmd as char, new_rot, bkp_val
+                        );
+                        dashboard.draw_layout(&mut board.lcd);
+                        dashboard.update(&mut board.lcd, &board.usb_msc.stats, configured, now);
+                    }
+                    b's' | b'S' => {
+                        let bkp_val = board.bkp.read_reg(BKP_REG_ROTATION);
+                        let _ = writeln!(
+                            board.uart0,
+                            "[STATUS] LCD Rotation: {:?} | BKP Register 5: 0x{:04X}",
+                            board.lcd.rotation(), bkp_val
+                        );
+                    }
+                    b'?' => {
+                        let _ = writeln!(
+                            board.uart0,
+                            "[HELP] Commands: 'r' / 'o' Toggle Display 180° Rotation, 's' Status & BKP, '?' Help"
+                        );
+                    }
+                    _ => {}
                 }
             }
         }

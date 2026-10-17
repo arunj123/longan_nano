@@ -453,6 +453,11 @@ impl<'a> App<'a> {
         .ok();
         writeln!(
             board.uart0,
+            " 'o'      : Toggle LCD 180° rotation (persisted in BKP)"
+        )
+        .ok();
+        writeln!(
+            board.uart0,
             " 'f'      : Force flush MicroSD sector buffer"
         )
         .ok();

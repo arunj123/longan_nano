@@ -12,6 +12,7 @@ pub mod i2c;
 pub mod fwdgt;
 pub mod adc;
 pub mod rtc;
+pub mod bkp;
 
 pub use rcu::{Clocks, RcuConfig, RcuExt};
 pub use gpio::{GpioPortExt, Pin, PortA, PortB, PortC};
@@ -23,3 +24,4 @@ pub use i2c::{DutyCycle, I2c, I2cError};
 pub use fwdgt::Fwdgt;
 pub use adc::Adc0TempSensor;
 pub use rtc::{DateTime, Rtc, epoch_to_datetime};
+pub use bkp::Bkp;

@@ -394,7 +394,7 @@ flowchart TD
 - [x] **Task 4.2**: Implement edge-triggered capture on `GraphScreen` and fix `Single` mode autoscale replotting. *(Verified in Build 00DD: 55/55 host unit tests PASS, 22/22 remote hardware tests PASS, rising edge trigger + autoscale freeze in Single mode + waveform preservation verified)*
 - [x] **Task 4.3**: Add live LCD telemetry to `prj_usb_msc` during bus idle. *(Verified in Build 00DE: 66/66 host unit tests PASS, target hardware verified with 806 kB/s read streaming, 128 KiB write streaming MD5 match, live telemetry dashboard verified)*
 - [x] **Task 4.4**: Add SD card hot-swap detection and `SenseKey::UnitAttention` handling. *(Verified in Build 00DF: 70/70 host unit tests PASS, target hardware verified with 749 kB/s read, 452 kB/s write, 128 KiB MD5 match, Unit Attention handling verified)*
-- [ ] **Task 4.5**: Add display 180° rotation toggle via `MADCTL` persisted in `BKP` register.
+- [x] **Task 4.5**: Add display 180° rotation toggle via `MADCTL` persisted in `BKP` register. *(Verified in Build 00E0: 74/74 host unit tests PASS, target hardware verified with LCD telemetry init, 180° rotation toggle via PA8 and UART 'o', BKP_DATA5 persistence verified across reboot, 773 kB/s read streaming, 576 kB/s CMD25 write streaming MD5 match)*
 
 #### Phase 4 Empirical Verification Summary:
 1. **`prj_current_monitor` PA8 Gesture Controller & Visual Feedback (Build 00DC)**:
@@ -517,6 +517,48 @@ flowchart TD
      - Single-file write & verification round-trip match verified on `/mnt/sdcard/build_00df.txt`.
      - Multi-block 128 KiB CMD25 write streaming with double buffering achieved **452 kB/s** with 100% cryptographic match (`MD5: 57c8ff090bdb5b416ddd6ad7bc8086b3`).
      - Clean unmount with zero dmesg errors or USB transaction errors.
+
+5. **`prj_usb_msc` Display 180° Rotation Toggle via MADCTL Persisted in BKP & LCD Blank Screen Fix (Build 00E0)**:
+   - **Blank Screen Root Cause & LCD Initialization Fix (`prj_usb_msc/src/main.rs`)**:
+     - Root cause: `board.lcd.init(&mut board.delay)` was omitted in `main.rs`, leaving the ST7735 controller in uninitialized sleep mode.
+     - Solution: Added `board.lcd.init(&mut board.delay)` before dashboard instantiation.
+   - **MADCTL Rotation & BKP Persistence Architecture (`lcd.rs`, `bkp.rs`, `bsp/lib.rs`)**:
+     - Added `Rotation` enum (`Normal = 0`, `Rotated180 = 1`) to `longan-nano-bsp::lcd`.
+     - Normal Landscape: MADCTL byte `0x78` (`MY=0, MX=1, MV=1, ML=1, BGR=1`).
+     - Rotated 180° Landscape: MADCTL byte `0xB8` (`MY=1, MX=0, MV=1, ML=1, BGR=1`).
+     - Symmetrical coordinate mapping: ST7735 window offsets $(X+1, Y+26)$ are identical and symmetrical for both orientations ($132 - 80 - 26 = 26$, $162 - 160 - 1 = 1$).
+     - Created `gd32vf103-hal::Bkp` driver implementing Backup Domain register access (`read_reg`, `write_reg`) for registers 0..=9 with automatic APB1 clock enabling and PMU write protection unlocking.
+     - Persisted rotation state in Backup Domain register 5 (`BKP_DATA5`): `0x5200` (`Normal`) vs `0x5201` (`Rotated180`).
+     - Re-exported `Bkp`, `Rotation`, and constants in `longan-nano-bsp`. Initialized `board.bkp` in `Board::take_msc()`.
+     - On boot, restores rotation state directly from `BKP_DATA5` before rendering layout.
+   - **Elimination of 37 KB Stack Overflow in `prj_usb_msc` (`usb/msc/cache.rs`)**:
+     - Root cause: `LbaCache` held `pub data: [[u8; 512]; 16]` inline (8,192 bytes), causing `UsbMsc` to be ~9.5 KB and `MscBoard` ~10 KB. Returning `Option<MscBoard>` from `take_msc()` caused LLVM to allocate 37,744 bytes on stack, driving `SP` below `0x20000000` into unmapped space and triggering `mcause = 0x2` (Illegal Instruction) trap.
+     - Solution: Stored `CACHE_DATA: [[u8; 512]; 16]` in static memory (`.bss`) on embedded target (`#[cfg(not(test))]`) while keeping inline buffer on host (`#[cfg(test)]`) for thread-safe concurrent testing.
+     - Stack usage in `main` plummeted from 38,000 bytes down to 5,008 bytes, leaving > 19 KB of SRAM headroom.
+   - **Interactive Control & Telemetry Dashboard (`prj_usb_msc/src/main.rs`, `prj_current_monitor/`)**:
+     - `prj_usb_msc`: PA8 debounced button press and UART0 `'r' | 'R' | 'o' | 'O'` toggle display rotation, persist to BKP register 5, and immediately redraw telemetry layout.
+     - Added `'s' | 'S'` UART command to query live rotation state and raw `BKP_DATA5` register value without resetting.
+     - Added `'?'` help menu. Synchronized rotation toggle in `prj_current_monitor` via UART command `'o'`.
+     - Bumped USB serial string and SCSI VPD page 0x80 serial to `LNMSC00000E0`.
+   - **Host Unit Test Suite (`cargo test`)**:
+     - 74/74 host unit tests pass across the workspace (27 in `gd32vf103-hal`, 31 in `prj_current_monitor`, 6 in `longan-nano-bsp`, 10 in `prj_usb_msc`).
+     - 2 new unit tests in `gd32vf103-hal` cover `Bkp` constants/limits and `LbaCache` insert/lookup/update/invalidate operations.
+     - 2 new unit tests in `longan-nano-bsp` cover `Rotation` MADCTL bytes (`0x78` vs `0xB8`) and BKP constants (`0x5200` vs `0x5201`).
+   - **Target Hardware Empirical Verification (`tools/verify_build_00e0.py`)**:
+     - Flashed to GD32VF103 over JTAG OpenOCD on remote host `192.168.0.63`.
+     - Clean USB enumeration as `28e9:abd4` `Longan Nano SD Reader`, serial `LNMSC00000E0` (480 MiB / 983,040 blocks).
+     - LCD displays live telemetry dashboard cleanly on boot.
+     - Interactive UART commands verified: `'?'` help menu, `'s'` query (`Normal | BKP: 0x5200`), `'o'` toggle (`Rotated180 | BKP: 0x5201`), `'s'` query after toggle (`Rotated180 | BKP: 0x5201`), `'o'` restore (`Normal | BKP: 0x5200`).
+     - BKP persistence verified across re-flash and reboot: set rotation to `Rotated180` (`0x5201`), re-flashed target, queried status on boot, successfully restored `Rotated180 | BKP: 0x5201`.
+     - SCSI `TEST_UNIT_READY`, `REQUEST_SENSE`, and `READ_CAPACITY_10` verified.
+     - All 7 isolated `sg_raw` sector queries passed (LBA 0 1/8 blks, LBA 528 8 blks, LBA 560 8 blks, LBA 1024 1/8 blks, and fuzzed OOB LBA cleanly rejected with Check Condition).
+     - Single-block read throughput: **555 kB/s**; multi-block read throughput: **986 kB/s**.
+     - Sustained 4.0 MiB read streaming (`dd bs=64k count=64`) achieved **773 kB/s** with zero USB transaction errors or bus resets.
+     - Partition 1 (`/dev/sdb1`) mounted read-write cleanly (`mount code=0`).
+     - Single-file write & verification round-trip match verified on `/mnt/sdcard/build_00e0.txt`.
+     - Multi-block 128 KiB CMD25 write streaming with double buffering achieved **576 kB/s** with 100% cryptographic match (`MD5: 925dad1a4bc6cd4b05419669c82739b0`).
+     - Clean unmount with zero dmesg errors or USB transaction errors.
+
 
 ---
 

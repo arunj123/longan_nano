@@ -84,7 +84,7 @@ const STR_MSC_SERIAL: [u8; 26] = [
     26, 0x03,
     b'L', 0, b'N', 0, b'M', 0, b'S', 0, b'C', 0,
     b'0', 0, b'0', 0, b'0', 0, b'0', 0, b'0', 0,
-    b'D', 0, b'F', 0,
+    b'E', 0, b'0', 0,
 ];
 
 #[repr(C, align(4))]
@@ -232,6 +232,7 @@ pub struct UsbMsc {
 }
 
 impl UsbMsc {
+    #[inline(always)]
     pub fn new(usbfs: Usbfs, rcu: &Rcu, delay: &mut Delay) -> Self {
         rcu.regs().ahben.set_bits(ahben::USBFSEN);
         usbfs.global().gusbcs.set_bits(gusbcs::EMBPHY | gusbcs::FDM);
@@ -792,7 +793,7 @@ impl UsbMsc {
                             data[0] = 0x00;
                             data[1] = 0x80;
                             data[3] = 12;
-                            data[4..16].copy_from_slice(b"LNMSC00000DF");
+                            data[4..16].copy_from_slice(b"LNMSC00000E0");
                             let len = core::cmp::min(self.cbw.d_cbw_data_transfer_length as usize, 16);
                             self.send_data(&data[..len]);
                         }

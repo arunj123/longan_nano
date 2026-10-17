@@ -66,7 +66,10 @@ pub type KeyButton = Button<Pin<PortA, 8, mode::Input<mode::PullDown>>>;
 
 pub use lcd_font;
 pub mod lcd;
-pub use lcd::{color as lcd_color, Lcd, LCD_HEIGHT, LCD_WIDTH};
+pub use lcd::{
+    color as lcd_color, Lcd, Rotation, BKP_REG_ROTATION, BKP_ROTATION_180, BKP_ROTATION_NORMAL,
+    LCD_HEIGHT, LCD_WIDTH,
+};
 
 pub mod sdcard;
 pub use sdcard::{CardType, SdCard, SdError};
@@ -77,7 +80,10 @@ pub use ina219::{Ina219, Ina219Data};
 pub mod rotary_encoder;
 pub use rotary_encoder::RotaryEncoder;
 
-pub use hal::{Adc0TempSensor, DateTime, Fwdgt, MscBlockDevice, MscStats, Rtc, UsbCdcAcm, UsbComposite, UsbHid, UsbMsc};
+pub use hal::{
+    adc::Adc0TempSensor, Bkp, DateTime, Fwdgt, MscBlockDevice, MscStats, Rtc, UsbCdcAcm,
+    UsbComposite, UsbHid, UsbMsc,
+};
 pub use hal::i2c::{I2c, I2cError};
 use hal::spi::{Prescaler, Spi0, Spi1};
 
@@ -144,6 +150,7 @@ pub struct MscBoard {
     pub lcd: Lcd,
     pub sdcard: SdCard,
     pub usb_msc: UsbMsc,
+    pub bkp: Bkp,
     pub delay: Delay,
     pub clocks: Clocks,
 }
@@ -417,6 +424,7 @@ impl Board {
     }
 
     /// Initializes board for USB Mass Storage Class (96 MHz PLL, 48 MHz USBFS, LCD, MicroSD SPI1, UsbMsc).
+    #[inline(always)]
     pub fn take_msc() -> Option<MscBoard> {
         let dp = Peripherals::take()?;
         let rcu_cfg = RcuConfig {
@@ -461,6 +469,7 @@ impl Board {
 
         let mut delay = Delay::new(dp.mtime, clocks);
         let usb_msc = UsbMsc::new(dp.usbfs, &rcu, &mut delay);
+        let bkp = Bkp::init(dp.bkp, dp.pmu, &rcu);
 
         Some(MscBoard {
             led_red,
@@ -471,6 +480,7 @@ impl Board {
             lcd,
             sdcard,
             usb_msc,
+            bkp,
             delay,
             clocks,
         })

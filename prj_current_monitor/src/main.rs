@@ -16,7 +16,9 @@ use panic_halt as _;
 #[cfg(not(test))]
 use riscv_rt::entry;
 
-use longan_nano_bsp::Board;
+use longan_nano_bsp::{
+    Board, Rotation, BKP_REG_ROTATION, BKP_ROTATION_180, BKP_ROTATION_NORMAL,
+};
 
 use crate::app::{App, BKP_MAGIC_KEY, BKP_REG_CONFIG, BKP_REG_LIMIT, BKP_REG_MAGIC, BKP_REG_TARE};
 use crate::button::{ButtonEvent, ButtonState};
@@ -48,11 +50,20 @@ fn main() -> ! {
         init_epoch,
         if board.rtc.is_synced() { "YES" } else { "NO" }
     ).ok();
-    writeln!(board.uart0, " Commands: '1'..'5' Mode, 'm' Cycle, 'b' Bat, 't' Tare, 'c' Clock, 'r' Rotate, 's' Dump, '?' Help").ok();
+    writeln!(board.uart0, " Commands: '1'..'5' Mode, 'm' Cycle, 'b' Bat, 't' Tare, 'c' Clock, 'r' Rotate SD, 'o' Rotate LCD, 's' Dump, '?' Help").ok();
     writeln!(board.uart0, "========================================").ok();
 
     // Initialize ST7735 160x80 LCD
     board.lcd.init(&mut board.delay);
+
+    // Restore LCD Rotation from BKP
+    let bkp_rot = board.rtc.read_backup_reg(BKP_REG_ROTATION);
+    let initial_rot = if bkp_rot == BKP_ROTATION_180 {
+        Rotation::Rotated180
+    } else {
+        Rotation::Normal
+    };
+    board.lcd.set_rotation(initial_rot);
 
     // MicroSD card wrapper
     let sdcard = board.sdcard.take().expect("SdCard not found");
@@ -358,6 +369,21 @@ fn main() -> ! {
                     b'r' | b'R' | b'n' | b'N' => {
                         app.datalogger.rotate_session();
                         writeln!(board.uart0, "[SD] Rotated to new file: {}", app.datalogger.file_name_str()).ok();
+                    }
+                    b'o' | b'O' => {
+                        let new_rot = board.lcd.toggle_rotation();
+                        let bkp_val = if new_rot == Rotation::Rotated180 {
+                            BKP_ROTATION_180
+                        } else {
+                            BKP_ROTATION_NORMAL
+                        };
+                        board.rtc.write_backup_reg(BKP_REG_ROTATION, bkp_val);
+                        writeln!(
+                            board.uart0,
+                            "[LCD] Toggled display rotation to {:?} (Saved BKP: 0x{:04X})",
+                            new_rot, bkp_val
+                        ).ok();
+                        app.draw_current_layout(&mut board);
                     }
                     b'f' | b'F' => {
                         app.datalogger.flush_buffer();

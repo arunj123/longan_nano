@@ -7,6 +7,19 @@ pub use lcd_font::*;
 pub const LCD_WIDTH: u16 = 160;
 pub const LCD_HEIGHT: u16 = 80;
 
+/// Display orientation rotation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum Rotation {
+    Normal = 0,     // 0° Landscape (MADCTL 0x78: MY=0, MX=1, MV=1, ML=1, BGR=1)
+    Rotated180 = 1, // 180° Landscape (MADCTL 0xB8: MY=1, MX=0, MV=1, ML=1, BGR=1)
+}
+
+/// Backup Domain Register index and values for display rotation persistence.
+pub const BKP_REG_ROTATION: usize = 5;
+pub const BKP_ROTATION_NORMAL: u16 = 0x5200; // 'R', 0
+pub const BKP_ROTATION_180: u16 = 0x5201;    // 'R', 1
+
 pub mod color {
     pub const BLACK: u16     = 0x0000;
     pub const WHITE: u16     = 0xFFFF;
@@ -25,6 +38,7 @@ pub struct Lcd {
     cs: Pin<PortB, 2, mode::Output<mode::PushPull>>,
     dc: Pin<PortB, 0, mode::Output<mode::PushPull>>,
     rst: Pin<PortB, 1, mode::Output<mode::PushPull>>,
+    rotation: Rotation,
 }
 
 impl Lcd {
@@ -34,7 +48,13 @@ impl Lcd {
         dc: Pin<PortB, 0, mode::Output<mode::PushPull>>,
         rst: Pin<PortB, 1, mode::Output<mode::PushPull>>,
     ) -> Self {
-        Self { spi, cs, dc, rst }
+        Self {
+            spi,
+            cs,
+            dc,
+            rst,
+            rotation: Rotation::Normal,
+        }
     }
 
     #[inline(always)]
@@ -119,14 +139,52 @@ impl Lcd {
             if cmd.len() > 1 {
                 self.spi.wait_idle();
                 self.mode_data();
-                for &b in &cmd[1..] {
-                    self.spi.send_u8(b);
+                if cmd[0] == 0x36 {
+                    self.spi.send_u8(self.madctl_byte());
+                } else {
+                    for &b in &cmd[1..] {
+                        self.spi.send_u8(b);
+                    }
                 }
             }
         }
 
         delay.delay_ms(120);
         self.clear(color::BLACK);
+    }
+
+    /// Returns the current display rotation setting.
+    #[inline(always)]
+    pub fn rotation(&self) -> Rotation {
+        self.rotation
+    }
+
+    /// Returns the ST7735 MADCTL (0x36) parameter byte for the current rotation.
+    #[inline(always)]
+    pub fn madctl_byte(&self) -> u8 {
+        match self.rotation {
+            Rotation::Normal => 0x78,
+            Rotation::Rotated180 => 0xB8,
+        }
+    }
+
+    /// Sets display rotation by transmitting ST7735 MADCTL (0x36) command.
+    pub fn set_rotation(&mut self, rotation: Rotation) {
+        self.rotation = rotation;
+        self.write_cmd(0x36);
+        self.mode_data();
+        self.spi.send_u8(self.madctl_byte());
+        self.spi.wait_idle();
+    }
+
+    /// Toggles display rotation between Normal (0°) and Rotated180 (180°).
+    pub fn toggle_rotation(&mut self) -> Rotation {
+        let new_rot = match self.rotation {
+            Rotation::Normal => Rotation::Rotated180,
+            Rotation::Rotated180 => Rotation::Normal,
+        };
+        self.set_rotation(new_rot);
+        new_rot
     }
 
     /// Set address window with Longan Nano ST7735 panel offsets (X+1, Y+26).
@@ -305,5 +363,41 @@ impl Lcd {
             self.draw_char_scaled(x, y, c, font, fg, bg, scale);
             x += adv;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_rotation_madctl_bytes() {
+        let normal = Rotation::Normal;
+        let rotated = Rotation::Rotated180;
+        assert_eq!(normal as u8, 0);
+        assert_eq!(rotated as u8, 1);
+
+        let madctl_norm = match normal {
+            Rotation::Normal => 0x78,
+            Rotation::Rotated180 => 0xB8,
+        };
+        let madctl_rot = match rotated {
+            Rotation::Normal => 0x78,
+            Rotation::Rotated180 => 0xB8,
+        };
+        assert_eq!(madctl_norm, 0x78);
+        assert_eq!(madctl_rot, 0xB8);
+        // Bit 7 (MY) and Bit 6 (MX) are inverted
+        assert_eq!(madctl_norm ^ madctl_rot, 0xC0);
+    }
+
+    #[test]
+    fn test_bkp_rotation_constants() {
+        assert_eq!(BKP_REG_ROTATION, 5);
+        assert_eq!(BKP_ROTATION_NORMAL, 0x5200);
+        assert_eq!(BKP_ROTATION_180, 0x5201);
+        // Verify 'R' ASCII tag
+        assert_eq!((BKP_ROTATION_NORMAL >> 8) as u8, b'R');
+        assert_eq!((BKP_ROTATION_180 >> 8) as u8, b'R');
     }
 }
