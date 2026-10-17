@@ -51,8 +51,8 @@ fn fmt_big_digits(c_tenth: i16) -> ([u8; 5], &'static str, bool) {
     let is_rev = c_tenth < 0;
     let abs_c = c_tenth.unsigned_abs() as u32;
 
-    if abs_c >= 10_000 {
-        // >= 1.000 A: format as "{:>1}.{:03} A"
+    if abs_c >= 10_000 || (is_rev && abs_c >= 1_000) {
+        // >= 1.000 A or (negative <= -100.0 mA): format as "{:>1}.{:03} A"
         let whole_a = (abs_c / 10_000) as u8;
         let frac_a = (abs_c % 10_000) / 10; // 3 decimal digits (0..999)
         let d0 = if is_rev { b'-' } else { b'0' + whole_a };
@@ -62,7 +62,7 @@ fn fmt_big_digits(c_tenth: i16) -> ([u8; 5], &'static str, bool) {
         let d4 = b'0' + ((frac_a % 10) as u8);
         ([d0, d1, d2, d3, d4], " A", true)
     } else {
-        // < 1000.0 mA: format as "{:>3}.{:01} mA"
+        // < 1000.0 mA (and if negative, > -100.0 mA): format as "{:>3}.{:01} mA"
         let whole_ma = (abs_c / 10) as u16;
         let frac_ma = (abs_c % 10) as u8;
 
@@ -72,10 +72,8 @@ fn fmt_big_digits(c_tenth: i16) -> ([u8; 5], &'static str, bool) {
             let d2 = b'0' + ((whole_ma % 10) as u8);
             (d0, d1, d2)
         } else {
-            // Negative current
-            if whole_ma >= 100 {
-                (b'-', b'0' + (((whole_ma / 10) % 10) as u8), b'0' + ((whole_ma % 10) as u8))
-            } else if whole_ma >= 10 {
+            // Negative current > -100.0 mA: -0.1 .. -99.9 mA
+            if whole_ma >= 10 {
                 (b'-', b'0' + ((whole_ma / 10) as u8), b'0' + ((whole_ma % 10) as u8))
             } else {
                 (b' ', b'-', b'0' + (whole_ma as u8))

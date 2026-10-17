@@ -213,7 +213,8 @@ def run_gui_plotter(csv_file=None):
             if not report:
                 break
             if report[0] == 0x01 and len(report) >= 7:
-                v_mv, c_ma, p_mw = struct.unpack('<HhH', bytes(report[1:7]))
+                v_mv, c_raw, p_mw = struct.unpack('<HhH', bytes(report[1:7]))
+                c_ma = c_raw / 10.0
                 stats.update(v_mv, c_ma, p_mw)
                 t_rel = time.time() - stats.start_time
 
@@ -224,7 +225,7 @@ def run_gui_plotter(csv_file=None):
 
                 if csv_writer:
                     iso = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-                    csv_writer.write(f"{iso},{t_rel:.2f},{v_mv},{c_ma},{p_mw},{stats.mwh_accum:.2f},{stats.mah_accum:.2f}\n")
+                    csv_writer.write(f"{iso},{t_rel:.2f},{v_mv},{c_ma:.1f},{p_mw},{stats.mwh_accum:.2f},{stats.mah_accum:.2f}\n")
 
         if times:
             t_list = list(times)

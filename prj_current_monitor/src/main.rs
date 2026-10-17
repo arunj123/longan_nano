@@ -76,7 +76,7 @@ macro_rules! set_screen_mode {
 }
 
 macro_rules! tare_and_reset {
-    ($now:expr, $ina_present:expr, $board:expr, $datalogger:expr, $accum:expr, $hist:expr, $histo:expr, $stats:expr, $screen_mode:expr, $hero:expr, $graph:expr, $stats_s:expr, $histo_s:expr, $big_digit:expr, $battery:expr, $current_limit_ma:expr, $sec_agg:expr) => {{
+    ($now:expr, $ina_present:expr, $board:expr, $datalogger:expr, $accum:expr, $hist:expr, $histo:expr, $stats:expr, $screen_mode:expr, $hero:expr, $graph:expr, $stats_s:expr, $histo_s:expr, $big_digit:expr, $battery:expr, $current_limit_ma:expr, $sec_agg:expr, $last_10hz_ms:expr) => {{
         if $ina_present {
             let mut sum_raw = 0i32;
             let mut valid_samples = 0i32;
@@ -121,6 +121,7 @@ macro_rules! tare_and_reset {
             ScreenMode::Histogram => $histo_s.draw_layout(&mut $board.lcd),
             ScreenMode::BigDigit => $big_digit.draw_layout(&mut $board.lcd),
         }
+        $last_10hz_ms = $board.delay.uptime_ms();
     }};
 }
 
@@ -524,7 +525,7 @@ fn main() -> ! {
                                 ).ok();
                             }
                         } else if cmd_len == 1 && cmd_buf[0] == b'T' {
-                            tare_and_reset!(now, ina_present, board, datalogger, accum, history, histogram, stats, screen_mode, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, battery, current_limit_ma, sec_agg);
+                            tare_and_reset!(now, ina_present, board, datalogger, accum, history, histogram, stats, screen_mode, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, battery, current_limit_ma, sec_agg, last_10hz_ms);
                         } else if cmd_len >= 2 && cmd_buf[0] == b'L' {
                             let line = &cmd_buf[..cmd_len];
                             let mut idx = 1;
@@ -611,7 +612,7 @@ fn main() -> ! {
                         ).ok();
                     }
                     b't' => {
-                        tare_and_reset!(now, ina_present, board, datalogger, accum, history, histogram, stats, screen_mode, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, battery, current_limit_ma, sec_agg);
+                        tare_and_reset!(now, ina_present, board, datalogger, accum, history, histogram, stats, screen_mode, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, battery, current_limit_ma, sec_agg, last_10hz_ms);
                     }
                     b'c' | b'C' => {
                         let epoch = board.rtc.get_epoch();
@@ -685,7 +686,7 @@ fn main() -> ! {
                         set_screen_mode!(mode, screen_mode, board, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, history, battery, current_limit_ma);
                     }
                 }
-                HidCommand::TareZero => tare_and_reset!(now, ina_present, board, datalogger, accum, history, histogram, stats, screen_mode, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, battery, current_limit_ma, sec_agg),
+                HidCommand::TareZero => tare_and_reset!(now, ina_present, board, datalogger, accum, history, histogram, stats, screen_mode, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, battery, current_limit_ma, sec_agg, last_10hz_ms),
                 HidCommand::FlushSd => {
                     datalogger.flush_buffer();
                     writeln!(board.uart0, "[HID-CMD] Flushed SD buffer to {}", datalogger.file_name_str()).ok();
@@ -737,7 +738,7 @@ fn main() -> ! {
 
             if duration >= 1500 {
                 // Long press (>= 1.5s): Zero Tare Calibration + Reset Session Stats
-                tare_and_reset!(now, ina_present, board, datalogger, accum, history, histogram, stats, screen_mode, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, battery, current_limit_ma, sec_agg);
+                tare_and_reset!(now, ina_present, board, datalogger, accum, history, histogram, stats, screen_mode, hero_screen, graph_screen, stats_screen, histogram_screen, big_digit_screen, battery, current_limit_ma, sec_agg, last_10hz_ms);
             } else if duration >= 50 {
                 // Short press (50ms..1499ms):
                 if screen_mode == ScreenMode::Graph && graph_screen.trigger_mode == TriggerMode::Single && graph_screen.trigger_state == TriggerState::Halted {
@@ -864,6 +865,7 @@ fn main() -> ! {
                         ina_present,
                         board.usb_hid.is_configured(),
                         datalogger.status,
+                        over_current,
                     );
                 }
                 ScreenMode::Graph => {

@@ -114,6 +114,7 @@ impl Accumulators {
 
     #[inline]
     pub fn update(&mut self, p_tenth_mw: u32, c_tenth_signed: i16, dt_ms: u32) {
+        let dt_ms = dt_ms.min(500);
         let abs_c = c_tenth_signed.unsigned_abs() as u64;
         let e_inc = (p_tenth_mw as u64) * (dt_ms as u64);
         let q_inc = abs_c * (dt_ms as u64);

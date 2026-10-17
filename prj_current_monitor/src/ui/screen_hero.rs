@@ -15,11 +15,13 @@ pub struct HeroScreen {
     pwr_field: DirtyField<16>,
     energy_field: DirtyField<16>,
     peak_bar_val: u16,
+    prev_peak_bar_val: u16,
     peak_decay_counter: u8,
     ema: EmaFilter,
     prev_usb_cfg: Option<bool>,
     prev_sd_status: Option<SdStatus>,
     prev_badge: Option<u8>,
+    prev_ina_present: Option<bool>,
 }
 
 impl HeroScreen {
@@ -31,11 +33,13 @@ impl HeroScreen {
             pwr_field: DirtyField::new(),
             energy_field: DirtyField::new(),
             peak_bar_val: 0,
+            prev_peak_bar_val: 0,
             peak_decay_counter: 0,
             ema: EmaFilter::new(),
             prev_usb_cfg: None,
             prev_sd_status: None,
             prev_badge: None,
+            prev_ina_present: None,
         }
     }
 
@@ -63,10 +67,12 @@ impl HeroScreen {
         self.pwr_field.invalidate();
         self.energy_field.invalidate();
         self.peak_bar_val = 0;
+        self.prev_peak_bar_val = 0;
         self.ema.reset();
         self.prev_usb_cfg = None;
         self.prev_sd_status = None;
         self.prev_badge = None;
+        self.prev_ina_present = None;
     }
 
     pub fn update(
@@ -77,6 +83,7 @@ impl HeroScreen {
         ina_present: bool,
         usb_configured: bool,
         sd_status: SdStatus,
+        over_current: bool,
     ) {
         // --- 1. Header Bar: Status Icons, Energy & Status Badge ---
         // 1a. USB Status Icon (X: 4, Y: 3)
@@ -116,6 +123,8 @@ impl HeroScreen {
         // 1d. Status Badge (Top-Right)
         let cur_badge = if !ina_present {
             0u8
+        } else if over_current {
+            4u8
         } else if reading.overflow {
             1u8
         } else if reading.is_reverse {
@@ -127,30 +136,69 @@ impl HeroScreen {
         if self.prev_badge != Some(cur_badge) {
             match cur_badge {
                 0 => {
-                    lcd.fill_rect(122, 2, 35, 10, rgb565(60, 0, 0));
-                    lcd.rect(122, 2, 35, 10, COL_RED);
-                    lcd.draw_string(126, 3, "ERR ", &FONT_5X7, COL_RED, rgb565(60, 0, 0));
+                    lcd.fill_rect(120, 2, 38, 10, rgb565(60, 0, 0));
+                    lcd.rect(120, 2, 38, 10, COL_RED);
+                    lcd.draw_string(127, 3, "ERR ", &FONT_5X7, COL_RED, rgb565(60, 0, 0));
                 }
                 1 => {
-                    lcd.fill_rect(122, 2, 35, 10, rgb565(60, 40, 0));
-                    lcd.rect(122, 2, 35, 10, COL_AMBER);
-                    lcd.draw_string(126, 3, "OVF ", &FONT_5X7, COL_AMBER, rgb565(60, 40, 0));
+                    lcd.fill_rect(120, 2, 38, 10, rgb565(60, 40, 0));
+                    lcd.rect(120, 2, 38, 10, COL_AMBER);
+                    lcd.draw_string(127, 3, "OVF ", &FONT_5X7, COL_AMBER, rgb565(60, 40, 0));
                 }
                 2 => {
-                    lcd.fill_rect(122, 2, 35, 10, rgb565(60, 0, 0));
-                    lcd.rect(122, 2, 35, 10, COL_RED);
-                    lcd.draw_string(126, 3, "REV ", &FONT_5X7, COL_RED, rgb565(60, 0, 0));
+                    lcd.fill_rect(120, 2, 38, 10, rgb565(60, 0, 0));
+                    lcd.rect(120, 2, 38, 10, COL_RED);
+                    lcd.draw_string(127, 3, "REV ", &FONT_5X7, COL_RED, rgb565(60, 0, 0));
+                }
+                4 => {
+                    lcd.fill_rect(120, 2, 38, 10, rgb565(60, 40, 0));
+                    lcd.rect(120, 2, 38, 10, COL_AMBER);
+                    lcd.draw_string(121, 3, "!ALERT", &FONT_5X7, COL_AMBER, rgb565(60, 40, 0));
                 }
                 _ => {
-                    lcd.fill_rect(122, 2, 35, 10, 0x0162);
-                    lcd.rect(122, 2, 35, 10, 0x05E2);
-                    lcd.draw_string(126, 3, "LIVE", &FONT_5X7, COL_MINT, 0x0162);
+                    lcd.fill_rect(120, 2, 38, 10, 0x0162);
+                    lcd.rect(120, 2, 38, 10, 0x05E2);
+                    lcd.draw_string(127, 3, "LIVE", &FONT_5X7, COL_MINT, 0x0162);
                 }
             }
             self.prev_badge = Some(cur_badge);
         }
 
-        // --- 2. Hero Current Display with EMA Smoothing ---
+        // --- 2. Sensor Disconnection Handling ---
+        if !ina_present {
+            if self.prev_ina_present != Some(false) {
+                lcd.fill_rect(0, 14, 160, 66, COL_BLACK);
+                lcd.draw_string(32, 38, "DISCONNECTED", &FONT_8X16, COL_RED, COL_BLACK);
+                self.cur_field.invalidate();
+                self.unit_field.invalidate();
+                self.volt_field.invalidate();
+                self.pwr_field.invalidate();
+                self.prev_peak_bar_val = 0;
+                self.peak_bar_val = 0;
+                self.prev_ina_present = Some(false);
+            }
+            return;
+        }
+
+        if self.prev_ina_present == Some(false) {
+            lcd.fill_rect(0, 14, 160, 66, COL_BLACK);
+            // Restore weather widget tile borders and header labels
+            lcd.fill_rect(3, 51, 76, 27, COL_CARD_BG);
+            lcd.rect(3, 51, 76, 27, COL_CARD_BORDER);
+            lcd.draw_string(7, 53, "VOLTAGE", &FONT_5X7, COL_MINT, COL_CARD_BG);
+
+            lcd.fill_rect(81, 51, 76, 27, COL_CARD_BG);
+            lcd.rect(81, 51, 76, 27, COL_CARD_BORDER);
+            lcd.draw_string(85, 53, "POWER", &FONT_5X7, COL_AMBER, COL_CARD_BG);
+
+            self.cur_field.invalidate();
+            self.unit_field.invalidate();
+            self.volt_field.invalidate();
+            self.pwr_field.invalidate();
+        }
+        self.prev_ina_present = Some(true);
+
+        // --- 3. Hero Current Display with EMA Smoothing ---
         let raw_c = reading.current_tenth_ma;
         let display_c = self.ema.update(raw_c);
 
@@ -186,11 +234,12 @@ impl HeroScreen {
             lcd.draw_string(140, 24, unit_str, &FONT_8X16, curr_col, COL_BLACK);
         }
 
-        // --- 3. Dynamic Load Gauge Bar with Peak-Hold Marker (Y: 46..48) ---
+        // --- 4. Dynamic Load Gauge Bar with Peak-Hold Marker (Y: 46..49) ---
         let bar_max: u32 = 10_000; // 1000.0 mA nominal full-scale for gauge
         let abs_c = reading.abs_current_tenth();
         let fill_w = core::cmp::min(130, (abs_c * 130) / bar_max) as u16;
 
+        let prev_peak = self.prev_peak_bar_val;
         if fill_w > self.peak_bar_val {
             self.peak_bar_val = fill_w;
             self.peak_decay_counter = 20; // Hold for 2 seconds (20 ticks @ 10Hz)
@@ -204,6 +253,13 @@ impl HeroScreen {
         let gauge_x = 4;
         let gauge_y = 47;
         let gauge_w = 130;
+
+        // Erase previous peak-hold tick if it moved, ensuring height 4 (Y: 46..49) is cleared
+        if prev_peak > 0 && prev_peak <= gauge_w && prev_peak != self.peak_bar_val {
+            lcd.fill_rect(gauge_x + prev_peak - 1, gauge_y - 1, 2, 4, COL_BLACK);
+        }
+        self.prev_peak_bar_val = self.peak_bar_val;
+
         let bar_col = if reading.is_reverse {
             COL_RED
         } else if fill_w > 100 {
@@ -223,7 +279,7 @@ impl HeroScreen {
             lcd.fill_rect(gauge_x + self.peak_bar_val - 1, gauge_y - 1, 2, 4, COL_WHITE);
         }
 
-        // --- 4. Bottom Weather Tiles ---
+        // --- 5. Bottom Weather Tiles ---
         // Voltage
         let mut v_buf = [0u8; 16];
         let mut v_cur = BufferCursor::new(&mut v_buf);
