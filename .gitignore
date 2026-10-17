@@ -37,3 +37,4 @@ prj_usb_msc_all_files.txt
 scratch/
 session_*.csv
 snapshot_*.csv
+review_current_monitor/
