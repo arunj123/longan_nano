@@ -10,6 +10,8 @@ See [GEMINI.md](file:///c:/Users/arunj/projects/longan_nano/GEMINI.md) for full 
 >    - The agent MUST update [`docs/FIRMWARE_REVIEW_AND_ROADMAP.md`](file:///c:/Users/arunj/projects/longan_nano/docs/FIRMWARE_REVIEW_AND_ROADMAP.md) to mark completed tasks (`[x]`), document architectural decisions, record empirical verification results, and note any blockers.
 >    - Ensure all information needed to continue seamlessly in a brand-new session (exact next steps, active phase, file locations, known bugs/findings) is fully documented in the file without requiring the next agent to re-analyze from scratch.
 > 3. **Session Start Verification**: At the start of EVERY new session or task, run `git status` and read [`docs/FIRMWARE_REVIEW_AND_ROADMAP.md`](file:///c:/Users/arunj/projects/longan_nano/docs/FIRMWARE_REVIEW_AND_ROADMAP.md) before performing any work.
+> 4. **Roadmap Archival & Size Management**: When [`docs/FIRMWARE_REVIEW_AND_ROADMAP.md`](file:///c:/Users/arunj/projects/longan_nano/docs/FIRMWARE_REVIEW_AND_ROADMAP.md) grows beyond maintainable size (e.g. > 600-800 lines or > 50-60 KB), archive completed historical phases, milestones, detailed progress notes, and empirical verification logs into dedicated archive documents (e.g. `docs/archive/FIRMWARE_ROADMAP_PHASES_1_TO_4.md`), retaining in the active roadmap an executive summary/table of completed phases, the active phase, upcoming phases, and the active session handoff protocol to keep the document lightweight, fast to read, and fully maintainable.
+
 
 ## CRITICAL MANDATORY INVARIANT: ECONOMIC AI SESSION HANDOFF
 > [!TIP]
