@@ -60,6 +60,8 @@ pub struct SdCard {
     pub is_initialized: bool,
     pub streaming_read: bool,
     pub stream_next_lba: u32,
+    pub streaming_write: bool,
+    pub stream_write_next_lba: u32,
 }
 
 impl SdCard {
@@ -72,6 +74,8 @@ impl SdCard {
             is_initialized: false,
             streaming_read: false,
             stream_next_lba: 0,
+            streaming_write: false,
+            stream_write_next_lba: 0,
         }
     }
 
@@ -138,6 +142,8 @@ impl SdCard {
         self.is_initialized = false;
         self.streaming_read = false;
         self.stream_next_lba = 0;
+        self.streaming_write = false;
+        self.stream_write_next_lba = 0;
 
         // Start at slow speed (Prescaler Div256 = ~200-400 kHz)
         self.spi.set_prescaler(Prescaler::Div256);
@@ -285,6 +291,8 @@ impl SdCard {
         self.is_initialized = true;
         self.streaming_read = false;
         self.stream_next_lba = 0;
+        self.streaming_write = false;
+        self.stream_write_next_lba = 0;
         Ok(self.card_type)
     }
 
@@ -292,6 +300,9 @@ impl SdCard {
     pub fn begin_multi_read(&mut self, start_sector: u32) -> Result<(), SdError> {
         if !self.is_initialized {
             return Err(SdError::NotInitialized);
+        }
+        if self.streaming_write {
+            self.end_multi_write();
         }
         if self.streaming_read {
             if self.stream_next_lba == start_sector {
@@ -383,6 +394,10 @@ impl SdCard {
             return Err(SdError::NotInitialized);
         }
 
+        if self.streaming_write {
+            self.end_multi_write();
+        }
+
         if self.streaming_read {
             if lba == self.stream_next_lba {
                 return self.read_next_stream_sector(buf);
@@ -430,6 +445,107 @@ impl SdCard {
         Ok(())
     }
 
+    /// Begin continuous multi-block write streaming (CMD25).
+    pub fn begin_multi_write(&mut self, start_sector: u32) -> Result<(), SdError> {
+        if !self.is_initialized {
+            return Err(SdError::NotInitialized);
+        }
+        if self.streaming_read {
+            self.end_multi_read();
+        }
+        if self.streaming_write {
+            if self.stream_write_next_lba == start_sector {
+                return Ok(());
+            }
+            self.end_multi_write();
+        }
+
+        let arg = if self.card_type == CardType::SD2HC {
+            start_sector
+        } else {
+            start_sector * 512
+        };
+
+        self.cs_low();
+        self.xchg(0xFF); // 8 clocks sync
+
+        if !self.spi.wait_ready_fast(500 * 2500) {
+            self.release_bus();
+            return Err(SdError::Timeout);
+        }
+
+        // Send CMD25 (WRITE_MULTIPLE_BLOCK)
+        let r1 = self.send_cmd(25, arg, 0x01);
+        if r1 != 0x00 {
+            self.release_bus();
+            return Err(SdError::WriteError);
+        }
+
+        self.streaming_write = true;
+        self.stream_write_next_lba = start_sector;
+        Ok(())
+    }
+
+    /// Write next consecutive 512-byte sector in an active CMD25 stream.
+    pub fn write_next_stream_sector(&mut self, buf: &[u8; 512]) -> Result<(), SdError> {
+        if !self.streaming_write {
+            return Err(SdError::NotInitialized);
+        }
+
+        // Send at least 1 dummy byte before data token per SD spec
+        self.xchg(0xFF);
+
+        // Send Data Start Token for CMD25 (0xFC)
+        self.xchg(0xFC);
+
+        // Transmit 512 data bytes
+        self.spi.write_block_fast(buf);
+
+        // Send dummy CRC16
+        self.xchg(0xFF);
+        self.xchg(0xFF);
+
+        // Read Data Response token (xxx00101b = 0x05 -> data accepted)
+        let resp = self.xchg(0xFF);
+        if (resp & 0x1F) != 0x05 {
+            self.end_multi_write();
+            return Err(SdError::WriteError);
+        }
+
+        // Wait while card programs flash (MISO held LOW until programming completes)
+        if !self.spi.wait_ready_fast(1000 * 2500) {
+            self.end_multi_write();
+            return Err(SdError::Timeout);
+        }
+
+        self.stream_write_next_lba += 1;
+        // Leave CS LOW: Card remains ready for next 0xFC block token or 0xFD stop token
+        Ok(())
+    }
+
+    /// Stop continuous multi-block write streaming (Stop Tran Token 0xFD).
+    pub fn end_multi_write(&mut self) {
+        if !self.streaming_write {
+            return;
+        }
+        // Send at least 1 dummy byte before Stop Tran Token
+        self.xchg(0xFF);
+        // Send Stop Tran Token (0xFD)
+        self.xchg(0xFD);
+        // SD card requires at least 1 byte before busy assertion
+        self.xchg(0xFF);
+        // Wait while card finishes writing and releases busy (MISO high)
+        let _ = self.spi.wait_ready_fast(1000 * 2500);
+        self.release_bus();
+        self.streaming_write = false;
+    }
+
+    /// Check if multi-block write streaming is active.
+    #[inline(always)]
+    pub fn is_streaming_write(&self) -> bool {
+        self.streaming_write
+    }
+
     /// Write a 512-byte sector to the SD card.
     pub fn write_sector(&mut self, lba: u32, buf: &[u8; 512]) -> Result<(), SdError> {
         if !self.is_initialized {
@@ -438,6 +554,14 @@ impl SdCard {
 
         if self.streaming_read {
             self.end_multi_read();
+        }
+
+        if self.streaming_write {
+            if lba == self.stream_write_next_lba {
+                return self.write_next_stream_sector(buf);
+            } else {
+                self.end_multi_write();
+            }
         }
 
         let arg = if self.card_type == CardType::SD2HC {

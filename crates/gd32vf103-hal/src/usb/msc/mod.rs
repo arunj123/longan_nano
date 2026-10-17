@@ -84,7 +84,7 @@ const STR_MSC_SERIAL: [u8; 26] = [
     26, 0x03,
     b'L', 0, b'N', 0, b'M', 0, b'S', 0, b'C', 0,
     b'0', 0, b'0', 0, b'0', 0, b'0', 0, b'0', 0,
-    b'D', 0, b'9', 0,
+    b'D', 0, b'A', 0,
 ];
 
 #[repr(C, align(4))]
@@ -148,6 +148,16 @@ pub trait MscBlockDevice {
     }
     fn end_multi_read(&mut self) {}
     fn is_streaming(&self) -> bool {
+        false
+    }
+    fn begin_multi_write(&mut self, _start_lba: u32) -> bool {
+        false
+    }
+    fn write_next_stream_sector(&mut self, _buf: &[u8; 512]) -> bool {
+        false
+    }
+    fn end_multi_write(&mut self) {}
+    fn is_writing_stream(&self) -> bool {
         false
     }
 }
@@ -613,6 +623,7 @@ impl UsbMsc {
 
     fn abort_transfer<D: MscBlockDevice>(&mut self, disk: &mut D) {
         disk.end_multi_read();
+        disk.end_multi_write();
         self.ep1_in_prearmed = false;
         self.has_read_ahead = false;
         self.need_read = false;
@@ -723,7 +734,7 @@ impl UsbMsc {
                             data[0] = 0x00;
                             data[1] = 0x80;
                             data[3] = 12;
-                            data[4..16].copy_from_slice(b"LNMSC00000D9");
+                            data[4..16].copy_from_slice(b"LNMSC00000DA");
                             let len = core::cmp::min(self.cbw.d_cbw_data_transfer_length as usize, 16);
                             self.send_data(&data[..len]);
                         }
@@ -951,6 +962,7 @@ impl UsbMsc {
                 self.remaining_bytes = to_transfer;
                 self.csw_residue = self.cbw.d_cbw_data_transfer_length - to_transfer;
                 self.state = BbbState::DataOut;
+                self.buf_idx = 0;
                 self.media_rx_offset = 0;
                 let rx_len = core::cmp::min(self.remaining_bytes, 512);
                 self.arm_ep1_out(rx_len);
@@ -993,6 +1005,7 @@ impl UsbMsc {
                 self.remaining_bytes = to_transfer;
                 self.csw_residue = self.cbw.d_cbw_data_transfer_length - to_transfer;
                 self.state = BbbState::DataOut;
+                self.buf_idx = 0;
                 self.media_rx_offset = 0;
                 let rx_len = core::cmp::min(self.remaining_bytes, 512);
                 self.arm_ep1_out(rx_len);
@@ -1106,12 +1119,13 @@ impl UsbMsc {
                     if ep_num == 1 && self.state == BbbState::DataOut {
                         // High-throughput 32-bit word transfer for Bulk-OUT data phase
                         let offset = self.media_rx_offset;
+                        let rx_idx = self.buf_idx;
                         if (offset & 3) == 0 && offset + bcount <= 512 {
                             let word_offset = offset / 4;
                             let full_words = bcount / 4;
                             let rem = bcount % 4;
 
-                            let words_mut = self.media_buf[0].as_mut_words();
+                            let words_mut = self.media_buf[rx_idx].as_mut_words();
                             for i in 0..full_words {
                                 let w = unsafe { core::ptr::read_volatile(self.usbfs.fifo(0)) };
                                 words_mut[word_offset + i] = w;
@@ -1120,7 +1134,7 @@ impl UsbMsc {
                                 let w = unsafe { core::ptr::read_volatile(self.usbfs.fifo(0)) };
                                 let byte_base = offset + full_words * 4;
                                 for b in 0..rem {
-                                    self.media_buf[0][byte_base + b] = ((w >> (b * 8)) & 0xFF) as u8;
+                                    self.media_buf[rx_idx][byte_base + b] = ((w >> (b * 8)) & 0xFF) as u8;
                                 }
                             }
                         } else {
@@ -1130,8 +1144,8 @@ impl UsbMsc {
                                 for b in 0..4 {
                                     if byte_idx < bcount {
                                         let off = self.media_rx_offset + byte_idx;
-                                        if off < self.media_buf[0].len() {
-                                            self.media_buf[0][off] = ((w >> (b * 8)) & 0xFF) as u8;
+                                        if off < self.media_buf[rx_idx].len() {
+                                            self.media_buf[rx_idx][off] = ((w >> (b * 8)) & 0xFF) as u8;
                                         }
                                         byte_idx += 1;
                                     }
@@ -1503,6 +1517,7 @@ impl UsbMsc {
                 }
                 0xFF => { // REQ_BBB_RESET
                     disk.end_multi_read();
+                    disk.end_multi_write();
                     self.state = BbbState::Idle;
                     self.need_read = false;
                     self.need_write = false;
@@ -1552,6 +1567,7 @@ impl UsbMsc {
 
         if (intr & gintf::RST) != 0 {
             disk.end_multi_read();
+            disk.end_multi_write();
             self.handle_reset();
         }
 
@@ -1655,21 +1671,45 @@ impl UsbMsc {
         } else if self.need_write {
             self.need_write = false;
             let len = core::cmp::min(self.remaining_bytes, 512);
-            if disk.write_sector(self.lba, &self.media_buf[0]) {
-                self.cache.update(self.lba, &self.media_buf[0]);
+            let cur_idx = self.buf_idx;
+
+            // Double-buffered write pipelining:
+            // If more sectors remain to be received from the host, switch RX buffer
+            // to the alternate slot (1 - cur_idx) and arm EP1 OUT immediately so USB reception
+            // of sector N+1 overlaps concurrently with SPI flash programming of sector N.
+            let has_more = self.remaining_bytes > len;
+            if has_more {
+                let next_idx = 1 - cur_idx;
+                self.buf_idx = next_idx;
+                self.media_rx_offset = 0;
+                let next_rx_len = core::cmp::min(self.remaining_bytes - len, 512);
+                self.arm_ep1_out(next_rx_len);
+            }
+
+            // Stream multi-block writes via CMD25 when multiple sectors are requested
+            let write_ok = if has_more {
+                if !disk.is_writing_stream() {
+                    disk.begin_multi_write(self.lba);
+                }
+                disk.write_sector(self.lba, &self.media_buf[cur_idx])
+            } else {
+                disk.write_sector(self.lba, &self.media_buf[cur_idx])
+            };
+
+            if write_ok {
+                self.cache.update(self.lba, &self.media_buf[cur_idx]);
                 self.stats.sectors_written += 1;
                 self.stats.is_active = true;
                 self.lba += 1;
                 self.remaining_bytes -= len;
-                self.media_rx_offset = 0;
                 if self.remaining_bytes == 0 {
+                    disk.end_multi_write();
+                    self.media_rx_offset = 0;
                     self.csw_residue = 0;
                     self.send_csw(CswStatus::CmdPassed);
-                } else {
-                    let rx_len = core::cmp::min(self.remaining_bytes, 512);
-                    self.arm_ep1_out(rx_len);
                 }
             } else {
+                disk.end_multi_write();
                 self.cache.invalidate(self.lba);
                 self.set_sense(SenseKey::HardwareError, Asc::WriteFault);
                 self.abort_transfer(disk);
@@ -1741,5 +1781,74 @@ mod tests {
         assert_eq!(buf[511], 0xA5);
         assert_eq!(buf.as_words()[0], 0xA5A5A5A5);
         assert_eq!(buf.as_words()[127], 0xA5A5A5A5);
+    }
+
+    struct MockBlockDevice {
+        streaming_write: bool,
+        write_sectors: u32,
+    }
+
+    impl MscBlockDevice for MockBlockDevice {
+        fn is_ready(&self) -> bool { true }
+        fn capacity(&self) -> (u32, u32) { (1024, 512) }
+        fn read_sector(&mut self, _lba: u32, _buf: &mut [u8; 512]) -> bool { true }
+        fn write_sector(&mut self, _lba: u32, _buf: &[u8; 512]) -> bool {
+            self.write_sectors += 1;
+            true
+        }
+        fn begin_multi_write(&mut self, _start_lba: u32) -> bool {
+            self.streaming_write = true;
+            true
+        }
+        fn write_next_stream_sector(&mut self, _buf: &[u8; 512]) -> bool {
+            self.write_sectors += 1;
+            true
+        }
+        fn end_multi_write(&mut self) {
+            self.streaming_write = false;
+        }
+        fn is_writing_stream(&self) -> bool {
+            self.streaming_write
+        }
+    }
+
+    #[test]
+    fn test_msc_block_device_write_streaming_mock() {
+        let mut disk = MockBlockDevice {
+            streaming_write: false,
+            write_sectors: 0,
+        };
+
+        assert!(!disk.is_writing_stream());
+        assert!(disk.begin_multi_write(100));
+        assert!(disk.is_writing_stream());
+
+        let dummy_buf = [0x55u8; 512];
+        assert!(disk.write_next_stream_sector(&dummy_buf));
+        assert!(disk.write_next_stream_sector(&dummy_buf));
+        assert_eq!(disk.write_sectors, 2);
+
+        disk.end_multi_write();
+        assert!(!disk.is_writing_stream());
+    }
+
+    #[test]
+    fn test_double_buffer_ping_pong_indices() {
+        let mut rx_idx = 0usize;
+        let mut committed = [0usize; 4];
+
+        for i in 0..4 {
+            let cur_commit = rx_idx;
+            committed[i] = cur_commit;
+            let has_more = i < 3;
+            if has_more {
+                rx_idx = 1 - cur_idx(rx_idx);
+            }
+        }
+
+        fn cur_idx(idx: usize) -> usize { idx }
+
+        assert_eq!(committed, [0, 1, 0, 1]);
+        assert_eq!(rx_idx, 1);
     }
 }

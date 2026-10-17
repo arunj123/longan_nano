@@ -170,6 +170,18 @@ impl hal::MscBlockDevice for SdCard {
     fn is_streaming(&self) -> bool {
         self.streaming_read
     }
+    fn begin_multi_write(&mut self, start_lba: u32) -> bool {
+        self.begin_multi_write(start_lba).is_ok()
+    }
+    fn write_next_stream_sector(&mut self, buf: &[u8; 512]) -> bool {
+        self.write_next_stream_sector(buf).is_ok()
+    }
+    fn end_multi_write(&mut self) {
+        self.end_multi_write();
+    }
+    fn is_writing_stream(&self) -> bool {
+        self.streaming_write
+    }
 }
 
 impl Board {

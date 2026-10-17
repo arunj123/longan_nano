@@ -304,7 +304,7 @@ flowchart TD
 ### Phase 3: Performance & Driver Enhancements
 - [x] **Task 3.1**: Convert USB FIFO read/write in `usb_msc` to 32-bit word transfers (`#[repr(align(4))]`). *(Verified in Build 00D8: 18/18 host tests PASS, 780 kB/s read streaming, read/write round-trip verified)*
 - [x] **Task 3.2**: Remove artificial 1,200-tick spin wait before sending CSW in `StatusPending`. *(Verified in Build 00D9: 621 kB/s single-block (+19.6%), 832 kB/s sustained read streaming (+6.7%), zero USB errors)*
-- [ ] **Task 3.3**: Implement multi-block write streaming (`CMD25`) in `sdcard.rs` with double-buffered write pipelining.
+- [x] **Task 3.3**: Implement multi-block write streaming (`CMD25`) in `sdcard.rs` with double-buffered write pipelining. *(Verified in Build 00DA: 822 kB/s write streaming (+720% speedup), 20/20 host tests PASS, 128 KiB MD5 match, zero errors)*
 - [ ] **Task 3.4**: Optimize INA219 I2C transactions in `read_all()` (eliminate redundant `REG_CURRENT` read).
 
 #### Phase 3 Empirical Verification Summary:
@@ -328,7 +328,7 @@ flowchart TD
      - Partition 1 (`/dev/sdb1`) mounted read-write (`mount -t vfat /dev/sdb1 /mnt/sdcard`).
      - Written test payload to `/mnt/sdcard/build_00d8.txt` through the new 32-bit FIFO write path; `cat` read back 100% matched, verified, deleted, and unmounted with zero kernel or dmesg errors.
 
-2. **`prj_usb_msc` StatusPending 50 µs Spin Wait Elimination (Build 00D9)**:
+2. **`prj_usb_msc` StatusPending 50 µs Spin Wait Elimination (Build 00D9, Commit `187e0a2`)**:
    - **Elimination of Artificial 1,200-Tick (50 µs) Spin Wait**:
      - Removed `elapsed >= 1_200` gating in `crates/gd32vf103-hal/src/usb/msc/mod.rs` (`StatusPending` branch).
      - Immediate dispatch: as soon as hardware transfer completes (`(dieplen & 0x7FFFF) == 0 && ((dieplen >> 19) & 0x7FF) == 0`), TX1 FIFO drains completely (`(dieptfstat & 0xFFFF) >= 192`), and EP1 IN confirms NAKing (`(diepctl & depctl::NAKS) != 0`), the 13-byte CSW is dispatched without artificial spin delay.
@@ -341,6 +341,26 @@ flowchart TD
      - 4K block `dd bs=4096 count=1` achieved **958 kB/s** (0.00427 s).
      - Sustained 4.0 MiB read streaming (`dd bs=64k count=64`) achieved **832 kB/s** (up from 780 kB/s in Build 00D8, 738 kB/s in Build 00D7, and 713 kB/s in Build 00D4; **+6.7% throughput increase**, cumulative **+16.7%** over Build 00D4 baseline) with zero USB resets.
      - Partition 1 (`/dev/sdb1`) mounted read-write; written test payload to `/mnt/sdcard/build_00d9.txt`, verified 100% round-trip match, deleted and unmounted with zero kernel or dmesg errors.
+
+3. **`prj_usb_msc` Multi-Block Write Streaming & Double-Buffered Pipelining (Build 00DA)**:
+   - **Multi-Block Write Streaming (`CMD25`)**:
+     - Added `begin_multi_write(start_sector)`, `write_next_stream_sector(buf)`, `end_multi_write()`, and `is_streaming_write()` to `SdCard` in `crates/longan-nano-bsp/src/sdcard.rs` using standard SD `CMD25` with `0xFC` Data Start Token and `0xFD` Stop Tran Token.
+     - Automatically delegates sequential `write_sector` calls to `write_next_stream_sector` while `streaming_write` is active, seamlessly falling back to `CMD24` for single-sector writes.
+     - Added write stream teardown to `read_sector`, `begin_multi_read`, `abort_transfer`, `REQ_BBB_RESET`, and bus reset (`gintf::RST`), ensuring the SD card is never left in an uncommitted open write state.
+   - **Double-Buffered Write Pipelining**:
+     - Upgraded `UsbMsc` in `crates/gd32vf103-hal/src/usb/msc/mod.rs` to ping-pong across `media_buf[0]` and `media_buf[1]`.
+     - When sector $N$ finishes arriving from the host, the firmware immediately arms EP1 OUT for sector $N+1$ into the alternate buffer slot before committing sector $N$ to SD flash over SPI1.
+     - While sector $N$ is being programmed into NAND flash over SPI1, the USB hardware core receives the packets for sector $N+1$ into the alternate buffer concurrently, eliminating host-side USB write idle time.
+   - **Host Unit Test Suite (`cargo test -p gd32vf103-hal`)**:
+     - 20/20 unit tests pass (15 pure-logic BOT cases + 3 `SectorBuf` word-access/alignment tests + 2 new tests verifying `MscBlockDevice` write streaming and double-buffer ping-pong index alternation).
+   - **Target Hardware Empirical Verification (`tools/verify_build_00da.py`)**:
+     - Flashed to GD32VF103 over JTAG OpenOCD; enumerated cleanly on Linux host as `28e9:abd4` (serial `LNMSC00000DA`, 480 MiB / 983,040 blocks).
+     - All 7 isolated `sg_raw` tests passed (LBA 0 1/8 blks, LBA 528 8 blks, LBA 560 8 blks, LBA 1024 1/8 blks, and fuzzed OOB LBA cleanly rejected with Check Condition).
+     - Sustained read streaming verified at 776 kB/s with zero USB resets.
+     - Single-file write and read back round-trip match verified on `/mnt/sdcard/build_00da.txt`.
+     - Multi-block direct write streaming achieved **822 kB/s** on 2.0 MiB stream (`dd bs=64k count=32 oflag=direct`), representing an **8.2x write speedup** over the single-block `CMD24` baseline (~100 kB/s).
+     - Full 128 KiB random binary payload written, synced, read back, and verified with 100% cryptographic match (`MD5: 91fe0513299c216d869db44bff7fa2f5`).
+     - Clean unmount with zero dmesg errors or USB transaction errors.
 
 
 ### Phase 4: UI/UX & Advanced Features
