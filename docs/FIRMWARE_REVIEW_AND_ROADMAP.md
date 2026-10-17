@@ -1,6 +1,6 @@
 # Firmware Comprehensive Review, Optimization Plan & Multi-Session Roadmap
 
-**Document Status**: Active Master Tracking & Handover Document | Active Phase: Phase 5 (Production Hardening & Write Protection)  
+**Document Status**: Active Master Tracking & Handover Document | Active Phase: Phase 5 (Dedicated USB Drive Mode & Production Hardening)  
 **Target Architecture**: Sipeed Longan Nano (GD32VF103CBT6, RISC-V RV32IMAC @ 96/108 MHz, 32 KB SRAM, 128 KB Flash)  
 **Projects Covered**: `prj_usb_msc` (Pure Rust) and `prj_current_monitor` (Pure Rust + Python Telemetry + 3D Enclosure)  
 **Primary Author/Audience**: AI Agents (Autonomous Pair Programmers)
@@ -219,7 +219,7 @@ flowchart TD
     P1["Phase 1: Critical Bug Fixes & Quick Wins<br/>(monitor.py 10x, BigDigit negative mA, LBA overflow, stream leak)"] --> P2["Phase 2: Architecture Refactoring & Host Tests<br/>(App struct, host unit tests, usb.rs modularization)"]
     P2 --> P3["Phase 3: High-Impact Performance Upgrades<br/>(32-bit FIFO, CMD25 write streaming, CSW delay removal)"]
     P3 --> P4["Phase 4: UI/UX & New Features<br/>(PA8 double-click, live LCD telemetry, fast scope mode, BKP checkpointing)"]
-    P4 --> P5["Phase 5: Production Hardening & Write Protection<br/>(Write-Protect toggle, non-breaking cache lookup, workspace host tests, release tag)"]
+    P4 --> P5["Phase 5: Dedicated USB Drive Mode & Production Hardening<br/>(Screen 6 USB Drive, Write-Protect toggle, non-breaking cache, release tag)"]
 ```
 
 ### Phase 1: Critical Bug Fixes & Immediate Quick Wins (COMPLETED)
@@ -562,19 +562,31 @@ flowchart TD
 
 
 
-### Phase 5: Production Hardening, Write Protection & Release Milestone (ACTIVE / NEXT PHASE)
-- [ ] **Task 5.1**: Implement Hardware/Software Write-Protect Toggle & SCSI `MODE_SENSE_6`/`10` Protection Handling:
+### Phase 5: Dedicated USB Drive Mode & Production Hardening (ACTIVE / NEXT PHASE)
+- [ ] **Task 5.1**: Implement Dedicated USB Drive Mode on Screen 6 for `prj_current_monitor`:
+  - **FAT32 Concurrency & Safety (Elimination of Two Masters)**:
+    - Entering Screen 6 enters `Standby` (instructions displayed, logging remains safe, USB remains HID).
+    - Double-click or long-press on PA8 toggles Drive Mode state (`Standby` <-> `Active`).
+    - When transitioning to `Active`: flushes buffer (`datalogger.flush_buffer()`), safely closes FAT file handle, unmounts `embedded-sdmmc`, and hands exclusive raw sector access to `UsbMsc`.
+    - When transitioning to `Standby` or exiting Screen 6 (single-click advancing to Hero, or UART switch): automatically detaches `UsbMsc` (`DCTL.SDIS = 1`), restores `UsbHid`, re-probes SD card, rotates to the next sequential file (`LOG_XXXX.CSV`), and resumes logging seamlessly.
+  - **Dynamic USB Re-enumeration Engine**:
+    - Add `into_inner(self) -> Usbfs` to `UsbHid` and `UsbMsc` in `crates/gd32vf103-hal/src/usb/` asserting soft-disconnect (`dctl.SDIS = 1`).
+    - Add `UsbMode` enum (`Hid(UsbHid)`, `Msc(UsbMsc)`, `None`) and `switch_to_msc()` / `switch_to_hid()` transition helpers in `CurrentMonitorBoard`.
+  - **UI/UX & Screen 6 Component**:
+    - Extend `ScreenMode` with `ScreenMode::UsbDrive` (Screen 6).
+    - Implement `screen_usbdrive.rs` with clean status badges (`[STANDBY: NOT MOUNTED]` vs `[ACTIVE: PC MOUNTED]`), active log file, MicroSD capacity, and PA8 gesture prompts (`DOUBLE-CLICK / HOLD TO MOUNT`, `SINGLE-CLICK TO EXIT & RESUME`).
+- [ ] **Task 5.2**: Implement Hardware/Software Write-Protect Toggle & SCSI `MODE_SENSE_6`/`10` Protection Handling in `prj_usb_msc`:
   - Add Write-Protect (WP) bit reporting in SCSI `MODE_SENSE_6` (Byte 2, bit 7 `0x80`) and `MODE_SENSE_10` (Byte 3, bit 7 `0x80`).
   - Reject `WRITE_6` and `WRITE_10` with `SenseKey::DataProtect (0x07)`, `Asc::WriteProtected (0x27, 0x00)` when write-protect is active.
   - Add Write-Protect state toggle via UART command (`'w' | 'W'`) and PA8 double-click gesture in `prj_usb_msc`, persisting across reboots in Backup Domain register 6 (`BKP_DATA6`).
   - Display `[RO]` vs `[RW]` in the live LCD telemetry header badge.
-- [ ] **Task 5.2**: Implement Non-Breaking Stream Cache Lookup Policy ([MSC-PERF-04]):
+- [ ] **Task 5.3**: Implement Non-Breaking Stream Cache Lookup Policy ([MSC-PERF-04]):
   - In `crates/gd32vf103-hal/src/usb/msc/mod.rs`, optimize read-ahead pipelining so that sequential cache hits during an active `CMD18` multi-block read do not invoke `disk.end_multi_read()`.
   - Maintain the active SPI streaming read pipeline across cache hits for large block transfers (> 8 blocks), only consulting cache when starting a new transfer or for small isolated reads ($\le 8$ blocks).
-- [ ] **Task 5.3**: Fix Workspace-Wide Host Unit Test Harness & `panic_halt` Guarding:
+- [ ] **Task 5.4**: Fix Workspace-Wide Host Unit Test Harness & `panic_halt` Guarding:
   - Guard `panic_halt` in auxiliary crates (`prj_blink`, `prj_lcd_test`, `prj_sdcard_test`, `prj_sdcard_fs_test`, `prj_usb_serial`) with `#[cfg(not(test))] use panic_halt as _;`.
   - Ensure pure `cargo test --workspace --target x86_64-pc-windows-msvc` passes cleanly with 0 compilation errors across all workspace members.
-- [ ] **Task 5.4**: Master Release Milestone v1.0.0 End-to-End Verification & Documentation:
+- [ ] **Task 5.5**: Master Release Milestone v1.0.0 End-to-End Verification & Documentation:
   - Run complete end-to-end regression suites on target hardware for both `prj_usb_msc` and `prj_current_monitor`.
   - Tag git repository at `v1.0.0-release` and archive final verification artifacts.
 
