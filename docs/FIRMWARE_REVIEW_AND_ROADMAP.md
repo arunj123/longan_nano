@@ -226,13 +226,14 @@ flowchart TD
   - In `crates/gd32vf103-hal/src/usb/msc/` (`scsi.rs`, `mod.rs`) and `app.rs`, defaulted Screen 6 MSC to Read-Only (`write_protected = true`), bounded `handle_reset()` FIFO flush spin-loops (`100_000` iterations), and tracked host eject state via SCSI `START_STOP_UNIT` (`decode_start_stop_eject`) (`[MON-STOR-03]`).
   - *Empirical Verification (Build 00E4)*: 70/70 host unit tests pass (`33` in `gd32vf103-hal`, `37` in `prj_current_monitor`); firmware `text = 124,112` bytes, `bss = 32,768` bytes; 12/12 hardware checks passed on `192.168.0.63` via `test_usb_drive_mode.py` (Read-Only mount `/dev/sdb1`, `sg_raw` LBA 0 `55aa`, clean HID restore `28e9:1234`, session rotation `LOG_0117.CSV`).
 
-- [ ] **Task 6.2: Sensor DSP, Tare Calibration & Telemetry Correctness (P1)**:
-  - In `ina219.rs` and `app.rs`, remove 8-read tare loop; read `REG_SHUNTVOLTAGE` directly once (`read_uncompensated_tenth_ma()`, hardware 128-sample average); add load sanity check rejecting tare if `|offset| > 50.0 mA` (`[MON-SENS-01]`).
-  - In `main.rs`, require 3 consecutive I2C errors before setting `ina_present = false`; skip `histogram.record()` and `stats.update()` when offline (`[MON-SENS-02]`).
-  - In `ina219.rs`, flag `overflow` if `math_overflow || raw_c_tenth.unsigned_abs() >= 32000` (`[MON-SENS-03]`).
-  - In `main.rs`, evaluate over-current alert using current magnitude `reading.abs_current_tenth()` (`[MON-SENS-04]`).
-  - In `ina219.rs`, remove redundant `REG_POWER` read from `read_all()` and propagate all I2C read errors (`[MON-SENS-05]`).
-  - In `telemetry.rs`, increment sequence counter `seq` unconditionally on every sample; flag power saturation in HID reports; validate incoming HID OUT command packet lengths (`[MON-SENS-06]`).
+- [x] **Task 6.2: Sensor DSP, Tare Calibration & Telemetry Correctness (P1)** *(Verified in Build 00E5)*:
+  - In `ina219.rs` and `app.rs`, replaced the 8-read tare loop with a single uncompensated `REG_SHUNTVOLTAGE` read (`read_uncompensated_tenth_ma()`, hardware 128-sample average over 68.1 ms); added load sanity check (`validate_tare_offset`) rejecting tare if `|offset| > 50.0 mA` with `" TARE REJECTED: LOAD ON "` banner (`[MON-SENS-01]`).
+  - In `main.rs`, added 3-strike I2C error debounce (`i2c_err_count >= 3`) before setting `ina_present = false`; skipped `histogram.record()` and `stats.update()` when sensor is offline (`[MON-SENS-02]`).
+  - In `ina219.rs`, flagged `overflow` when `math_overflow || raw_c_tenth.unsigned_abs() >= 32000` and saturated `power_mw` at `65535` (`[MON-SENS-03]`).
+  - In `main.rs`, evaluated over-current alert using current magnitude `reading.abs_current_tenth()` (`[MON-SENS-04]`).
+  - In `ina219.rs`, removed redundant `REG_POWER` read from `read_all()`, cutting 10 Hz I2C traffic by 33% (`[MON-SENS-05]`).
+  - In `telemetry.rs`, incremented sequence counter `seq` unconditionally on every 10 Hz sample; set overflow bit (`1 << 2`) when `reading.power_tenth_mw > 655_350`; added strict HID OUT command packet length validation (`decode_hid_command`) (`[MON-SENS-06]`).
+  - *Empirical Verification (Build 00E5)*: 81/81 host unit tests pass (`33` in `gd32vf103-hal`, `8` in `longan-nano-bsp`, `40` in `prj_current_monitor`); firmware `text = 124,346` bytes, `bss = 32,768` bytes; 12/12 hardware checks passed on `192.168.0.63` (`v_mv: 3320, seq: 93`, `LOG_0120.CSV -> LOG_0122.CSV`).
 
 - [ ] **Task 6.3: AI Maintainability & Unified Command Dispatcher (P1)**:
   - Define `#[repr(usize)] pub enum BkpSlot` in `longan-nano-bsp` covering `BKP_DATA0..9` as the central NVRAM register authority (`[MON-MEM-01]`).
@@ -283,3 +284,17 @@ flowchart TD
      1. Update the checkboxes (`[x]`) and progress notes in this document.
      2. Ensure all verified work is committed in git.
      3. Explicitly direct/prompt the user to start a **new chat session**, informing them that the next session can resume directly from `docs/FIRMWARE_REVIEW_AND_ROADMAP.md`.
+
+### 5.2 Active Session State & Next-Session Handoff
+- **Latest Verified Build**: `Build 00E5` (`prj_current_monitor`: `text = 124,346` bytes, `bss = 32,768` bytes; 81/81 host unit tests passing; 12/12 hardware checks passing on `192.168.0.63`).
+- **Completed in Phase 6**:
+  - **Task 6.1** (`Build 00E4`): Storage & Filesystem Data Integrity (`[MON-STOR-01]`, `[MON-STOR-02]`, `[MON-STOR-03]`, `[MON-UI-02]`).
+  - **Task 6.2** (`Build 00E5`): Sensor DSP, Tare Calibration & Telemetry Correctness (`[MON-SENS-01]` through `[MON-SENS-06]`).
+- **Immediate Next Step for New Session**:
+  - **Task 6.3: AI Maintainability & Unified Command Dispatcher (P1)** (`Build 00E6`):
+    1. Define `#[repr(usize)] pub enum BkpSlot` in `crates/longan-nano-bsp` covering `BKP_DATA0..9` (`[MON-MEM-01]`).
+    2. Define `pub enum AppCommand` in `prj_current_monitor/src/app.rs` and implement `App::execute_command(&mut self, board, cmd, now)` (`[MON-AI-01]`).
+    3. Refactor `prj_current_monitor/src/main.rs` to map Rotary Encoder, ButtonController, UART CLI, and HID OUT reports into `AppCommand` and dispatch via `execute_command`.
+    4. Note: Reference draft implementations from the independent review are available in `review_current_monitor/application_state_unified_command_dispatcher.rs` and `review_current_monitor/firmware_main_entry_real_time_polling_loop.rs` (ensure Task 6.1 and Task 6.2 additions in `app.rs` and `main.rs` are preserved when adapting).
+  - Follow with **Task 6.4** and **Task 6.5**.
+

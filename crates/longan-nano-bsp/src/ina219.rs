@@ -98,6 +98,14 @@ impl Ina219 {
         Ok(c_tenth / 10)
     }
 
+    /// Reads uncompensated shunt current in 0.1 mA units directly from `REG_SHUNTVOLTAGE`.
+    /// Because INA219 is configured for 128-sample hardware averaging (68.10 ms), a single
+    /// read returns a fully hardware-filtered 128-sample average without tare offset.
+    pub fn read_uncompensated_tenth_ma(&mut self) -> Result<i16, I2cError> {
+        let raw = self.i2c.read_reg16(self.addr, Self::REG_SHUNTVOLTAGE)?;
+        Ok(raw as i16)
+    }
+
     /// Checks if a new conversion has completed (CNVR bit in Bus Voltage register).
     pub fn is_conversion_ready(&mut self) -> Result<bool, I2cError> {
         let raw = self.i2c.read_reg16(self.addr, Self::REG_BUSVOLTAGE)?;
@@ -124,13 +132,14 @@ impl Ina219 {
         // Direct read from Shunt Voltage eliminates the redundant Current register (0x04)
         // read and is completely immune to volatile calibration wipes (brownout/POR).
         let raw_c_tenth = s_raw as i16;
+        let shunt_saturated = raw_c_tenth.unsigned_abs() >= 32_000;
 
         // Apply tare compensation with saturation guarding
         let current_tenth_ma = raw_c_tenth.saturating_sub(tare_offset_tenth);
 
         let abs_c_tenth = current_tenth_ma.unsigned_abs() as u32;
         let power_tenth_mw = (voltage_mv as u32 * abs_c_tenth) / 1000;
-        let power_mw = (power_tenth_mw / 10) as u16;
+        let power_mw = (power_tenth_mw / 10).min(u16::MAX as u32) as u16;
 
         Ina219Data {
             voltage_mv,
@@ -138,23 +147,20 @@ impl Ina219 {
             current_tenth_ma,
             power_mw,
             power_tenth_mw,
-            overflow: math_overflow,
+            overflow: math_overflow || shunt_saturated,
             conversion_ready,
         }
     }
 
     /// Reads bus voltage, shunt current and flags into an `Ina219Data` record.
-    /// Also clears the CNVR flag by reading the Power register per the INA219 datasheet.
     ///
     /// Optimized I2C Transaction Pipeline:
-    /// Reads Bus Voltage (0x02), Shunt Voltage (0x01), and Power (0x03) to clear CNVR.
-    /// Eliminates the redundant Current register (0x04) read, cutting I2C bus transactions
-    /// from 4 to 3 (and eliminating redundant pre-conversion polling).
+    /// Reads only Bus Voltage (0x02) and Shunt Voltage (0x01), propagating any I2C error.
+    /// Eliminates redundant Current (0x04) and Power (0x03) register reads, cutting 10 Hz
+    /// I2C bus transactions down to 2.
     pub fn read_all(&mut self) -> Result<Ina219Data, I2cError> {
         let v_raw = self.i2c.read_reg16(self.addr, Self::REG_BUSVOLTAGE)?;
         let s_raw = self.i2c.read_reg16(self.addr, Self::REG_SHUNTVOLTAGE)?;
-        // Reading Power register clears CNVR per INA219 specification
-        let _ = self.i2c.read_reg16(self.addr, Self::REG_POWER);
 
         Ok(Self::decode_raw(v_raw, s_raw, self.tare_offset_tenth))
     }
@@ -229,5 +235,26 @@ mod tests {
         assert_eq!(data.power_mw, 0);
         assert!(data.conversion_ready);
         assert!(data.overflow);
+    }
+
+    #[test]
+    fn test_decode_shunt_saturation_and_power_saturation() {
+        // 32000 mV (8000 << 3), OVF=0 in bus voltage register
+        let v_raw = 8000u16 << 3;
+        // +320.0 mV shunt saturation (+3.2A across 0.1 ohm) -> 32000
+        let pos_sat = decode_ina219_raw(v_raw, 32_000, 0);
+        assert!(pos_sat.overflow);
+        // 32000 mV * 3200.0 mA = 102,400 mW -> power_mw saturates at 65535
+        assert_eq!(pos_sat.power_tenth_mw, 1_024_000);
+        assert_eq!(pos_sat.power_mw, 65535);
+
+        // -320.0 mV shunt saturation (-3.2A)
+        let neg_sat = decode_ina219_raw(v_raw, (-32_000i16) as u16, 0);
+        assert!(neg_sat.overflow);
+        assert_eq!(neg_sat.power_mw, 65535);
+
+        // Just below saturation (31999 = 3199.9 mA) does not set overflow
+        let below_sat = decode_ina219_raw(10000, 31_999, 0);
+        assert!(!below_sat.overflow);
     }
 }

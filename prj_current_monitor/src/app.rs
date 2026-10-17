@@ -1,5 +1,4 @@
 use core::fmt::Write;
-use embedded_hal::delay::DelayNs;
 use longan_nano_bsp::CurrentMonitorBoard;
 
 use crate::button::{fmt_hold_progress, BannerType, ButtonController};
@@ -20,6 +19,21 @@ pub const BKP_REG_CONFIG: usize = 1; // [15..8] screen_mode, [7..0] battery_prof
 pub const BKP_REG_TARE: usize = 2; // tare_offset_tenth (i16)
 pub const BKP_REG_LIMIT: usize = 3; // current_limit_ma (u16)
 pub const BKP_REG_MAGIC: usize = 4; // BKP_MAGIC_KEY
+
+/// Maximum allowable uncompensated current magnitude (50.0 mA = 500 in 0.1 mA units)
+/// for zero-tare calibration. Prevents calibrating while an active load is connected.
+pub const TARE_MAX_ABS_TENTH_MA: u16 = 500;
+
+/// Pure validator for INA219 zero-tare offset calibration.
+/// Rejects tare calibration if the uncompensated shunt reading exceeds ±50.0 mA.
+#[inline]
+pub const fn validate_tare_offset(raw_offset_tenth_ma: i16) -> Result<i16, i16> {
+    if raw_offset_tenth_ma.unsigned_abs() <= TARE_MAX_ABS_TENTH_MA {
+        Ok(raw_offset_tenth_ma)
+    } else {
+        Err(raw_offset_tenth_ma)
+    }
+}
 
 pub fn save_nvram_config(
     rtc: &mut gd32vf103_hal::Rtc,
@@ -54,6 +68,7 @@ pub struct App<'a> {
     pub current_limit_ma: u16,
     pub over_current: bool,
     pub ina_present: bool,
+    pub i2c_err_count: u8,
 
     pub accum: Accumulators,
     pub history: WaveformHistory,
@@ -94,6 +109,7 @@ impl<'a> App<'a> {
             current_limit_ma: 0,
             over_current: false,
             ina_present: false,
+            i2c_err_count: 0,
 
             accum: Accumulators::new(),
             history: WaveformHistory::new(),
@@ -353,30 +369,36 @@ impl<'a> App<'a> {
         }
     }
 
-    pub fn tare_and_reset(&mut self, board: &mut CurrentMonitorBoard, now: u32) {
+    pub fn tare_and_reset(&mut self, board: &mut CurrentMonitorBoard, now: u32) -> bool {
         if self.ina_present {
-            let mut sum_raw = 0i32;
-            let mut valid_samples = 0i32;
-            let cur_tare = board.ina219.tare_offset_tenth as i32;
-            for _ in 0..8 {
-                if let Ok(raw_data) = board.ina219.read_all() {
-                    let true_raw = (raw_data.current_tenth_ma as i32) + cur_tare;
-                    sum_raw += true_raw;
-                    valid_samples += 1;
+            if let Ok(raw_offset) = board.ina219.read_uncompensated_tenth_ma() {
+                match validate_tare_offset(raw_offset) {
+                    Ok(valid_offset) => {
+                        board.ina219.set_tare(valid_offset);
+                        self.save_nvram(board);
+                        writeln!(
+                            board.uart0,
+                            "[SYS] Tare Zero Offset Calibrated: {}.{} mA",
+                            valid_offset / 10,
+                            valid_offset.unsigned_abs() % 10
+                        )
+                        .ok();
+                    }
+                    Err(load_tenth) => {
+                        writeln!(
+                            board.uart0,
+                            "[SYS] Tare Rejected: Active load detected ({}.{} mA > 50.0 mA)",
+                            load_tenth / 10,
+                            load_tenth.unsigned_abs() % 10
+                        )
+                        .ok();
+                        self.button
+                            .overlay
+                            .show_context_banner(" TARE REJECTED: LOAD ON ", now, 1200);
+                        self.render_top_bar_overlay(&mut board.lcd);
+                        return false;
+                    }
                 }
-                board.delay.delay_ms(2);
-            }
-            if valid_samples > 0 {
-                let avg_offset = (sum_raw / valid_samples) as i16;
-                board.ina219.set_tare(avg_offset);
-                self.save_nvram(board);
-                writeln!(
-                    board.uart0,
-                    "[SYS] Tare Zero Offset Calibrated: {}.{} mA",
-                    avg_offset / 10,
-                    avg_offset.unsigned_abs() % 10
-                )
-                .ok();
             }
         }
         let _ = self.datalogger.flush_buffer();
@@ -395,6 +417,7 @@ impl<'a> App<'a> {
 
         self.draw_current_layout(board);
         self.last_10hz_ms = board.delay.uptime_ms();
+        true
     }
 
     pub fn dump_session(&self, board: &mut CurrentMonitorBoard, now: u32) {
@@ -623,5 +646,25 @@ impl<'a> App<'a> {
         .ok();
         writeln!(board.uart0, " '?' / 'h': Print this command menu").ok();
         writeln!(board.uart0, "==============================").ok();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_validate_tare_offset_load_sanity_guard() {
+        assert_eq!(validate_tare_offset(0), Ok(0));
+        assert_eq!(validate_tare_offset(12), Ok(12));
+        assert_eq!(validate_tare_offset(-15), Ok(-15));
+        assert_eq!(validate_tare_offset(500), Ok(500));
+        assert_eq!(validate_tare_offset(-500), Ok(-500));
+
+        // Active loads exceeding ±50.0 mA (±500 tenths of mA) must be rejected
+        assert_eq!(validate_tare_offset(501), Err(501));
+        assert_eq!(validate_tare_offset(-501), Err(-501));
+        assert_eq!(validate_tare_offset(20_000), Err(20_000));
+        assert_eq!(validate_tare_offset(-20_000), Err(-20_000));
     }
 }

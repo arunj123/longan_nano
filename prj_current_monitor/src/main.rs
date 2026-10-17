@@ -486,7 +486,9 @@ fn main() -> ! {
                             app.set_screen_mode(&mut board, mode);
                         }
                     }
-                HidCommand::TareZero => app.tare_and_reset(&mut board, now),
+                HidCommand::TareZero => {
+                    let _ = app.tare_and_reset(&mut board, now);
+                }
                 HidCommand::FlushSd => {
                     let _ = app.datalogger.flush_buffer();
                     writeln!(board.uart0, "[HID-CMD] Flushed SD buffer to {}", app.datalogger.file_name_str()).ok();
@@ -653,9 +655,10 @@ fn main() -> ! {
                     }
                     board.led_blue.off();
                 } else {
-                    app.tare_and_reset(&mut board, now);
-                    app.button.overlay.show_tare_confirmed(now, 1000);
-                    app.render_top_bar_overlay(&mut board.lcd);
+                    if app.tare_and_reset(&mut board, now) {
+                        app.button.overlay.show_tare_confirmed(now, 1000);
+                        app.render_top_bar_overlay(&mut board.lcd);
+                    }
                     board.led_blue.off();
                     writeln!(board.uart0, "[BUTTON] Long press (1500 ms): Tare Zero & Reset triggered!").ok();
                 }
@@ -681,7 +684,7 @@ fn main() -> ! {
 
         // 4. Periodic 10 Hz Measurement, Analytics & Display Rendering
         // Triggered every 100 ms (10.0 Hz). Conversion (~76.6 ms) is guaranteed complete,
-        // avoiding redundant I2C pre-polling and reducing bus transactions to exactly 3.
+        // avoiding redundant I2C pre-polling and reducing bus transactions to 2.
         let dt_ms = now.wrapping_sub(app.last_10hz_ms);
         if dt_ms >= 100 {
             app.last_10hz_ms = now;
@@ -691,6 +694,7 @@ fn main() -> ! {
             if app.ina_present {
                 match board.ina219.read_all() {
                     Ok(d) => {
+                        app.i2c_err_count = 0;
                         // Apply near-zero deadband to eliminate ADC quantization jitter
                         let c_tenth = if d.current_tenth_ma >= -1 && d.current_tenth_ma <= 1 {
                             0
@@ -708,10 +712,21 @@ fn main() -> ! {
                         board.led_red.off();
                     }
                     Err(_) => {
-                        app.ina_present = false;
-                        board.led_red.on();
+                        app.i2c_err_count = app.i2c_err_count.saturating_add(1);
                         board.ina219.recover_bus(&mut board.delay);
-                        writeln!(board.uart0, "[I2C] INA219 read error - bus recovered").ok();
+                        if app.i2c_err_count >= 3 {
+                            app.ina_present = false;
+                            board.led_red.on();
+                            writeln!(board.uart0, "[I2C] INA219 offline after 3 read errors - bus recovered").ok();
+                        } else {
+                            reading = app.last_reading;
+                            writeln!(
+                                board.uart0,
+                                "[I2C] INA219 transient read error ({}/3) - bus recovered",
+                                app.i2c_err_count
+                            )
+                            .ok();
+                        }
                     }
                 }
             } else {
@@ -721,6 +736,7 @@ fn main() -> ! {
                     board.ina219.recover_bus(&mut board.delay);
                     if board.ina219.init(4096).is_ok() {
                         app.ina_present = true;
+                        app.i2c_err_count = 0;
                         board.led_red.off();
                         writeln!(board.uart0, "[I2C] INA219 hot-plug reconnected!").ok();
                     }
@@ -732,21 +748,22 @@ fn main() -> ! {
                 app.history.push(reading.current_tenth_ma);
             }
 
-            // Update current distribution histogram
-            app.histogram.record(reading.abs_current_tenth());
-
             // Sample internal MCU die temperature
             let mcu_temp_tenth = board.mcu_temp.read_temperature_tenth_c();
             app.stats.update_temp(mcu_temp_tenth);
 
-            // Update DSP Session Stats
-            app.stats.update(reading.voltage_mv, reading.current_tenth_ma, reading.power_tenth_mw);
+            // Only record histogram and session statistics when sensor is online
+            if app.ina_present {
+                app.histogram.record(reading.abs_current_tenth());
+                app.stats.update(reading.voltage_mv, reading.current_tenth_ma, reading.power_tenth_mw);
+            }
 
             // Update Battery Fuel Gauge
             app.battery.update(reading.voltage_mv, &app.accum, app.stats.avg_current_tenth_ma());
 
-            // Check Over-Current and Low-Voltage Alert
-            let is_over_current = app.current_limit_ma > 0 && (reading.current_tenth_ma as i32) > ((app.current_limit_ma as i32) * 10);
+            // Check Over-Current (using absolute current magnitude) and Low-Voltage Alert
+            let is_over_current = app.current_limit_ma > 0
+                && reading.abs_current_tenth() > ((app.current_limit_ma as u32) * 10);
             let is_low_voltage = app.battery.is_low_voltage;
             app.over_current = is_over_current;
             let is_alert = is_over_current || is_low_voltage;
