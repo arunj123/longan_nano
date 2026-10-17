@@ -1,6 +1,39 @@
-# INA219 Current Monitor Agent Rules
+# Longan Nano Pure-Rust Agent Rules & Invariants
 
-- **I2C Protocol**: Always use Hardware I2C (I2C0) on PB6/PB7 for sensor communication.
-- **Display**: Use the `DisplayManager` class for all LCD updates.
-- **USB**: Data streaming should follow the defined 9-byte HID report format.
-- **Timing**: Use `get_timer_value()` for precision millisecond tracking.
+## CRITICAL MANDATORY INVARIANT: MASTER ROADMAP TRACKING & SESSION CLOSING
+- **Master Tracking Document**: [`docs/FIRMWARE_REVIEW_AND_ROADMAP.md`](docs/FIRMWARE_REVIEW_AND_ROADMAP.md) is the authoritative, permanent engineering record and multi-session implementation blueprint.
+- **Session Closing Updates**: At the end of EVERY session, or immediately upon completing any roadmap item/milestone:
+  - Update [`docs/FIRMWARE_REVIEW_AND_ROADMAP.md`](docs/FIRMWARE_REVIEW_AND_ROADMAP.md): mark completed tasks (`[x]`), document architectural decisions, record empirical verification results, and note any blockers.
+  - Ensure all information needed to continue seamlessly in a brand-new session (exact next steps, active phase, file locations, known bugs/findings) is fully documented in the file.
+- **Session Start Verification**: At the start of EVERY new session or task, run `git status` and read [`docs/FIRMWARE_REVIEW_AND_ROADMAP.md`](docs/FIRMWARE_REVIEW_AND_ROADMAP.md) before performing any work.
+
+## CRITICAL MANDATORY INVARIANT: ECONOMIC AI SESSION HANDOFF
+- **Context & Token Economy**: Chat sessions with high token consumption or extended history become economically inefficient, slow, and prone to context degradation.
+- **Mandatory Handoff Prompting**: Whenever session context grows long, or when a discrete roadmap task/milestone/build verification is completed:
+  1. Verify and test the current work.
+  2. Update [`docs/FIRMWARE_REVIEW_AND_ROADMAP.md`](docs/FIRMWARE_REVIEW_AND_ROADMAP.md) with latest status and next steps.
+  3. Commit all changes to git.
+  4. Explicitly direct and prompt the user to start a **new chat/agent session**, providing the exact prompt/command for resuming in the new session.
+
+## CRITICAL MANDATORY INVARIANT: PER-BUILD GIT COMMITS
+- **Immediate Commit After Testing**: After testing ANY firmware build on target hardware or Linux host, create a git commit immediately documenting the build number and test results before running further tests, before modifying code, and before ending the turn.
+- **No Batching Across Builds**: Never combine multiple build iterations into a single commit.
+- **Strict 5-Part Commit Message Schema**:
+  1. **Header**: `build(<component>): Build <NNNN> - <Concise Headline>`
+  2. **Summary of Changes**: Explicit, bulleted breakdown of code, register, timing, or configuration adjustments across modified files and the design rationale behind them.
+  3. **Test Results**: Concrete empirical observations from hardware/host testing (e.g., pass/fail status of SCSI tags, sector counts, host `dmesg`, `usbmon` packet trace status, transfer throughput).
+  4. **Root Cause & Diagnostics**: Detailed register states, hardware counter readings, bus traces, or findings explaining any observed failures. **CRITICAL: In case of a build failure, compiler error, assertion/panic, or hardware test failure, all debug information, error traces, register dumps, or bus logs currently obtained MUST be explicitly documented in this section!**
+  5. **What Next**: Prioritized, actionable roadmap outlining the exact steps and hypotheses to investigate in the subsequent build iteration.
+
+## Project Rules: prj_current_monitor (Pure Rust)
+- **I2C Protocol**: Always use Hardware I2C (I2C0) on PB6/PB7 for INA219 sensor communication.
+- **Display**: 160x80 ST7735 LCD over SPI0 using DMA0 Channel 2 ping-pong double buffering via `longan-nano-bsp::lcd`. Never allocate full-screen framebuffers.
+- **USB**: 10 Hz USB HID data streaming following the defined 9-byte report format.
+- **Timing & Clocks**: Use `board.delay.uptime_ms()` and typed `hal::time::{Instant, Duration}` for millisecond tracking and debouncing. Never use raw ticks or blocking delays in event loops.
+- **Arithmetic**: Strictly fixed-point integer math (mV, mA, uA, mW, mWh, mAh). No floating-point emulation.
+- **Buttons**: User button on PA8 is active-high (pulled down to GND with 10k resistor).
+
+## Project Rules: prj_usb_msc (Pure Rust)
+- **Clock**: 96 MHz SYSCLK (`RCU_PLL_MUL24`) to provide exact 48 MHz USB clock.
+- **Storage**: SPI1 for MicroSD (PB12 CS, PB13 SCK, PB14 MISO w/ pull-up, PB15 MOSI).
+- **USB Core**: Full-Speed DWC2 USBFS device core. Follow BOT & SCSI invariants documented in `GEMINI.md`.

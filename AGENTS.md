@@ -2,6 +2,23 @@
 
 See [GEMINI.md](file:///c:/Users/arunj/projects/longan_nano/GEMINI.md) for full hardware, peripheral, and build documentation.
 
+## CRITICAL MANDATORY INVARIANT: MASTER ROADMAP TRACKING & SESSION CLOSING
+> [!IMPORTANT]
+> **ROADMAP DOCUMENTATION & SESSION CLOSING INVARIANT**:
+> 1. **Master Tracking Document**: [`docs/FIRMWARE_REVIEW_AND_ROADMAP.md`](file:///c:/Users/arunj/projects/longan_nano/docs/FIRMWARE_REVIEW_AND_ROADMAP.md) is the authoritative, permanent engineering record and multi-session implementation blueprint.
+> 2. **Session Updates**: At the end of EVERY session, or immediately upon completing any roadmap item/milestone:
+>    - The agent MUST update [`docs/FIRMWARE_REVIEW_AND_ROADMAP.md`](file:///c:/Users/arunj/projects/longan_nano/docs/FIRMWARE_REVIEW_AND_ROADMAP.md) to mark completed tasks (`[x]`), document architectural decisions, record empirical verification results, and note any blockers.
+>    - Ensure all information needed to continue seamlessly in a brand-new session (exact next steps, active phase, file locations, known bugs/findings) is fully documented in the file without requiring the next agent to re-analyze from scratch.
+> 3. **Session Start Verification**: At the start of EVERY new session or task, run `git status` and read [`docs/FIRMWARE_REVIEW_AND_ROADMAP.md`](file:///c:/Users/arunj/projects/longan_nano/docs/FIRMWARE_REVIEW_AND_ROADMAP.md) before performing any work.
+
+## CRITICAL MANDATORY INVARIANT: ECONOMIC AI SESSION HANDOFF
+> [!TIP]
+> **ECONOMIC SESSION TRANSITION ENFORCEMENT**:
+> 1. **Context & Token Economy**: Chat sessions with high token consumption or extended history become economically inefficient, slow, and prone to context degradation.
+> 2. **Mandatory Handoff Prompting**: Whenever session context grows long, or when a discrete roadmap task/milestone/build verification is completed:
+>    - The agent MUST ensure all changes are tested, documented in [`docs/FIRMWARE_REVIEW_AND_ROADMAP.md`](file:///c:/Users/arunj/projects/longan_nano/docs/FIRMWARE_REVIEW_AND_ROADMAP.md), and committed to git.
+>    - The agent MUST explicitly direct and prompt the user to start a **new chat/agent session**, providing the exact prompt/command for the user to resume in the new session.
+
 ## CRITICAL MANDATORY INVARIANT: PER-BUILD GIT COMMITS
 > [!CAUTION]
 > **STRICT COMMIT-AFTER-EVERY-BUILD ENFORCEMENT**:
@@ -11,6 +28,6 @@ See [GEMINI.md](file:///c:/Users/arunj/projects/longan_nano/GEMINI.md) for full 
 >    - **Header**: `build(<component>): Build <NNNN> - <Concise Headline>`
 >    - **Summary of Changes**: Explicit, bulleted breakdown of code, register, timing, or configuration adjustments across modified files and the design rationale behind them.
 >    - **Test Results**: Concrete empirical observations from hardware/host testing (e.g., pass/fail status of SCSI tags, sector counts, host `dmesg`, `usbmon` packet trace status, transfer throughput).
->    - **Root Cause & Diagnostics**: Detailed register states, hardware counter readings, or findings explaining any observed failures.
+>    - **Root Cause & Diagnostics**: Detailed register states, hardware counter readings, or findings explaining any observed failures. **CRITICAL: In case of a build failure, compiler error, panic, or hardware test failure, all debug data, compiler error traces, register dumps, or bus logs currently obtained MUST be explicitly documented in this section!**
 >    - **What Next**: Prioritized, actionable roadmap outlining the exact steps and hypotheses to investigate in the subsequent build iteration.
 > 4. **No Batching Across Builds**: Never combine multiple build iterations into a single commit. Every single build iteration (e.g., Build 009B, Build 009C, etc.) requires its own distinct commit.

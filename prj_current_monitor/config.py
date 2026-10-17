@@ -34,7 +34,7 @@ CPU_FLAGS = [
 LINKER_SCRIPT = r"lib/system/GD32VF103xB.lds"
 
 # ==============================================================================
-# Pure Rust Firmware Configuration (Legacy C++ archived in legacy_cxx/)
+# Pure Rust Firmware Configuration
 # ==============================================================================
 COMPONENTS = {}
 
