@@ -357,7 +357,20 @@ impl SdCard {
             return;
         }
         // Send CMD12 (STOP_TRANSMISSION)
-        let _ = self.send_cmd(12, 0, 0x01);
+        self.xchg(0x40 | 12);
+        self.xchg(0);
+        self.xchg(0);
+        self.xchg(0);
+        self.xchg(0);
+        self.xchg(0x01);
+        // Discard 1 mandatory stuff byte before polling R1b response per SD Spec 7.2.3
+        self.xchg(0xFF);
+        for _ in 0..16 {
+            let r1 = self.xchg(0xFF);
+            if (r1 & 0x80) == 0 {
+                break;
+            }
+        }
         // Wait ready (MISO high)
         let _ = self.spi.wait_ready_fast(100 * 2500);
         self.release_bus();

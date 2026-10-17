@@ -150,16 +150,19 @@ fn main() -> ! {
 
         let now = board.delay.uptime_ms();
 
-        // Non-blocking deferred UI: only draw once USB bus has settled for >= 250 ms without blocking the enumeration phase
-        if pending_configured_ui && now.wrapping_sub(configured_time) >= 250 {
-            pending_configured_ui = false;
-            board.lcd.draw_string(4, 40, "USB: CONFIGURED OK   ", &FONT_5X7, lcd_color::GREEN, lcd_color::BLACK);
-            let _ = writeln!(board.uart0, "[MAIN] >>> USB CONFIGURED BY HOST! <<<");
-        }
-
         if board.usb_msc.stats.is_active {
             board.usb_msc.clear_active();
             board.led_blue.toggle();
+            if pending_configured_ui {
+                configured_time = now;
+            }
+        }
+
+        // Non-blocking deferred UI: only draw once USB bus is idle and has settled for >= 50 ms
+        if pending_configured_ui && board.usb_msc.is_idle() && now.wrapping_sub(configured_time) >= 50 {
+            pending_configured_ui = false;
+            board.lcd.draw_string(4, 40, "USB: CONFIGURED OK   ", &FONT_5X7, lcd_color::GREEN, lcd_color::BLACK);
+            let _ = writeln!(board.uart0, "[MAIN] >>> USB CONFIGURED BY HOST! <<<");
         }
 
         if now.wrapping_sub(last_heartbeat) >= 1000 {

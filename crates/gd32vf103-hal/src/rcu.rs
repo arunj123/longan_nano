@@ -100,11 +100,11 @@ impl RcuExt for Rcu {
 
         if config.target_sysclk == 96_000_000 {
             // CK_PLL = 4 MHz * 24 = 96 MHz
-            // pllmf = 6 (bits 21:18 = 0b0110), pllmf4 = 1 (bit 29), pllsel = 1 (bit 16)
-            // USBFS prescaler = Div2 (bits 23:22 = 0b11)
+            // RCU_PLL_MUL24 = PLLMF_4 (bit 29) | CFG0_PLLMF(7) (bits 21:18 = 0b0111), pllsel = 1 (bit 16)
+            // USBFS prescaler = Div2 (bits 23:22 = 0b11) -> exact 48.000 MHz USB clock
             regs.cfg0.modify(|val| {
                 let mask = (0xF << 18) | (1 << 29) | (0x3 << 22);
-                (val & !mask) | (1 << 16) | (0x6 << 18) | (1 << 29) | (0x3 << 22)
+                (val & !mask) | (1 << 16) | (0x7 << 18) | (1 << 29) | (0x3 << 22)
             });
 
             // Enable PLL
@@ -118,10 +118,10 @@ impl RcuExt for Rcu {
             (self, Clocks::default_96mhz())
         } else if config.target_sysclk == 108_000_000 {
             // CK_PLL = 4 MHz * 27 = 108 MHz
-            // pllmf = 9 (bits 21:18 = 0b1001), pllmf4 = 1 (bit 29), pllsel = 1 (bit 16)
+            // RCU_PLL_MUL27 = PLLMF_4 (bit 29) | CFG0_PLLMF(10) (bits 21:18 = 0b1010), pllsel = 1 (bit 16)
             regs.cfg0.modify(|val| {
                 let mask = (0xF << 18) | (1 << 29);
-                (val & !mask) | (1 << 16) | (0x9 << 18) | (1 << 29)
+                (val & !mask) | (1 << 16) | (0xA << 18) | (1 << 29)
             });
 
             // Enable PLL

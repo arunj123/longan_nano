@@ -2723,7 +2723,7 @@ const MSC_DEV_DESC: [u8; 18] = [
     0x00,       // bDeviceProtocol = 0
     64,         // bMaxPacketSize0 = 64
     0xE9, 0x28, // idVendor = 0x28E9
-    0xD2, 0xAB, // idProduct = 0xABD2
+    0xD3, 0xAB, // idProduct = 0xABD3
     0x00, 0x01, // bcdDevice = 1.00
     1,          // iManufacturer = 1
     2,          // iProduct = 2
@@ -2782,7 +2782,7 @@ const STR_MSC_SERIAL: [u8; 26] = [
     26, 0x03,
     b'L', 0, b'N', 0, b'M', 0, b'S', 0, b'C', 0,
     b'0', 0, b'0', 0, b'0', 0, b'0', 0, b'0', 0,
-    b'D', 0, b'2', 0,
+    b'D', 0, b'3', 0,
 ];
 
 const MSC_INQUIRY_DATA: [u8; 36] = [
@@ -2996,6 +2996,8 @@ pub struct UsbMsc {
     pub cache: LbaCache,
     media_buf: [[u8; 512]; 2],
     buf_idx: usize,
+    has_read_ahead: bool,
+    read_ahead_len: usize,
     media_rx_offset: usize,
 
     pub stats: MscStats,
@@ -3117,6 +3119,8 @@ impl UsbMsc {
             cache: LbaCache::new(),
             media_buf: [[0u8; 512]; 2],
             buf_idx: 0,
+            has_read_ahead: false,
+            read_ahead_len: 0,
             media_rx_offset: 0,
             stats: MscStats::default(),
         };
@@ -3131,6 +3135,11 @@ impl UsbMsc {
     #[inline(always)]
     pub fn is_configured(&self) -> bool {
         self.configured
+    }
+
+    #[inline(always)]
+    pub fn is_idle(&self) -> bool {
+        self.state == BbbState::Idle && !self.need_read && !self.need_write
     }
 
     #[inline(always)]
@@ -3264,34 +3273,70 @@ impl UsbMsc {
         }
     }
 
-    #[allow(dead_code)]
     fn set_ep_snak(&mut self, ep_num: usize) {
         let mut ctl = self.usbfs.in_ep(ep_num).diepctl.read();
         ctl &= !(depctl::SD0PID | depctl::SD1PID | depctl::EPD | depctl::CNAK | depctl::SNAK);
         self.usbfs.in_ep(ep_num).diepctl.write(ctl | depctl::SNAK);
-        let mut timeout = 10_000u32;
+        let mut timeout = 1000u32;
         while (self.usbfs.in_ep(ep_num).diepctl.read() & depctl::NAKS) == 0 && timeout > 0 {
             timeout -= 1;
         }
     }
 
-    fn ep_send(&mut self, ep_num: usize, data: &[u8]) {
-        let len = data.len() as u32;
+    fn ep_nak_arm(&mut self, ep_num: usize, len: u32) {
         let packet_count = (len + 63) / 64;
         let packet_count = if packet_count == 0 { 1 } else { packet_count };
+        let target_dieplen = (packet_count << 19) | len;
 
-        // Step 1: Program DIEPLEN and arm endpoint with SNAK so host IN tokens receive clean hardware NAKs while FIFO fills
+        let live_ctl = self.usbfs.in_ep(ep_num).diepctl.read();
+        let live_len = self.usbfs.in_ep(ep_num).dieplen.read();
+
+        // Idempotent check
+        if (live_ctl & depctl::EPEN) != 0 && (live_ctl & depctl::NAKS) != 0 && live_len == target_dieplen {
+            if ep_num == 1 {
+                self.ep1_in_prearmed = true;
+            }
+            return;
+        }
+
+        // Step 1: Assert SNAK and wait for NAKS
+        let mut epctl = live_ctl;
+        epctl &= !(depctl::SD0PID | depctl::SD1PID | depctl::EPD | depctl::CNAK | depctl::SNAK);
+        self.usbfs.in_ep(ep_num).diepctl.write(epctl | depctl::SNAK);
+
+        let mut timeout = 1000u32;
+        while (self.usbfs.in_ep(ep_num).diepctl.read() & depctl::NAKS) == 0 && timeout > 0 {
+            timeout -= 1;
+        }
+
+        // Step 2: Clear stale flags
         self.usbfs.in_ep(ep_num).diepintf.write(diepintf::TF | diepintf::EPDIS | diepintf::TXFUD);
-        self.usbfs.in_ep(ep_num).dieplen.write((packet_count << 19) | len);
-        let mut epctl = self.usbfs.in_ep(ep_num).diepctl.read();
-        epctl &= !(depctl::SD0PID | depctl::SD1PID | depctl::EPD | depctl::CNAK);
-        epctl |= depctl::EPEN | depctl::SNAK;
-        self.usbfs.in_ep(ep_num).diepctl.write(epctl);
 
-        // Step 2: Push data into TX FIFO while NAKing
+        // Step 3: Program DIEPLEN
+        self.usbfs.in_ep(ep_num).dieplen.write(target_dieplen);
+
+        // Step 4: Assert EPEN with NAK confirmed
+        epctl = self.usbfs.in_ep(ep_num).diepctl.read();
+        epctl &= !(depctl::SD0PID | depctl::SD1PID | depctl::EPD | depctl::CNAK | depctl::SNAK);
+        self.usbfs.in_ep(ep_num).diepctl.write(epctl | depctl::EPEN);
+
+        if ep_num == 1 {
+            self.ep1_in_prearmed = true;
+        }
+    }
+
+    fn ep_send(&mut self, ep_num: usize, data: &[u8]) {
+        let len = data.len() as u32;
+        if ep_num == 1 && self.ep1_in_prearmed {
+            self.ep1_in_prearmed = false;
+        } else {
+            self.ep_nak_arm(ep_num, len);
+            if ep_num == 1 {
+                self.ep1_in_prearmed = false;
+            }
+        }
         self.write_fifo(ep_num, data);
 
-        // Step 3: Now that FIFO has data, assert EPEN | CNAK to release NAK with correct Data PID!
         let mut cnak_ctl = self.usbfs.in_ep(ep_num).diepctl.read();
         cnak_ctl &= !(depctl::SD0PID | depctl::SD1PID | depctl::EPD | depctl::SNAK);
         cnak_ctl |= depctl::EPEN | depctl::CNAK;
@@ -3299,24 +3344,20 @@ impl UsbMsc {
     }
 
     fn ep_send_media(&mut self, buf_idx: usize, len: usize) {
-        let packet_count = ((len as u32) + 63) / 64;
-        let packet_count = if packet_count == 0 { 1 } else { packet_count };
+        if self.ep1_in_prearmed {
+            self.ep1_in_prearmed = false;
+        } else {
+            self.ep_nak_arm(1, len as u32);
+            self.ep1_in_prearmed = false;
+        }
 
-        // Step 1: Program DIEPLEN and arm endpoint with SNAK so host IN tokens receive clean hardware NAKs while FIFO fills
-        self.usbfs.in_ep(1).diepintf.write(diepintf::TF | diepintf::EPDIS | diepintf::TXFUD);
-        self.usbfs.in_ep(1).dieplen.write((packet_count << 19) | (len as u32));
-        let mut epctl = self.usbfs.in_ep(1).diepctl.read();
-        epctl &= !(depctl::SD0PID | depctl::SD1PID | depctl::EPD | depctl::CNAK);
-        epctl |= depctl::EPEN | depctl::SNAK;
-        self.usbfs.in_ep(1).diepctl.write(epctl);
-
-        // Step 2: Push data into TX FIFO 1 (~12 µs) while NAKing
         let word_count = (len + 3) / 4;
         let mut timeout = 100_000u32;
         while ((self.usbfs.in_ep(1).dieptfstat.read() & 0xFFFF) < word_count as u32) && timeout > 0 {
             timeout -= 1;
         }
 
+        // Write all data words into DFIFO[1] (~12 µs)
         let fifo_ptr = self.usbfs.fifo(1);
         for i in 0..word_count {
             let mut word = 0u32;
@@ -3331,7 +3372,7 @@ impl UsbMsc {
             }
         }
 
-        // Step 3: Now that FIFO is populated, assert EPEN | CNAK to release NAK with correct Data PID!
+        // Release NAK and serialize onto wire
         let mut cnak_ctl = self.usbfs.in_ep(1).diepctl.read();
         cnak_ctl &= !(depctl::SD0PID | depctl::SD1PID | depctl::EPD | depctl::SNAK);
         cnak_ctl |= depctl::EPEN | depctl::CNAK;
@@ -3364,6 +3405,7 @@ impl UsbMsc {
     fn abort_transfer<D: MscBlockDevice>(&mut self, disk: &mut D) {
         disk.end_multi_read();
         self.ep1_in_prearmed = false;
+        self.has_read_ahead = false;
         self.need_read = false;
         self.need_write = false;
         self.csw_residue = self.remaining_bytes;
@@ -3472,7 +3514,7 @@ impl UsbMsc {
                             data[0] = 0x00;
                             data[1] = 0x80;
                             data[3] = 12;
-                            data[4..16].copy_from_slice(b"LNMSC00000D2");
+                            data[4..16].copy_from_slice(b"LNMSC00000D3");
                             let len = core::cmp::min(self.cbw.d_cbw_data_transfer_length as usize, 16);
                             self.send_data(&data[..len]);
                         }
@@ -3610,6 +3652,11 @@ impl UsbMsc {
                 self.csw_residue = self.cbw.d_cbw_data_transfer_length - to_transfer;
                 self.state = BbbState::DataIn;
                 self.buf_idx = 0;
+                self.has_read_ahead = false;
+
+                // Pre-arm EP1 IN with EPEN=1, confirmed NAKS=1, and DIEPLEN=first_len
+                let first_len = core::cmp::min(to_transfer, 512);
+                self.ep_nak_arm(1, first_len);
 
                 self.need_read = true;
             }
@@ -3652,6 +3699,11 @@ impl UsbMsc {
                 self.csw_residue = self.cbw.d_cbw_data_transfer_length - to_transfer;
                 self.state = BbbState::DataIn;
                 self.buf_idx = 0;
+                self.has_read_ahead = false;
+
+                // Pre-arm EP1 IN with EPEN=1, confirmed NAKS=1, and DIEPLEN=first_len
+                let first_len = core::cmp::min(to_transfer, 512);
+                self.ep_nak_arm(1, first_len);
 
                 self.need_read = true;
             }
@@ -3978,10 +4030,52 @@ impl UsbMsc {
                 self.usbfs.in_ep(1).diepintf.write(diepintf::TF);
                 match self.state {
                     BbbState::DataIn => {
-                        if self.remaining_bytes > 0 {
+                        if self.has_read_ahead {
+                            // Wire transmission of previous sector finished!
+                            // Immediately load the read-ahead sector from SRAM into TX1 FIFO (~12 µs)
+                            let cur_idx = self.buf_idx;
+                            let cur_len = self.read_ahead_len;
+                            self.has_read_ahead = false;
+                            self.ep_send_media(cur_idx, cur_len);
+
+                            // Pipelined read-ahead: If more sectors remain, overlap wire transmission with next read
+                            if self.remaining_bytes > 0 {
+                                let next_idx = 1 - cur_idx;
+                                let next_len = core::cmp::min(self.remaining_bytes, 512) as usize;
+                                let lba = self.lba;
+
+                                let read_ok = if let Some(cached) = self.cache.lookup(lba) {
+                                    disk.end_multi_read();
+                                    self.media_buf[next_idx].copy_from_slice(cached);
+                                    true
+                                } else {
+                                    if !disk.is_streaming() && self.remaining_bytes > 512 {
+                                        disk.begin_multi_read(lba);
+                                    }
+                                    disk.read_sector(lba, &mut self.media_buf[next_idx])
+                                };
+
+                                if read_ok {
+                                    self.stats.sectors_read += 1;
+                                    self.stats.is_active = true;
+                                    self.lba += 1;
+                                    self.remaining_bytes -= next_len as u32;
+                                    self.buf_idx = next_idx;
+                                    self.read_ahead_len = next_len;
+                                    self.has_read_ahead = true;
+                                } else {
+                                    self.set_sense(SenseKey::HardwareError, Asc::UnrecoveredReadError);
+                                    self.abort_transfer(disk);
+                                }
+                            } else {
+                                disk.end_multi_read();
+                            }
+                        } else if self.remaining_bytes > 0 {
+                            self.set_ep_snak(1);
                             self.need_read = true;
                         } else {
                             disk.end_multi_read();
+                            self.set_ep_snak(1);
                             self.csw_status = CswStatus::CmdPassed;
                             self.data_done_time = unsafe { gd32vf103_pac::Mtime::steal().read_ticks() };
                             self.state = BbbState::StatusPending;
@@ -3993,17 +4087,20 @@ impl UsbMsc {
                             self.state = BbbState::SendZlp;
                             self.ep_send(1, &[]);
                         } else {
+                            self.set_ep_snak(1);
                             self.csw_status = CswStatus::CmdPassed;
                             self.data_done_time = unsafe { gd32vf103_pac::Mtime::steal().read_ticks() };
                             self.state = BbbState::StatusPending;
                         }
                     }
                     BbbState::SendZlp => {
+                        self.set_ep_snak(1);
                         self.csw_status = CswStatus::CmdPassed;
                         self.data_done_time = unsafe { gd32vf103_pac::Mtime::steal().read_ticks() };
                         self.state = BbbState::StatusPending;
                     }
                     BbbState::SendCsw => {
+                        self.set_ep_snak(1);
                         self.state = BbbState::Idle;
                         self.arm_ep1_out_cbw();
                     }
@@ -4160,6 +4257,7 @@ impl UsbMsc {
                     self.state = BbbState::Idle;
                     self.need_read = false;
                     self.need_write = false;
+                    self.has_read_ahead = false;
                     self.csw_pending = false;
                     self.ep1_in_prearmed = false;
 
@@ -4266,10 +4364,41 @@ impl UsbMsc {
                 self.lba += 1;
                 self.remaining_bytes -= len as u32;
 
-                // Load Sector into TX1 FIFO and assert EPEN | CNAK
+                // Load Sector 0 into TX1 FIFO and assert EPEN | CNAK
                 self.ep_send_media(0, len);
+
+                // Pipelined read-ahead: If more sectors remain, read next sector into buffer 1 right now!
+                if self.remaining_bytes > 0 {
+                    let next_len = core::cmp::min(self.remaining_bytes, 512) as usize;
+                    let next_lba = self.lba;
+
+                    let next_ok = if let Some(cached) = self.cache.lookup(next_lba) {
+                        disk.end_multi_read();
+                        self.media_buf[1].copy_from_slice(cached);
+                        true
+                    } else {
+                        if !disk.is_streaming() && self.remaining_bytes > 512 {
+                            disk.begin_multi_read(next_lba);
+                        }
+                        disk.read_sector(next_lba, &mut self.media_buf[1])
+                    };
+
+                    if next_ok {
+                        self.stats.sectors_read += 1;
+                        self.stats.is_active = true;
+                        self.lba += 1;
+                        self.remaining_bytes -= next_len as u32;
+                        self.buf_idx = 1;
+                        self.read_ahead_len = next_len;
+                        self.has_read_ahead = true;
+                    } else {
+                        self.set_sense(SenseKey::HardwareError, Asc::UnrecoveredReadError);
+                        self.abort_transfer(disk);
+                    }
+                } else {
+                    disk.end_multi_read();
+                }
             } else {
-                disk.end_multi_read();
                 self.set_sense(SenseKey::HardwareError, Asc::UnrecoveredReadError);
                 self.abort_transfer(disk);
             }
@@ -4300,12 +4429,10 @@ impl UsbMsc {
             let dieplen = self.usbfs.in_ep(1).dieplen.read();
             let hw_done = (dieplen & 0x7FFFF) == 0 && ((dieplen >> 19) & 0x7FF) == 0;
             let fifo_empty = (self.usbfs.in_ep(1).dieptfstat.read() & 0xFFFF) >= 192;
-            // CSW framing guard: Enforce >= 1.0 ms (24,000 ticks @ 24 MHz mtime) between data ACK
-            // and CSW transmission. This ensures the host xHCI controller fully retires the Data URB
-            // before Endpoint 1 presents the 13-byte CSW, preventing the Data URB from absorbing
-            // the CSW as a short-packet premature completion (which would truncate the transfer with resid=51),
-            // while staying comfortably below the 2.0 ms High-Speed Hub TT NAK timeout.
-            if (elapsed >= 24_000 && hw_done && fifo_empty) || (elapsed >= 48_000_000) {
+            let ctl = self.usbfs.in_ep(1).diepctl.read();
+            let ep_naking = (ctl & depctl::NAKS) != 0;
+
+            if (elapsed >= 1_200 && hw_done && fifo_empty && ep_naking) || (elapsed >= 48_000_000) {
                 self.send_csw(self.csw_status);
             }
         }

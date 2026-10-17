@@ -39,12 +39,12 @@ static void system_clock_config(void) {
     RegCFG1::write((RegCFG1::read() & ~0x0001FFFFU) | (CFG1_PREDV0SRC_HXTAL | CFG1_PREDV0_DIV2));
 
 #if defined(__SYSTEM_CLOCK_108M_PLL_HXTAL)
-    // CK_PLL = 4 MHz * 27 = 108 MHz (MUL27: pllmf = 0b1001 << 18, pllmf4 = 1 << 29)
-    RegCFG0::modify((0xFU << 18) | (1U << 29), (1U << 16) | (0x9U << 18) | (1U << 29));
+    // CK_PLL = 4 MHz * 27 = 108 MHz (MUL27: pllmf = 0b1010 << 18, pllmf4 = 1 << 29)
+    RegCFG0::modify((0xFU << 18) | (1U << 29), (1U << 16) | (0xAU << 18) | (1U << 29));
     SystemCoreClock = 108000000U;
 #else
-    // CK_PLL = 4 MHz * 24 = 96 MHz (default: MUL24: pllmf = 0b0110 << 18, pllmf4 = 1 << 29)
-    RegCFG0::modify((0xFU << 18) | (1U << 29), (1U << 16) | (0x6U << 18) | (1U << 29));
+    // CK_PLL = 4 MHz * 24 = 96 MHz (default: MUL24: pllmf = 0b0111 << 18, pllmf4 = 1 << 29)
+    RegCFG0::modify((0xFU << 18) | (1U << 29), (1U << 16) | (0x7U << 18) | (1U << 29));
     SystemCoreClock = 96000000U;
 #endif
 
@@ -93,8 +93,8 @@ void SystemCoreClockUpdate(void) {
         // PLL source
         const uint32_t cfg0 = RegCFG0::read();
         const uint32_t pllmf = (cfg0 >> 18) & 0xFU;
-        const uint32_t pllmf4 = (cfg0 & (1U << 29)) ? 16 : 0;
-        const uint32_t mul = pllmf + pllmf4 + 2;
+        const bool pllmf4 = (cfg0 & (1U << 29)) != 0;
+        const uint32_t mul = pllmf4 ? (pllmf + 17U) : ((pllmf == 15U) ? 16U : (pllmf + 2U));
         // PREDV0 divider
         const uint32_t predv0 = (RegCFG1::read() & 0xFU) + 1;
         const uint32_t base_clock = 8000000U / predv0;

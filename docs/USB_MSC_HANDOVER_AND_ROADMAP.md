@@ -172,3 +172,31 @@ Immediately upon completing testing on hardware, commit using the standardized 5
   - Sub-microsecond cache response immediately after Tag 0x19 CMD18 streaming causes a timing race or toggle mismatch: `ep_send_media` loads TX1 FIFO and asserts CNAK before the host's Bulk-IN URB reaches the wire.
   - Test capture commands appeared stuck because `cat /sys/kernel/debug/usb/usbmon/1u` ran indefinitely, and Linux SCSI 30s command timeout held `/dev/sdb` during bus error recovery.
 
+---
+
+## 8. Build 00D3 Resolution: `RCU_PLL_MUL24` Clock Fix & 100% Verification Pass
+
+### Root Cause of LBA 1024 `EPROTO -71` (`COMP_USB_TRANSACTION_ERROR`):
+- In `GD32VF103` `RCU_CFG0`, `PLLMF = 0b01111` (15) encodes `PLL x 6.5`, which shifts all `PLLMF_4 = 1` entries (`10000..11111`) down by 1 (`mul = pllmf + 17`, not `pllmf + 18`).
+- Both `crates/gd32vf103-hal/src/rcu.rs` and `lib/system/system_gd32vf103.cpp` previously configured `(0x6 << 18) | (1 << 29)` (`PLLMF_4 | CFG0_PLLMF(6)`), which is **`RCU_PLL_MUL23`** (`4 MHz * 23 = 92 MHz` SYSCLK $\rightarrow$ **`46.000 MHz` USBFS clock**, a **$-4.17\%$ = $-41,667\text{ ppm}$** frequency error vs. the USB 2.0 Full-Speed limit of $\pm 2,500\text{ ppm}$).
+- Why sectors `0..560` passed at `46 MHz` while `LBA 1024` always failed with `EPROTO -71`:
+  - Sectors `0..560` (MBR/Reserved/FAT) contain mostly `0x00` bytes. In USB NRZI encoding, `0x00` toggles `D+/D-` on **every bit**, allowing the host xHCI receiver CDR to re-lock phase every bit ($1 \times -4.17\% = -0.0417\text{ UI}$ drift).
+  - `LBA 1024` contains erased flash (`[0xFF; 512]`). In USB NRZI encoding, `0xFF` produces **6 consecutive `1` bits with no transitions** before a single stuffed `0` bit (7 bit periods between edges). Across 64 bytes of `0xFF` (85 consecutive bit-stuff runs = 597 wire bits), the $-4.17\%$ clock error slips a full bit period, corrupting bit-unstuffing and CRC16 and causing xHCI to abort with `COMP_USB_TRANSACTION_ERROR` (`EPROTO -71`).
+- Setting `RCU_PLL_MUL24 = (0x7 << 18) | (1 << 29)` (`PLLMF_4 | CFG0_PLLMF(7)`) produces an exact `96.000 MHz` SYSCLK and `48.000 MHz` USBFS clock (and `RCU_PLL_MUL27 = (0xA << 18) | (1 << 29)` produces an exact `108.000 MHz` SYSCLK).
+
+### Build 00D3 Empirical Verification Results (`28e9:abd3`, `LNMSC00000D3`):
+- **Enumeration**: Clean enumeration on Linux xHCI host (`192.168.0.63`) with zero resets or errors (`sdb`, `sdb1` 479.3 MiB).
+- **Isolated `sg_raw` Reads**:
+  - `LBA 0 (1 blk = 512B)`: **PASS** (`code=0, size=512`)
+  - `LBA 0 (8 blks = 4096B)`: **PASS** (`code=0, size=4096`)
+  - `LBA 528 (8 blks = 4096B)`: **PASS** (`code=0, size=4096`)
+  - `LBA 560 (8 blks = 4096B)`: **PASS** (`code=0, size=4096`)
+  - `LBA 1024 (1 blk = 512B)`: **PASS** (`code=0, size=512`)
+  - `LBA 1024 (8 blks = 4096B)`: **PASS** (`code=0, size=4096`)
+- **`dd` Direct Reads**:
+  - `dd bs=512 count=1 iflag=direct`: **PASS** (`512 bytes copied, 0.000966 s, 530 kB/s`)
+  - `dd bs=4096 count=1 iflag=direct`: **PASS** (`4096 bytes copied, 0.004788 s, 856 kB/s`)
+  - `dd bs=64k count=64 iflag=direct` (**4.0 MiB = 8,192 sectors**): **PASS** (`4,194,304 bytes copied, 4.42191 s, 949 kB/s`)
+- **Filesystem Mount**:
+  - `mount -t vfat -o ro /dev/sdb1 /mnt/sdcard`: **PASS** (`code=0`, listed all 75+ CSV and TXT files on the SD card with zero `dmesg` errors).
+
