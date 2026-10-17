@@ -47,6 +47,13 @@ impl LbaCache {
         }
     }
 
+    pub fn clear(&mut self) {
+        for entry in self.entries.iter_mut() {
+            entry.valid = false;
+            entry.lba = 0xFFFF_FFFF;
+        }
+    }
+
     pub fn update(&mut self, lba: u32, buf: &[u8; 512]) {
         for (i, entry) in self.entries.iter_mut().enumerate() {
             if entry.valid && entry.lba == lba {

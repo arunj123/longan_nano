@@ -19,6 +19,7 @@ pub enum Asc {
     AddressOutOfRange = 0x21,
     InvalidFieldInCommand = 0x24,
     WriteProtected = 0x27,
+    NotReadyToReadyTransition = 0x28,
     MediumNotPresent = 0x3A,
 }
 

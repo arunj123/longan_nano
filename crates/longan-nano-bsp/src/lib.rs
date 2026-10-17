@@ -152,6 +152,9 @@ impl hal::MscBlockDevice for SdCard {
     fn is_ready(&self) -> bool {
         self.is_initialized
     }
+    fn check_ready(&mut self) -> bool {
+        self.check_ready()
+    }
     fn capacity(&self) -> (u32, u32) {
         (self.sector_count, 512)
     }

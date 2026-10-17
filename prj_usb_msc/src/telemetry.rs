@@ -246,6 +246,15 @@ impl TelemetryDashboard {
         self.last_activity_time = now;
     }
 
+    /// Dynamically updates SD card presence and capacity on hot-swap events.
+    pub fn update_sd_status(&mut self, sd_ok: bool, cap_mb: u32) {
+        if self.sd_ok != sd_ok || self.cap_mb != cap_mb {
+            self.sd_ok = sd_ok;
+            self.cap_mb = cap_mb;
+            self.field_status.invalidate();
+        }
+    }
+
     /// Updates dirty fields on the LCD display.
     /// MUST ONLY BE INVOKED WHEN THE USB BUS IS IDLE (`board.usb_msc.is_idle()`).
     pub fn update(&mut self, lcd: &mut Lcd, stats: &MscStats, configured: bool, now: u32) {
@@ -487,5 +496,22 @@ mod tests {
         assert_eq!(calculate_speed_kbs(1600, 1000), 800);
         // 8192 sectors in 5000 ms -> 819 kB/s
         assert_eq!(calculate_speed_kbs(8192, 5000), 819);
+    }
+
+    #[test]
+    fn test_dashboard_update_sd_status() {
+        let mut dashboard = TelemetryDashboard::new(true, 480);
+        assert!(dashboard.sd_ok);
+        assert_eq!(dashboard.cap_mb, 480);
+
+        // Update when card is removed
+        dashboard.update_sd_status(false, 0);
+        assert!(!dashboard.sd_ok);
+        assert_eq!(dashboard.cap_mb, 0);
+
+        // Update when card is re-inserted
+        dashboard.update_sd_status(true, 480);
+        assert!(dashboard.sd_ok);
+        assert_eq!(dashboard.cap_mb, 480);
     }
 }

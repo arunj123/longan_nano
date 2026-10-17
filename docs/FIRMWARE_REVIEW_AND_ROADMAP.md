@@ -393,7 +393,7 @@ flowchart TD
 - [x] **Task 4.1**: Implement `PA8` button double-click context actions and long-press visual progress bar. *(Verified in Build 00DC: 48/48 host unit tests PASS, 21/21 remote hardware tests PASS, visual progress bar + tare trigger + context actions verified)*
 - [x] **Task 4.2**: Implement edge-triggered capture on `GraphScreen` and fix `Single` mode autoscale replotting. *(Verified in Build 00DD: 55/55 host unit tests PASS, 22/22 remote hardware tests PASS, rising edge trigger + autoscale freeze in Single mode + waveform preservation verified)*
 - [x] **Task 4.3**: Add live LCD telemetry to `prj_usb_msc` during bus idle. *(Verified in Build 00DE: 66/66 host unit tests PASS, target hardware verified with 806 kB/s read streaming, 128 KiB write streaming MD5 match, live telemetry dashboard verified)*
-- [ ] **Task 4.4**: Add SD card hot-swap detection and `SenseKey::UnitAttention` handling.
+- [x] **Task 4.4**: Add SD card hot-swap detection and `SenseKey::UnitAttention` handling. *(Verified in Build 00DF: 70/70 host unit tests PASS, target hardware verified with 749 kB/s read, 452 kB/s write, 128 KiB MD5 match, Unit Attention handling verified)*
 - [ ] **Task 4.5**: Add display 180° rotation toggle via `MADCTL` persisted in `BKP` register.
 
 #### Phase 4 Empirical Verification Summary:
@@ -484,6 +484,38 @@ flowchart TD
      - Partition 1 (`/dev/sdb1`) mounted read-write cleanly (`mount code=0`).
      - Single-file write & read back round-trip verified (`/mnt/sdcard/build_00de.txt`).
      - Multi-block 128 KiB CMD25 write streaming with double buffering verified with 100% cryptographic match (`MD5: ba2813088e67be5e54537b0129c24007`).
+     - Clean unmount with zero dmesg errors or USB transaction errors.
+
+4. **`prj_usb_msc` SD Card Hot-Swap Detection & SCSI Unit Attention Handling (Build 00DF)**:
+   - **SD Card Hot-Swap Detection on SPI1 without CD Pin (`sdcard.rs`)**:
+     - Longan Nano MicroSD socket lacks a mechanical Card Detect (CD) pin. Uses PB14 internal pull-up (`InputPullUp`) so unselected/removed MISO lines idle at `0xFF`.
+     - `check_presence()`: Non-intrusive `CMD13` (SEND_STATUS) inquiry on initialized card taking ~8 bytes over SPI (~3 µs at 24 MHz SPI1). When the card is removed, MISO reads `0xFF`, marking `is_initialized = false` and resetting streaming states.
+     - `probe_inserted()`: Fast non-blocking `CMD0` probe at 400 kHz (`Div256`). When a card is inserted, CMD0 responds with `0x01` (Idle), triggering internal operational re-initialization up to 24 MHz without blocking or hanging.
+     - `check_ready()`: Dynamic dispatch delegating to `check_presence()` when initialized and `probe_inserted()` when uninitialized.
+   - **SCSI `SenseKey::UnitAttention` & Media Transition Protocol (`usb/msc/`)**:
+     - Added `Asc::NotReadyToReadyTransition = 0x28` to `scsi.rs`.
+     - In `usb/msc/mod.rs`, added `set_media_present(&mut self, present: bool)`. When transitioning from false to true, arms `unit_attention = true` and invalidates the 16-slot LBA cache (`self.cache.clear()`).
+     - Added `unit_attention` and `!disk.is_ready()` checks to `process_scsi` (`TEST_UNIT_READY`, `READ_FORMAT_CAPACITIES`, `READ_CAPACITY_10`, `SERVICE_ACTION_IN_16`, `READ_6`, `READ_10`, `WRITE_6`, `WRITE_10`, `SYNCHRONIZE_CACHE_10`).
+     - Returns `SenseKey::UnitAttention`, `Asc::NotReadyToReadyTransition` on the first command following insertion, causing the host operating system to invalidate cached partition tables and re-mount.
+     - On media removal or I/O failure, detects `!disk.check_ready()`, transitions `media_present = false`, and returns `SenseKey::NotReady, Asc::MediumNotPresent`.
+     - Bumped USB serial string and SCSI VPD page 0x80 serial to `LNMSC00000DF`.
+   - **Dynamic Telemetry & LED Heartbeat Synchronization (`prj_usb_msc/src/main.rs`, `telemetry.rs`)**:
+     - Added `dashboard.update_sd_status(sd_ok, cap_mb)` to update LCD dashboard dirty field dynamically on hot-swap.
+     - Synchronized onboard LED heartbeat: Green LED toggles when media is present; Red LED toggles when media is absent.
+   - **Host Unit Test Suite (`cargo test`)**:
+     - 70/70 host unit tests pass across the workspace (25 in `gd32vf103-hal`, 31 in `prj_current_monitor`, 4 in `longan-nano-bsp`, 10 in `prj_usb_msc`).
+     - 4 new unit tests in `gd32vf103-hal` cover `LbaCache::clear()`, `set_media_present` transitions and Unit Attention arming, `Asc::NotReadyToReadyTransition` code (`0x28`), and default `MscBlockDevice::check_ready()`.
+     - 1 new unit test in `prj_usb_msc` covers `TelemetryDashboard::update_sd_status()`.
+   - **Target Hardware Empirical Verification (`tools/verify_build_00df.py`)**:
+     - Flashed to GD32VF103 over JTAG OpenOCD on remote host `192.168.0.63`.
+     - Clean USB enumeration as `28e9:abd4` `Longan Nano SD Reader`, serial `LNMSC00000DF` (480 MiB / 983,040 blocks).
+     - SCSI `TEST_UNIT_READY`, `REQUEST_SENSE`, and `READ_CAPACITY_10` verified.
+     - All 7 isolated `sg_raw` sector queries passed (LBA 0 1/8 blks, LBA 528 8 blks, LBA 560 8 blks, LBA 1024 1/8 blks, and fuzzed OOB LBA cleanly rejected with Check Condition).
+     - Single-block read throughput: **497 kB/s**.
+     - Sustained 4.0 MiB read streaming (`dd bs=64k count=64`) achieved **749 kB/s** with zero USB transaction errors or bus resets.
+     - Partition 1 (`/dev/sdb1`) mounted read-write cleanly (`mount code=0`).
+     - Single-file write & verification round-trip match verified on `/mnt/sdcard/build_00df.txt`.
+     - Multi-block 128 KiB CMD25 write streaming with double buffering achieved **452 kB/s** with 100% cryptographic match (`MD5: 57c8ff090bdb5b416ddd6ad7bc8086b3`).
      - Clean unmount with zero dmesg errors or USB transaction errors.
 
 ---

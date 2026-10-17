@@ -34,7 +34,7 @@ fn main() -> ! {
         board.uart0,
         "Mass Storage Class (SCSI transparent / Bulk-Only Transport)"
     );
-    let _ = writeln!(board.uart0, "Build: 00DE | Live LCD Telemetry Dashboard Enabled");
+    let _ = writeln!(board.uart0, "Build: 00DF | SD Card Hot-Swap & Unit Attention Enabled");
     let _ = writeln!(board.uart0, "===================================================");
 
     // 2. Initialize SD Card
@@ -43,6 +43,8 @@ fn main() -> ! {
     let cap_mb = if sd_ok { board.sdcard.sector_count / 2048 } else { 0 };
 
     if sd_ok {
+        board.usb_msc.set_media_present(true);
+        board.usb_msc.unit_attention = false; // Initial boot has no pending UA
         board.led_green.on();
         let _ = writeln!(
             board.uart0,
@@ -84,6 +86,7 @@ fn main() -> ! {
             );
         }
     } else {
+        board.usb_msc.set_media_present(false);
         board.led_red.on();
         let _ = writeln!(board.uart0, "[MSC_DISK] SD Card init failed: {:?}", sd_res);
     }
@@ -102,6 +105,7 @@ fn main() -> ! {
     let _ = writeln!(board.uart0, "[MAIN] USB stack initialized. Waiting for host enumeration...");
 
     let mut last_heartbeat = board.delay.uptime_ms();
+    let mut last_sd_check = board.delay.uptime_ms();
     let mut usb_was_configured = false;
 
     loop {
@@ -118,6 +122,31 @@ fn main() -> ! {
 
         let now = board.delay.uptime_ms();
 
+        // Dynamic SD Card Hot-Swap Monitoring (when USB bus is idle)
+        if board.usb_msc.is_idle() && now.wrapping_sub(last_sd_check) >= 500 {
+            last_sd_check = now;
+            let current_ready = board.sdcard.check_ready();
+            if current_ready != board.usb_msc.is_media_present() {
+                board.usb_msc.set_media_present(current_ready);
+                let new_cap_mb = if current_ready { board.sdcard.sector_count / 2048 } else { 0 };
+                dashboard.update_sd_status(current_ready, new_cap_mb);
+                if current_ready {
+                    board.led_green.on();
+                    board.led_red.off();
+                    let _ = writeln!(
+                        board.uart0,
+                        "[HOT-SWAP] SD Card INSERTED: {} sectors (~{} MB). Unit Attention armed.",
+                        board.sdcard.sector_count,
+                        new_cap_mb
+                    );
+                } else {
+                    board.led_green.off();
+                    board.led_red.on();
+                    let _ = writeln!(board.uart0, "[HOT-SWAP] SD Card REMOVED. Media not present.");
+                }
+            }
+        }
+
         if board.usb_msc.stats.is_active {
             board.usb_msc.clear_active();
             board.led_blue.toggle();
@@ -131,8 +160,10 @@ fn main() -> ! {
 
         if now.wrapping_sub(last_heartbeat) >= 1000 {
             last_heartbeat = now;
-            if sd_ok {
+            if board.usb_msc.is_media_present() {
                 board.led_green.toggle();
+            } else {
+                board.led_red.toggle();
             }
         }
     }

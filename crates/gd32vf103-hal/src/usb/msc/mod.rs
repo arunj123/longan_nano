@@ -84,7 +84,7 @@ const STR_MSC_SERIAL: [u8; 26] = [
     26, 0x03,
     b'L', 0, b'N', 0, b'M', 0, b'S', 0, b'C', 0,
     b'0', 0, b'0', 0, b'0', 0, b'0', 0, b'0', 0,
-    b'D', 0, b'E', 0,
+    b'D', 0, b'F', 0,
 ];
 
 #[repr(C, align(4))]
@@ -140,6 +140,9 @@ impl core::ops::DerefMut for SectorBuf {
 
 pub trait MscBlockDevice {
     fn is_ready(&self) -> bool;
+    fn check_ready(&mut self) -> bool {
+        self.is_ready()
+    }
     fn capacity(&self) -> (u32, u32);
     fn read_sector(&mut self, lba: u32, buf: &mut [u8; 512]) -> bool;
     fn write_sector(&mut self, lba: u32, buf: &[u8; 512]) -> bool;
@@ -221,6 +224,9 @@ pub struct UsbMsc {
     has_read_ahead: bool,
     read_ahead_len: usize,
     media_rx_offset: usize,
+
+    pub media_present: bool,
+    pub unit_attention: bool,
 
     pub stats: MscStats,
 }
@@ -344,6 +350,8 @@ impl UsbMsc {
             has_read_ahead: false,
             read_ahead_len: 0,
             media_rx_offset: 0,
+            media_present: false,
+            unit_attention: false,
             stats: MscStats::default(),
         };
 
@@ -362,6 +370,22 @@ impl UsbMsc {
     #[inline(always)]
     pub fn is_idle(&self) -> bool {
         self.state == BbbState::Idle && !self.need_read && !self.need_write
+    }
+
+    #[inline(always)]
+    pub fn is_media_present(&self) -> bool {
+        self.media_present
+    }
+
+    pub fn set_media_present(&mut self, present: bool) {
+        if !self.media_present && present {
+            self.unit_attention = true;
+            self.cache.clear();
+        } else if self.media_present && !present {
+            self.unit_attention = false;
+            self.cache.clear();
+        }
+        self.media_present = present;
     }
 
     #[inline(always)]
@@ -712,7 +736,25 @@ impl UsbMsc {
                     self.abort_transfer(disk);
                     return;
                 }
-                if !disk.is_ready() {
+                let ready = disk.check_ready();
+                if !self.media_present && ready {
+                    self.media_present = true;
+                    self.unit_attention = true;
+                    self.cache.clear();
+                } else if self.media_present && !ready {
+                    self.media_present = false;
+                    self.unit_attention = false;
+                    self.cache.clear();
+                }
+
+                if self.unit_attention {
+                    self.unit_attention = false;
+                    self.set_sense(SenseKey::UnitAttention, Asc::NotReadyToReadyTransition);
+                    self.abort_transfer(disk);
+                    return;
+                }
+
+                if !ready {
                     self.set_sense(SenseKey::NotReady, Asc::MediumNotPresent);
                     self.abort_transfer(disk);
                     return;
@@ -750,7 +792,7 @@ impl UsbMsc {
                             data[0] = 0x00;
                             data[1] = 0x80;
                             data[3] = 12;
-                            data[4..16].copy_from_slice(b"LNMSC00000DA");
+                            data[4..16].copy_from_slice(b"LNMSC00000DF");
                             let len = core::cmp::min(self.cbw.d_cbw_data_transfer_length as usize, 16);
                             self.send_data(&data[..len]);
                         }
@@ -790,6 +832,12 @@ impl UsbMsc {
             }
 
             scsi_cmd::READ_FORMAT_CAPACITIES => {
+                if self.unit_attention {
+                    self.unit_attention = false;
+                    self.set_sense(SenseKey::UnitAttention, Asc::NotReadyToReadyTransition);
+                    self.abort_transfer(disk);
+                    return;
+                }
                 if !disk.is_ready() {
                     self.set_sense(SenseKey::NotReady, Asc::MediumNotPresent);
                     self.abort_transfer(disk);
@@ -806,6 +854,12 @@ impl UsbMsc {
             }
 
             scsi_cmd::READ_CAPACITY_10 => {
+                if self.unit_attention {
+                    self.unit_attention = false;
+                    self.set_sense(SenseKey::UnitAttention, Asc::NotReadyToReadyTransition);
+                    self.abort_transfer(disk);
+                    return;
+                }
                 if !disk.is_ready() {
                     self.set_sense(SenseKey::NotReady, Asc::MediumNotPresent);
                     self.abort_transfer(disk);
@@ -822,6 +876,12 @@ impl UsbMsc {
 
             scsi_cmd::SERVICE_ACTION_IN_16 => {
                 if (self.cbw.cbwcb[1] & 0x1F) == 0x10 { // READ_CAPACITY_16
+                    if self.unit_attention {
+                        self.unit_attention = false;
+                        self.set_sense(SenseKey::UnitAttention, Asc::NotReadyToReadyTransition);
+                        self.abort_transfer(disk);
+                        return;
+                    }
                     if !disk.is_ready() {
                         self.set_sense(SenseKey::NotReady, Asc::MediumNotPresent);
                         self.abort_transfer(disk);
@@ -858,7 +918,17 @@ impl UsbMsc {
                 }
             }
 
-            scsi_cmd::START_STOP_UNIT | scsi_cmd::PREVENT_ALLOW_MEDIUM_REMOVAL | 0x2F | scsi_cmd::SYNCHRONIZE_CACHE_10 => { // START_STOP_UNIT, PREVENT_ALLOW_REMOVAL, VERIFY_10, SYNCHRONIZE_CACHE_10
+            scsi_cmd::START_STOP_UNIT | scsi_cmd::PREVENT_ALLOW_MEDIUM_REMOVAL | 0x2F => { // START_STOP_UNIT, PREVENT_ALLOW_REMOVAL, VERIFY_10
+                self.csw_residue = 0;
+                self.send_csw(CswStatus::CmdPassed);
+            }
+
+            scsi_cmd::SYNCHRONIZE_CACHE_10 => {
+                if !disk.is_ready() {
+                    self.set_sense(SenseKey::NotReady, Asc::MediumNotPresent);
+                    self.abort_transfer(disk);
+                    return;
+                }
                 self.csw_residue = 0;
                 self.send_csw(CswStatus::CmdPassed);
             }
@@ -866,6 +936,12 @@ impl UsbMsc {
             scsi_cmd::READ_6 => {
                 if (self.cbw.bm_cbw_flags & 0x80) == 0 {
                     self.set_sense(SenseKey::IllegalRequest, Asc::InvalidCdb);
+                    self.abort_transfer(disk);
+                    return;
+                }
+                if self.unit_attention {
+                    self.unit_attention = false;
+                    self.set_sense(SenseKey::UnitAttention, Asc::NotReadyToReadyTransition);
                     self.abort_transfer(disk);
                     return;
                 }
@@ -906,6 +982,12 @@ impl UsbMsc {
             scsi_cmd::READ_10 => {
                 if (self.cbw.bm_cbw_flags & 0x80) == 0 {
                     self.set_sense(SenseKey::IllegalRequest, Asc::InvalidCdb);
+                    self.abort_transfer(disk);
+                    return;
+                }
+                if self.unit_attention {
+                    self.unit_attention = false;
+                    self.set_sense(SenseKey::UnitAttention, Asc::NotReadyToReadyTransition);
                     self.abort_transfer(disk);
                     return;
                 }
@@ -957,6 +1039,12 @@ impl UsbMsc {
                     self.abort_transfer(disk);
                     return;
                 }
+                if self.unit_attention {
+                    self.unit_attention = false;
+                    self.set_sense(SenseKey::UnitAttention, Asc::NotReadyToReadyTransition);
+                    self.abort_transfer(disk);
+                    return;
+                }
                 if !disk.is_ready() {
                     self.set_sense(SenseKey::NotReady, Asc::MediumNotPresent);
                     self.abort_transfer(disk);
@@ -990,6 +1078,12 @@ impl UsbMsc {
             scsi_cmd::WRITE_10 => {
                 if (self.cbw.bm_cbw_flags & 0x80) != 0 {
                     self.set_sense(SenseKey::IllegalRequest, Asc::InvalidCdb);
+                    self.abort_transfer(disk);
+                    return;
+                }
+                if self.unit_attention {
+                    self.unit_attention = false;
+                    self.set_sense(SenseKey::UnitAttention, Asc::NotReadyToReadyTransition);
                     self.abort_transfer(disk);
                     return;
                 }
@@ -1349,7 +1443,14 @@ impl UsbMsc {
                                     self.read_ahead_len = next_len;
                                     self.has_read_ahead = true;
                                 } else {
-                                    self.set_sense(SenseKey::HardwareError, Asc::UnrecoveredReadError);
+                                    if !disk.check_ready() {
+                                        self.media_present = false;
+                                        self.unit_attention = false;
+                                        self.cache.clear();
+                                        self.set_sense(SenseKey::NotReady, Asc::MediumNotPresent);
+                                    } else {
+                                        self.set_sense(SenseKey::HardwareError, Asc::UnrecoveredReadError);
+                                    }
                                     self.abort_transfer(disk);
                                 }
                             } else {
@@ -1687,14 +1788,28 @@ impl UsbMsc {
                         self.read_ahead_len = next_len;
                         self.has_read_ahead = true;
                     } else {
-                        self.set_sense(SenseKey::HardwareError, Asc::UnrecoveredReadError);
+                        if !disk.check_ready() {
+                            self.media_present = false;
+                            self.unit_attention = false;
+                            self.cache.clear();
+                            self.set_sense(SenseKey::NotReady, Asc::MediumNotPresent);
+                        } else {
+                            self.set_sense(SenseKey::HardwareError, Asc::UnrecoveredReadError);
+                        }
                         self.abort_transfer(disk);
                     }
                 } else {
                     disk.end_multi_read();
                 }
             } else {
-                self.set_sense(SenseKey::HardwareError, Asc::UnrecoveredReadError);
+                if !disk.check_ready() {
+                    self.media_present = false;
+                    self.unit_attention = false;
+                    self.cache.clear();
+                    self.set_sense(SenseKey::NotReady, Asc::MediumNotPresent);
+                } else {
+                    self.set_sense(SenseKey::HardwareError, Asc::UnrecoveredReadError);
+                }
                 self.abort_transfer(disk);
             }
         } else if self.need_write {
@@ -1741,7 +1856,14 @@ impl UsbMsc {
             } else {
                 disk.end_multi_write();
                 self.cache.invalidate(self.lba);
-                self.set_sense(SenseKey::HardwareError, Asc::WriteFault);
+                if !disk.check_ready() {
+                    self.media_present = false;
+                    self.unit_attention = false;
+                    self.cache.clear();
+                    self.set_sense(SenseKey::NotReady, Asc::MediumNotPresent);
+                } else {
+                    self.set_sense(SenseKey::HardwareError, Asc::WriteFault);
+                }
                 self.abort_transfer(disk);
             }
         } else if self.state == BbbState::StatusPending {
@@ -1925,5 +2047,76 @@ mod tests {
         stats.cache_hits = 984;
         stats.cache_misses = 16;
         assert_eq!(stats.cache_hit_rate_tenth_percent(), 984); // 98.4%
+    }
+
+    #[test]
+    fn test_lba_cache_clear() {
+        let mut cache = LbaCache::new();
+        let buf = [0x77u8; 512];
+        cache.insert(0, 100, &buf);
+        cache.insert(1, 200, &buf);
+        assert!(cache.lookup(100).is_some());
+        assert!(cache.lookup(200).is_some());
+
+        cache.clear();
+        assert!(cache.lookup(100).is_none());
+        assert!(cache.lookup(200).is_none());
+        for entry in cache.entries.iter() {
+            assert!(!entry.valid);
+            assert_eq!(entry.lba, 0xFFFF_FFFF);
+        }
+    }
+
+    #[test]
+    fn test_set_media_present_transitions() {
+        // Mock minimal UsbMsc fields for media transitions
+        let mut media_present = false;
+        let mut unit_attention = false;
+        let mut cache = LbaCache::new();
+        let buf = [0x33u8; 512];
+        cache.insert(0, 50, &buf);
+
+        // Transition: Not Ready -> Ready (Card Insertion)
+        fn set_presence(
+            present: bool,
+            media_present: &mut bool,
+            unit_attention: &mut bool,
+            cache: &mut LbaCache,
+        ) {
+            if !*media_present && present {
+                *unit_attention = true;
+                cache.clear();
+            } else if *media_present && !present {
+                *unit_attention = false;
+                cache.clear();
+            }
+            *media_present = present;
+        }
+
+        set_presence(true, &mut media_present, &mut unit_attention, &mut cache);
+        assert!(media_present);
+        assert!(unit_attention);
+        assert!(cache.lookup(50).is_none()); // Cache cleared
+
+        // Idempotent: already present
+        unit_attention = false; // Simulated UA reported & cleared
+        cache.insert(0, 50, &buf);
+        set_presence(true, &mut media_present, &mut unit_attention, &mut cache);
+        assert!(media_present);
+        assert!(!unit_attention); // Stays false
+        assert!(cache.lookup(50).is_some()); // Not cleared
+
+        // Transition: Ready -> Not Ready (Card Removal)
+        set_presence(false, &mut media_present, &mut unit_attention, &mut cache);
+        assert!(!media_present);
+        assert!(!unit_attention);
+        assert!(cache.lookup(50).is_none()); // Cache cleared on removal
+    }
+
+    #[test]
+    fn test_scsi_unit_attention_asc_code() {
+        assert_eq!(SenseKey::UnitAttention as u8, 0x06);
+        assert_eq!(Asc::NotReadyToReadyTransition as u8, 0x28);
+        assert_eq!(Asc::MediumNotPresent as u8, 0x3A);
     }
 }

@@ -1,7 +1,6 @@
 use gd32vf103_hal::delay::Delay;
 use gd32vf103_hal::gpio::{mode, Pin, PortB};
 use gd32vf103_hal::spi::{Prescaler, Spi1};
-use embedded_hal::delay::DelayNs;
 use embedded_hal::digital::OutputPin;
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -135,8 +134,25 @@ impl SdCard {
         r1
     }
 
+    #[inline(always)]
+    fn delay_ms_internal(ms: u32) {
+        #[cfg(not(test))]
+        {
+            let ticks = (ms as u64) * 24_000;
+            let start = unsafe { gd32vf103_hal::pac::Mtime::steal().read_ticks() };
+            while unsafe { gd32vf103_hal::pac::Mtime::steal().read_ticks() }.wrapping_sub(start) < ticks {}
+        }
+        #[cfg(test)]
+        let _ = ms;
+    }
+
     /// Initializes hardware and probes the SD card.
-    pub fn init(&mut self, delay: &mut Delay) -> Result<CardType, SdError> {
+    pub fn init(&mut self, _delay: &mut Delay) -> Result<CardType, SdError> {
+        self.init_internal()
+    }
+
+    /// Internal hardware initialization using internal mtime timer delay.
+    pub fn init_internal(&mut self) -> Result<CardType, SdError> {
         self.card_type = CardType::Unknown;
         self.sector_count = 0;
         self.is_initialized = false;
@@ -149,7 +165,7 @@ impl SdCard {
         self.spi.set_prescaler(Prescaler::Div256);
         self.cs_high();
 
-        delay.delay_ms(10);
+        Self::delay_ms_internal(10);
 
         // Power-up sync: Send >= 80 clock cycles with CS=HIGH
         for _ in 0..16 {
@@ -166,7 +182,7 @@ impl SdCard {
             if r1 == 0x01 {
                 break;
             }
-            delay.delay_ms(5);
+            Self::delay_ms_internal(5);
         }
 
         if r1 != 0x01 {
@@ -196,7 +212,7 @@ impl SdCard {
                 ready = true;
                 break;
             }
-            delay.delay_ms(10);
+            Self::delay_ms_internal(10);
         }
 
         if !ready {
@@ -294,6 +310,80 @@ impl SdCard {
         self.streaming_write = false;
         self.stream_write_next_lba = 0;
         Ok(self.card_type)
+    }
+
+    /// Checks whether an initialized SD card is still present and responding.
+    /// Uses CMD13 (SEND_STATUS) which requires ~8 bytes over SPI (~3 µs at 24 MHz).
+    /// If the card has been removed, MISO is pulled high and returns 0xFF.
+    pub fn check_presence(&mut self) -> bool {
+        if !self.is_initialized {
+            return false;
+        }
+        if self.streaming_read || self.streaming_write {
+            return true;
+        }
+        self.cs_low();
+        let mut r1 = self.send_cmd(13, 0, 0x01);
+        if (r1 & 0x80) != 0 {
+            // Retry once in case of single-cycle bus glitch
+            r1 = self.send_cmd(13, 0, 0x01);
+        }
+        let _r2 = if (r1 & 0x80) == 0 { self.xchg(0xFF) } else { 0xFF };
+        self.cs_high();
+        self.xchg(0xFF);
+
+        if r1 == 0x00 {
+            true
+        } else {
+            // Card removed or unresponsive
+            self.is_initialized = false;
+            self.card_type = CardType::Unknown;
+            self.sector_count = 0;
+            self.streaming_read = false;
+            self.streaming_write = false;
+            false
+        }
+    }
+
+    /// Probes if a card is physically present in the slot when not initialized.
+    /// Fast non-blocking check: sends 16 dummy clocks with CS high, then CMD0.
+    /// If no card is present, MISO is pulled high and CMD0 returns 0xFF (~1 ms).
+    /// If a card is present, CMD0 returns 0x01 (Idle), and we proceed with init_internal().
+    pub fn probe_inserted(&mut self) -> bool {
+        if self.is_initialized {
+            return true;
+        }
+
+        // Slow speed for probing (~200-400 kHz)
+        self.spi.set_prescaler(Prescaler::Div256);
+        self.cs_high();
+
+        // Power-up sync: Send >= 80 clock cycles with CS=HIGH
+        for _ in 0..16 {
+            self.xchg(0xFF);
+        }
+
+        // Send CMD0 (GO_IDLE_STATE) with CRC=0x95
+        self.cs_low();
+        let r1 = self.send_cmd(0, 0, 0x95);
+        self.cs_high();
+        self.xchg(0xFF);
+
+        if r1 == 0x01 {
+            // Card responded to CMD0! Proceed to full initialization.
+            self.init_internal().is_ok()
+        } else {
+            false
+        }
+    }
+
+    /// Dynamic readiness check: verifies presence if initialized, or probes for insertion if not.
+    pub fn check_ready(&mut self) -> bool {
+        if self.is_initialized {
+            self.check_presence()
+        } else {
+            self.probe_inserted()
+        }
     }
 
     /// Begin continuous multi-block read streaming (CMD18).
