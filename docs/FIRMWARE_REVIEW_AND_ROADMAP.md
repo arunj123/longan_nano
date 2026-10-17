@@ -1,6 +1,6 @@
 # Firmware Comprehensive Review, Optimization Plan & Multi-Session Roadmap
 
-**Document Status**: Active Master Tracking & Handover Document | Active Phase: Phase 4 (UI/UX & Advanced Features)  
+**Document Status**: Active Master Tracking & Handover Document | Active Phase: Phase 5 (Production Hardening & Write Protection)  
 **Target Architecture**: Sipeed Longan Nano (GD32VF103CBT6, RISC-V RV32IMAC @ 96/108 MHz, 32 KB SRAM, 128 KB Flash)  
 **Projects Covered**: `prj_usb_msc` (Pure Rust) and `prj_current_monitor` (Pure Rust + Python Telemetry + 3D Enclosure)  
 **Primary Author/Audience**: AI Agents (Autonomous Pair Programmers)
@@ -219,6 +219,7 @@ flowchart TD
     P1["Phase 1: Critical Bug Fixes & Quick Wins<br/>(monitor.py 10x, BigDigit negative mA, LBA overflow, stream leak)"] --> P2["Phase 2: Architecture Refactoring & Host Tests<br/>(App struct, host unit tests, usb.rs modularization)"]
     P2 --> P3["Phase 3: High-Impact Performance Upgrades<br/>(32-bit FIFO, CMD25 write streaming, CSW delay removal)"]
     P3 --> P4["Phase 4: UI/UX & New Features<br/>(PA8 double-click, live LCD telemetry, fast scope mode, BKP checkpointing)"]
+    P4 --> P5["Phase 5: Production Hardening & Write Protection<br/>(Write-Protect toggle, non-breaking cache lookup, workspace host tests, release tag)"]
 ```
 
 ### Phase 1: Critical Bug Fixes & Immediate Quick Wins (COMPLETED)
@@ -389,7 +390,7 @@ flowchart TD
        - Bidirectional USB HID OUT commands (SetMode, SetBatteryProfile, SetEpoch, SetCurrentLimit) PASS.
        - Over-Current Alert threshold and limit field validation PASS.
 
-### Phase 4: UI/UX & Advanced Features (ACTIVE PHASE)
+### Phase 4: UI/UX & Advanced Features (COMPLETED)
 - [x] **Task 4.1**: Implement `PA8` button double-click context actions and long-press visual progress bar. *(Verified in Build 00DC: 48/48 host unit tests PASS, 21/21 remote hardware tests PASS, visual progress bar + tare trigger + context actions verified)*
 - [x] **Task 4.2**: Implement edge-triggered capture on `GraphScreen` and fix `Single` mode autoscale replotting. *(Verified in Build 00DD: 55/55 host unit tests PASS, 22/22 remote hardware tests PASS, rising edge trigger + autoscale freeze in Single mode + waveform preservation verified)*
 - [x] **Task 4.3**: Add live LCD telemetry to `prj_usb_msc` during bus idle. *(Verified in Build 00DE: 66/66 host unit tests PASS, target hardware verified with 806 kB/s read streaming, 128 KiB write streaming MD5 match, live telemetry dashboard verified)*
@@ -559,6 +560,23 @@ flowchart TD
      - Multi-block 128 KiB CMD25 write streaming with double buffering achieved **576 kB/s** with 100% cryptographic match (`MD5: 925dad1a4bc6cd4b05419669c82739b0`).
      - Clean unmount with zero dmesg errors or USB transaction errors.
 
+
+
+### Phase 5: Production Hardening, Write Protection & Release Milestone (ACTIVE / NEXT PHASE)
+- [ ] **Task 5.1**: Implement Hardware/Software Write-Protect Toggle & SCSI `MODE_SENSE_6`/`10` Protection Handling:
+  - Add Write-Protect (WP) bit reporting in SCSI `MODE_SENSE_6` (Byte 2, bit 7 `0x80`) and `MODE_SENSE_10` (Byte 3, bit 7 `0x80`).
+  - Reject `WRITE_6` and `WRITE_10` with `SenseKey::DataProtect (0x07)`, `Asc::WriteProtected (0x27, 0x00)` when write-protect is active.
+  - Add Write-Protect state toggle via UART command (`'w' | 'W'`) and PA8 double-click gesture in `prj_usb_msc`, persisting across reboots in Backup Domain register 6 (`BKP_DATA6`).
+  - Display `[RO]` vs `[RW]` in the live LCD telemetry header badge.
+- [ ] **Task 5.2**: Implement Non-Breaking Stream Cache Lookup Policy ([MSC-PERF-04]):
+  - In `crates/gd32vf103-hal/src/usb/msc/mod.rs`, optimize read-ahead pipelining so that sequential cache hits during an active `CMD18` multi-block read do not invoke `disk.end_multi_read()`.
+  - Maintain the active SPI streaming read pipeline across cache hits for large block transfers (> 8 blocks), only consulting cache when starting a new transfer or for small isolated reads ($\le 8$ blocks).
+- [ ] **Task 5.3**: Fix Workspace-Wide Host Unit Test Harness & `panic_halt` Guarding:
+  - Guard `panic_halt` in auxiliary crates (`prj_blink`, `prj_lcd_test`, `prj_sdcard_test`, `prj_sdcard_fs_test`, `prj_usb_serial`) with `#[cfg(not(test))] use panic_halt as _;`.
+  - Ensure pure `cargo test --workspace --target x86_64-pc-windows-msvc` passes cleanly with 0 compilation errors across all workspace members.
+- [ ] **Task 5.4**: Master Release Milestone v1.0.0 End-to-End Verification & Documentation:
+  - Run complete end-to-end regression suites on target hardware for both `prj_usb_msc` and `prj_current_monitor`.
+  - Tag git repository at `v1.0.0-release` and archive final verification artifacts.
 
 ---
 
