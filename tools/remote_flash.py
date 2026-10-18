@@ -8,9 +8,21 @@ import sys
 import os
 import paramiko
 
-HOST = "192.168.0.63"
-USER = "arun"
-PASS = "arun"
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+try:
+    from ssh_util import HOST, USER, PASS, KEY_PATH, create_ssh_client
+except ImportError:
+    HOST = os.environ.get("LONGAN_SSH_HOST", "192.168.0.63")
+    USER = os.environ.get("LONGAN_SSH_USER", "arun")
+    PASS = os.environ.get("LONGAN_SSH_PASS", "arun")
+    KEY_PATH = os.environ.get("LONGAN_SSH_KEY", None)
+    def create_ssh_client(timeout=15, banner_timeout=30, **kwargs):
+        client = paramiko.SSHClient()
+        client.load_system_host_keys()
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        client.connect(HOST, username=USER, password=PASS, timeout=timeout, banner_timeout=banner_timeout)
+        return client
+
 REMOTE_DIR = "/home/arun/longan_nano_tools"
 REMOTE_CFG = f"{REMOTE_DIR}/openocd-sipeed-libusb.cfg"
 
@@ -20,10 +32,8 @@ def flash_remote(hex_path):
         sys.exit(1)
 
     print(f"[REMOTE FLASH] Connecting to {USER}@{HOST}...")
-    client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     try:
-        client.connect(HOST, username=USER, password=PASS, allow_agent=False, look_for_keys=False, timeout=15, banner_timeout=30)
+        client = create_ssh_client(timeout=15, banner_timeout=30)
     except Exception as e:
         print(f"❌ SSH connection failed: {e}", file=sys.stderr)
         sys.exit(1)

@@ -1,17 +1,27 @@
-import paramiko
-import time
+import os
 import sys
+import time
+import paramiko
 
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 
-HOST = "192.168.0.63"
-USER = "arun"
-PASS = "arun"
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+try:
+    from ssh_util import HOST, USER, PASS, KEY_PATH, create_ssh_client
+except ImportError:
+    HOST = os.environ.get("LONGAN_SSH_HOST", "192.168.0.63")
+    USER = os.environ.get("LONGAN_SSH_USER", "arun")
+    PASS = os.environ.get("LONGAN_SSH_PASS", "arun")
+    KEY_PATH = os.environ.get("LONGAN_SSH_KEY", None)
+    def create_ssh_client(timeout=10, **kwargs):
+        client = paramiko.SSHClient()
+        client.load_system_host_keys()
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        client.connect(HOST, username=USER, password=PASS, timeout=timeout)
+        return client
 
-client = paramiko.SSHClient()
-client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-client.connect(HOST, username=USER, password=PASS, allow_agent=False, look_for_keys=False, timeout=10)
+client = create_ssh_client(timeout=10)
 
 # Kill any lingering fdisk/dd/sg_raw
 print("Killing lingering disk processes...", flush=True)

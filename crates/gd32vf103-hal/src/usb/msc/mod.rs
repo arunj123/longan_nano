@@ -1745,9 +1745,15 @@ impl UsbMsc {
                     }
 
                     self.usbfs.global().grstctl.write((0x10 << 6) | grstctl::TXFF);
-                    while (self.usbfs.global().grstctl.read() & grstctl::TXFF) != 0 {}
+                    let mut timeout = 100_000u32;
+                    while (self.usbfs.global().grstctl.read() & grstctl::TXFF) != 0 && timeout > 0 {
+                        timeout -= 1;
+                    }
                     self.usbfs.global().grstctl.write(grstctl::RXFF);
-                    while (self.usbfs.global().grstctl.read() & grstctl::RXFF) != 0 {}
+                    timeout = 100_000;
+                    while (self.usbfs.global().grstctl.read() & grstctl::RXFF) != 0 && timeout > 0 {
+                        timeout -= 1;
+                    }
 
                     let mut in_ctl = self.usbfs.in_ep(1).diepctl.read();
                     in_ctl &= !(depctl::EPEN | depctl::EPD | depctl::CNAK);

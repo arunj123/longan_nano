@@ -1,15 +1,24 @@
-#!/usr/bin/env python3
+import os
 import sys
 import paramiko
 
-HOST = "192.168.0.63"
-USER = "arun"
-PASS = "arun"
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+try:
+    from ssh_util import HOST, USER, PASS, KEY_PATH, create_ssh_client
+except ImportError:
+    HOST = os.environ.get("LONGAN_SSH_HOST", "192.168.0.63")
+    USER = os.environ.get("LONGAN_SSH_USER", "arun")
+    PASS = os.environ.get("LONGAN_SSH_PASS", "arun")
+    KEY_PATH = os.environ.get("LONGAN_SSH_KEY", None)
+    def create_ssh_client(timeout=15, **kwargs):
+        client = paramiko.SSHClient()
+        client.load_system_host_keys()
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        client.connect(HOST, username=USER, password=PASS, timeout=timeout)
+        return client
 
 def remote_exec(cmd, sudo=False):
-    client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    client.connect(HOST, username=USER, password=PASS, allow_agent=False, look_for_keys=False, timeout=15)
+    client = create_ssh_client(timeout=15)
     
     if sudo:
         cmd = f"echo '{PASS}' | sudo -S {cmd}"

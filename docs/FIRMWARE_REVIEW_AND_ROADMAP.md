@@ -183,10 +183,11 @@ flowchart TD
     - Added `is_session_maxed()` in `logger.rs`, formatted `"LOG_9999.CSV [MAX]"` in amber on Screen 6, and signaled with context banner `" LOG LIMIT: MAX 9999   "` on rollover attempt (`[MON-STOR-07]`).
   - Verified with 7 new host unit tests in `app.rs`, `logger.rs`, and `screen_usbdrive.rs` (58 passing in `prj_current_monitor`, 143 total across workspace) and live hardware flashing + full USB Drive mode lifecycle verification on `192.168.0.63` (`tools/test_usb_drive_mode.py`: 100% PASS).
 
-- [ ] **Task 6.8: Security, Memory Map Reconciliation & HAL Robustness (P0/P1)**:
-  - In `tools/test_usb_drive_mode.py`, `test_remote_ui_cycling.py`, `stream_remote_monitor.py`, `hid_tcp_bridge.py`, `test_remote_current_monitor.py`, load credentials from `os.environ.get("LONGAN_SSH_PASS", "arun")` and configurable SSH key auth (`[MON-SEC-01]`).
-  - Formally document the System V ELF section breakdown (`.text = 91,176`, `.rodata = 30,864`, `.data = 0`, `.bss = 8,196`, `.stack = 24,572`), confirming 24 KB of call stack headroom (`[MON-MEM-02]`).
-  - In `crates/gd32vf103-hal/src/usb/` (`hid.rs`, `cdc_acm.rs`, `composite.rs`), add `timeout = 100_000u32` bounds to all `GRSTCTL.TXFF` / `RXFF` flush loops (`[MON-HAL-01]`).
+- [x] **Task 6.8: Security, Memory Map Reconciliation & HAL Robustness (P0/P1)** *(Verified Build 00EB)*:
+  - Created `tools/ssh_util.py` implementing centralized credential management from `LONGAN_SSH_HOST`, `LONGAN_SSH_USER`, `LONGAN_SSH_PASS`, `LONGAN_SSH_KEY`, and configurable host key verification policy via `LONGAN_SSH_STRICT_HOST_CHECK` and `LONGAN_SSH_WARN_HOST_KEY` (`[MON-SEC-01]`). Refactored `tools/test_usb_drive_mode.py`, `test_remote_ui_cycling.py`, `stream_remote_monitor.py`, `hid_tcp_bridge.py`, `test_remote_current_monitor.py`, `remote_flash.py`, `remote_uart_monitor.py`, `remote_exec.py`, `remote_cmd.py`, `check_remote.py`, `check_remote_state.py`, `unstick_host.py`, `unstick_port.py`, `remote_unstick.py` to use `ssh_util`.
+  - Formally documented the GD32VF103CBT6 memory architecture and reconciled Berkeley `size` 32,768 `bss` artifact with the System V ELF section breakdown in `crates/gd32vf103-hal/memory.x` and `bldmgr/build_logic.py` (`.text = 91,930`, `.rodata = 31,392`, `.data = 0`, `.bss = 8,196`, `.stack = 24,572`), confirming 24 KB (75.0% of 32 KB SRAM) of runtime call stack headroom (`[MON-MEM-02]`). Updated `bldmgr/build_logic.py` to automatically report both Berkeley `size` and System V `size -A` on every build.
+  - In `crates/gd32vf103-hal/src/usb/` (`hid.rs:316-324`, `cdc_acm.rs:336-344`, `composite.rs:342-350`, `msc/mod.rs:1747-1755`), bounded all `GRSTCTL.TXFF` and `RXFF` FIFO flush polling loops with `timeout = 100_000u32`, eliminating all unbounded spin-loops across the HAL USB stack (`[MON-HAL-01]`).
+  - Verified with 143 passing host unit tests (`cargo test --workspace --target x86_64-pc-windows-msvc`), OpenOCD JTAG target flashing on `192.168.0.63`, and 100% passing live hardware suites (`test_usb_drive_mode.py`: 12/12 PASS, `stream_remote_monitor.py`: 5/5 PASS, `test_remote_current_monitor.py`: 30/30 PASS).
 
 - [ ] **Task 6.9: Display, UI & AI Maintainer Artifacts (P1/P2)**:
   - In `screen_graph.rs:draw_layout()`, skip `redraw_grid` when `trigger_mode != TriggerMode::Single` (`[MON-UI-03]`).
@@ -226,7 +227,7 @@ flowchart TD
      3. Explicitly direct/prompt the user to start a **new chat session**, informing them that the next session can resume directly from `docs/FIRMWARE_REVIEW_AND_ROADMAP.md`.
 
 ### 5.2 Active Session State & Next-Session Handoff
-- **Latest Verified Build**: `Build 00EA` (`prj_current_monitor`: `.text = 91,886`, `.rodata = 31,392` -> text total = `123,278` bytes, `.data = 0`, `.bss = 8,196` bytes, `.stack = 24,572` bytes; 58 host tests passing in `prj_current_monitor` / 143 total across workspace; hardware verified on `192.168.0.63` via OpenOCD JTAG flash and `tools/test_usb_drive_mode.py` 100% PASS with rotation from `LOG_0148.CSV` to `LOG_0149.CSV`).
+- **Latest Verified Build**: `Build 00EB` (`prj_current_monitor`: `.text = 91,930`, `.rodata = 31,392` -> text total = `123,322` bytes / 94.1% Flash, `.data = 0`, `.bss = 8,196` bytes, `.stack = 24,572` bytes; 58 host tests passing in `prj_current_monitor` / 143 total across workspace; hardware verified on `192.168.0.63` via OpenOCD JTAG flash, `tools/test_usb_drive_mode.py` 100% PASS with rotation from `LOG_0150.CSV` to `LOG_0151.CSV`, `tools/stream_remote_monitor.py` 5/5 packets PASS, and `tools/test_remote_current_monitor.py` 30/30 packets PASS).
 - **Active Phase**: **Phase 6 (Extended): Multi-Model Audit Resolution & Release Candidate 1 (RC1) Hardening (ACTIVE)**.
 - **Immediate Next Step**:
-  - Implement **Task 6.8: Security, Memory Map Reconciliation & HAL Robustness (P0/P1)** (`[MON-SEC-01]`, `[MON-MEM-02]`, `[MON-HAL-01]`).
+  - Implement **Task 6.9: Display, UI & AI Maintainer Artifacts (P1/P2)** (`[MON-UI-03]`, `[MON-AI-04]`).

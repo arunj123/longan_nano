@@ -340,9 +340,15 @@ impl UsbComposite {
         self.usbfs.device().dctl.clear_bits(dctl::RWKUP);
 
         self.usbfs.global().grstctl.write((0x10 << 6) | grstctl::TXFF);
-        while (self.usbfs.global().grstctl.read() & grstctl::TXFF) != 0 {}
+        let mut timeout = 100_000u32;
+        while (self.usbfs.global().grstctl.read() & grstctl::TXFF) != 0 && timeout > 0 {
+            timeout -= 1;
+        }
         self.usbfs.global().grstctl.write(grstctl::RXFF);
-        while (self.usbfs.global().grstctl.read() & grstctl::RXFF) != 0 {}
+        timeout = 100_000;
+        while (self.usbfs.global().grstctl.read() & grstctl::RXFF) != 0 && timeout > 0 {
+            timeout -= 1;
+        }
 
         for i in 1..4 {
             let epctl = self.usbfs.in_ep(i).diepctl.read();

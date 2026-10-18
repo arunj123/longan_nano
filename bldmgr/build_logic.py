@@ -388,8 +388,10 @@ class Builder:
         cmd = [linker] + self.ldflags + object_files + ["-Wl,--start-group"] + libs + ["-Wl,--end-group", "-o", elf_path]
         self.run_command(cmd)
 
-        print("Calculating size...")
+        print("Calculating size (Berkeley format)...")
         self.run_command([self.sz, elf_path])
+        print("Detailed Section Breakdown (System V format - [MON-MEM-02]):")
+        self.run_command([self.sz, "-A", elf_path])
         return elf_path
 
     def create_binaries(self, elf_path):
@@ -453,8 +455,10 @@ class Builder:
         self.run_command([self.cp, "-O", "ihex", dest_elf, dest_hex])
         self.run_command([self.cp, "-O", "binary", "-S", dest_elf, dest_bin])
 
-        print("Calculating Rust binary size...")
+        print("Calculating Rust binary size (Berkeley format):")
         self.run_command([self.sz, dest_elf])
+        print("Detailed Section Breakdown (System V format - [MON-MEM-02]):")
+        self.run_command([self.sz, "-A", dest_elf])
         print(f"Successfully created Rust binaries in {rust_build_dir}/")
 
     def build_all(self):

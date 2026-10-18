@@ -14,14 +14,26 @@ Connects to Linux testbed (192.168.0.63) over SSH and exercises:
 9. Verifying resumption of 10 Hz USB HID telemetry streaming.
 """
 
+import os
 import sys
 import time
 import json
 import paramiko
 
-HOST = "192.168.0.63"
-USER = "arun"
-PASS = "arun"
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+try:
+    from ssh_util import HOST, USER, PASS, KEY_PATH, create_ssh_client
+except ImportError:
+    HOST = os.environ.get("LONGAN_SSH_HOST", "192.168.0.63")
+    USER = os.environ.get("LONGAN_SSH_USER", "arun")
+    PASS = os.environ.get("LONGAN_SSH_PASS", "arun")
+    KEY_PATH = os.environ.get("LONGAN_SSH_KEY", None)
+    def create_ssh_client(timeout=10, **kwargs):
+        client = paramiko.SSHClient()
+        client.load_system_host_keys()
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        client.connect(HOST, username=USER, password=PASS, timeout=timeout)
+        return client
 
 REMOTE_SCRIPT = r"""
 import sys
@@ -226,10 +238,8 @@ def main():
     print(f" Target Testbed: {USER}@{HOST}", flush=True)
     print("=" * 70, flush=True)
 
-    client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     try:
-        client.connect(HOST, username=USER, password=PASS, timeout=10)
+        client = create_ssh_client(timeout=10)
     except Exception as e:
         print(f"[FAIL] SSH Connection Failed: {e}", flush=True)
         sys.exit(1)
