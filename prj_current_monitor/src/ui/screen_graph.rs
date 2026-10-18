@@ -261,7 +261,11 @@ impl GraphScreen {
         lcd.fill_rect(0, 0, 160, 19, COL_BG_TOP);
         lcd.fill_rect(0, 19, 160, 1, COL_DIVIDER);
 
-        self.redraw_grid(lcd);
+        // [MON-UI-03] In Auto/Normal modes, replot_history will stream columns and grid
+        // directly via write_pixels. Only draw the static dot grid in Single mode.
+        if self.trigger_mode == TriggerMode::Single {
+            self.redraw_grid(lcd);
+        }
         self.sweep_x = GRAPH_X_MIN;
         self.prev_y = GRAPH_Y_BASE;
         self.peak_in_sweep = 0;

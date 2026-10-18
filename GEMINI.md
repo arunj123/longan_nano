@@ -35,16 +35,24 @@
 
 
 ## Build & Toolchain
-- **Build System**: Standalone Python build manager (`bldmgr/build.py`).
-- **Compiler**: xPack RISC-V GCC 14.2 (`riscv-none-elf-gcc` / `riscv-none-elf-g++`).
-- **Language Standards**: C17 (`-std=gnu17`), C++23 (`-std=gnu++23`).
-- **Optimization Flags**: `-Os -flto -fuse-linker-plugin -ffunction-sections -fdata-sections`.
-- **C++ Embedded Flags**: `-fno-exceptions -fno-rtti -fno-unwind-tables -fno-asynchronous-unwind-tables -fno-threadsafe-statics`.
-- **UTF-8 Output**: Always set `$env:PYTHONUTF8=1` in PowerShell before invoking the script:
-  ```powershell
-  $env:PYTHONUTF8=1; python bldmgr/build.py <project_name> [command]
-  ```
-- **Supported Commands**: `build`, `rebuild`, `clean`, `flash`, `program`, `nucleus`, `dfu`, `debug`.
+- **Authoritative AI Guide**: See [`docs/AI_MAINTAINER.md`](docs/AI_MAINTAINER.md) for full architectural, memory, and subsystem developer documentation.
+- **Primary Production Toolchain (Pure Rust)**:
+  - Architecture Target: `riscv32imac-unknown-none-elf` (Rust Edition 2021).
+  - Production Applications: `prj_current_monitor` and `prj_usb_msc`.
+  - Core Crates: `crates/gd32vf103-hal`, `crates/longan-nano-bsp`, `crates/embedded-sdmmc`, `crates/gd32vf103-pac`.
+  - Host Unit Testing: `cargo test --workspace --target x86_64-pc-windows-msvc`.
+  - Cargo Release Build: `cargo build --release -p prj_current_monitor` (or `prj_usb_msc`).
+- **Python Build Manager (`bldmgr/build.py`)**:
+  - Automatically builds Rust/C++ projects, converts ELF to `.bin` and `.hex`, and analyzes ELF section breakdowns (`size` and `size -A`).
+  - Set `$env:PYTHONUTF8=1` in PowerShell before invoking:
+    ```powershell
+    $env:PYTHONUTF8=1; python bldmgr/build.py <project_name> [command]
+    ```
+  - Supported Commands: `build`, `rebuild`, `clean`, `flash`, `program`.
+- **Legacy C/C++ Reference Toolchain**:
+  - Compiler: xPack RISC-V GCC 14.2 (`riscv-none-elf-gcc` / `riscv-none-elf-g++`).
+  - Language Standards: C17 (`-std=gnu17`), C++23 (`-std=gnu++23`).
+  - Optimization Flags: `-Os -flto -fuse-linker-plugin -ffunction-sections -fdata-sections`.
 
 ## Flashing & In-Circuit Debugging
 - **Programmer**: FT2232D Dual-Channel USB interface (`VID: 0x0403, PID: 0x6010`):
@@ -180,10 +188,10 @@
   - Always use a 2-slot ping-pong buffer (e.g. 2 $\times$ 6.4 KB or 2 $\times$ 3.2 KB) synchronized with DMA0 Channel 2 completion interrupts (`dma_interrupt_enable(DMA0, DMA_CH2, DMA_INT_FTF)`).
 
 ## Project Structure
-- Active applications are prefixed with `prj_*` in the project root (`prj_usb_msc`, `prj_usb_composite`, `prj_current_monitor`, `prj_usb_serial`, `prj_uart_test`, `prj_lcd_test`, `prj_sdcard_test`, `prj_sdcard_fs_test`).
-- Modern C++23 zero-cost drivers and register abstractions reside in `hal/`, `bsp/`, and `drivers/` (100% vendor-free bare-metal implementation).
-- Modern, low-footprint components reside in `lib/` (`lib/system`, `lib/fatfs`, `lib/gd32v_lcd`, `lib/debug_uart0`).
-- Hardware reference datasheets and baseline version documentation reside in `docs/` (`docs/REFERENCE_BASELINE.md`, `docs/GD32VF103_Datasheet_Rev2.1.pdf`).
+- **Active Production Applications**: 100% Pure Rust bare-metal: `prj_current_monitor` (10 Hz Monitor & USB Drive) and `prj_usb_msc` (USB BOT/SCSI Mass Storage).
+- **Core Rust Drivers**: Zero-cost embedded crates reside in `crates/` (`crates/gd32vf103-hal`, `crates/longan-nano-bsp`, `crates/embedded-sdmmc`, `crates/gd32vf103-pac`, `crates/lcd_font`).
+- **Legacy Reference Implementations**: C++23 reference implementations are preserved in `prj_usb_composite/`, `hal/`, `bsp/`, `drivers/`, and `lib/`.
+- **Authoritative Documentation**: See [`docs/AI_MAINTAINER.md`](docs/AI_MAINTAINER.md) and [`docs/FIRMWARE_REVIEW_AND_ROADMAP.md`](docs/FIRMWARE_REVIEW_AND_ROADMAP.md).
 
 ## Resource & Peripheral Conflict Checking
 - **Always Check Hardware Allocations**: Before modifying or creating drivers, verify that peripherals, DMA channels, timers, GPIO pins, and interrupt vectors do not collide:

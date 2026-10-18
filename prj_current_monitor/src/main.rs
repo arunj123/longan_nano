@@ -92,6 +92,11 @@ fn main() -> ! {
 
     let mut app = App::new(datalogger, &sdcard_cell, board.delay.uptime_ms());
 
+    // [MON-UI-03] Sample initial MCU die temperature once at boot so stats screen and telemetry
+    // report calibrated temperature immediately instead of defaulting to 25.0 °C.
+    let boot_temp_tenth = board.mcu_temp.read_temperature_tenth_c();
+    app.stats.update_temp(boot_temp_tenth);
+
     // Check NVRAM configuration in BKP registers
     if board.rtc.read_backup_reg(BKP_REG_MAGIC) == BKP_MAGIC_KEY {
         let cfg = board.rtc.read_backup_reg(BKP_REG_CONFIG);
@@ -100,14 +105,7 @@ fn main() -> ! {
         let tare_tenth = board.rtc.read_backup_reg(BKP_REG_TARE) as i16;
         app.current_limit_ma = board.rtc.read_backup_reg(BKP_REG_LIMIT);
 
-        app.screen_mode = match mode_idx {
-            1 => ScreenMode::Graph,
-            2 => ScreenMode::Stats,
-            3 => ScreenMode::Histogram,
-            4 => ScreenMode::BigDigit,
-            5 => ScreenMode::UsbDrive,
-            _ => ScreenMode::Hero,
-        };
+        app.screen_mode = ScreenMode::from_index(mode_idx as usize).unwrap_or(ScreenMode::Hero);
         app.battery.profile = BatteryProfile::from_id(bat_idx);
         board.ina219.set_tare(tare_tenth);
         writeln!(
@@ -282,12 +280,7 @@ fn main() -> ! {
                 }
             } else {
                 let maybe_cmd = match ch {
-                    b'1' => Some(AppCommand::SetScreen(ScreenMode::Hero)),
-                    b'2' => Some(AppCommand::SetScreen(ScreenMode::Graph)),
-                    b'3' => Some(AppCommand::SetScreen(ScreenMode::Stats)),
-                    b'4' => Some(AppCommand::SetScreen(ScreenMode::Histogram)),
-                    b'5' => Some(AppCommand::SetScreen(ScreenMode::BigDigit)),
-                    b'6' => Some(AppCommand::SetScreen(ScreenMode::UsbDrive)),
+                    b'1'..=b'6' => ScreenMode::from_index((ch - b'1') as usize).map(AppCommand::SetScreen),
                     b'u' | b'U' => Some(AppCommand::ToggleUsbDrive),
                     b'm' | b'M' => Some(AppCommand::NextScreen),
                     b'g' | b'G' => Some(AppCommand::CycleTriggerOrRearm { show_banner: false }),
@@ -338,14 +331,8 @@ fn main() -> ! {
             .and_then(|hid| app.telemetry.poll_command(hid));
         if let Some(cmd) = hid_cmd {
             let app_cmd = match cmd {
-                HidCommand::SetMode(0) => Some(AppCommand::SetScreen(ScreenMode::Hero)),
-                HidCommand::SetMode(1) => Some(AppCommand::SetScreen(ScreenMode::Graph)),
-                HidCommand::SetMode(2) => Some(AppCommand::SetScreen(ScreenMode::Stats)),
-                HidCommand::SetMode(3) => Some(AppCommand::SetScreen(ScreenMode::Histogram)),
-                HidCommand::SetMode(4) => Some(AppCommand::SetScreen(ScreenMode::BigDigit)),
-                HidCommand::SetMode(5) => Some(AppCommand::SetScreen(ScreenMode::UsbDrive)),
                 HidCommand::SetMode(0xFF) => Some(AppCommand::NextScreen),
-                HidCommand::SetMode(_) => None,
+                HidCommand::SetMode(m) => ScreenMode::from_index(m as usize).map(AppCommand::SetScreen),
                 HidCommand::TareZero => Some(AppCommand::TareAndReset { show_banner: false }),
                 HidCommand::FlushSd => Some(AppCommand::FlushSd),
                 HidCommand::RotateLog => Some(AppCommand::RotateSdLog { show_banner: false }),
@@ -735,14 +722,7 @@ fn main() -> ! {
                     SdStatus::NoCard => "NO_CARD",
                     SdStatus::WriteError => "ERROR",
                 };
-                let mode_str = match app.screen_mode {
-                    ScreenMode::Hero => "HERO",
-                    ScreenMode::Graph => "GRAPH",
-                    ScreenMode::Stats => "STATS",
-                    ScreenMode::Histogram => "HISTO",
-                    ScreenMode::BigDigit => "BIG",
-                    ScreenMode::UsbDrive => "USB_DRIVE",
-                };
+                let mode_str = app.screen_mode.short_name();
                 let temp_tenth = app.stats.mcu_temp_tenth_c;
 
                 if board.rtc.is_synced() {

@@ -78,14 +78,7 @@ pub fn save_nvram_config(
     tare_offset_tenth: i16,
     limit_ma: u16,
 ) {
-    let mode_idx = match screen_mode {
-        ScreenMode::Hero => 0u16,
-        ScreenMode::Graph => 1u16,
-        ScreenMode::Stats => 2u16,
-        ScreenMode::Histogram => 3u16,
-        ScreenMode::BigDigit => 4u16,
-        ScreenMode::UsbDrive => 5u16,
-    };
+    let mode_idx = screen_mode.index() as u16;
     let config = (mode_idx << 8) | (battery_profile.id() as u16);
     rtc.write_backup_reg(BKP_REG_CONFIG, config);
     rtc.write_backup_reg(BKP_REG_TARE, tare_offset_tenth as u16);
@@ -185,25 +178,11 @@ impl<'a> App<'a> {
     }
 
     pub fn next_screen_mode(&self) -> ScreenMode {
-        match self.screen_mode {
-            ScreenMode::Hero => ScreenMode::Graph,
-            ScreenMode::Graph => ScreenMode::Stats,
-            ScreenMode::Stats => ScreenMode::Histogram,
-            ScreenMode::Histogram => ScreenMode::BigDigit,
-            ScreenMode::BigDigit => ScreenMode::UsbDrive,
-            ScreenMode::UsbDrive => ScreenMode::Hero,
-        }
+        self.screen_mode.next()
     }
 
     pub fn prev_screen_mode(&self) -> ScreenMode {
-        match self.screen_mode {
-            ScreenMode::Hero => ScreenMode::UsbDrive,
-            ScreenMode::Graph => ScreenMode::Hero,
-            ScreenMode::Stats => ScreenMode::Graph,
-            ScreenMode::Histogram => ScreenMode::Stats,
-            ScreenMode::BigDigit => ScreenMode::Histogram,
-            ScreenMode::UsbDrive => ScreenMode::BigDigit,
-        }
+        self.screen_mode.prev()
     }
 
     pub fn draw_current_layout(&mut self, board: &mut CurrentMonitorBoard) {
@@ -259,14 +238,7 @@ impl<'a> App<'a> {
     }
 
     pub fn screen_mode_name(&self) -> &'static str {
-        match self.screen_mode {
-            ScreenMode::Hero => "HERO",
-            ScreenMode::Graph => "GRAPH",
-            ScreenMode::Stats => "STATS",
-            ScreenMode::Histogram => "HISTO",
-            ScreenMode::BigDigit => "BIG DIGIT",
-            ScreenMode::UsbDrive => "USB DRIVE",
-        }
+        self.screen_mode.name()
     }
 
     pub fn enter_usb_drive_active(
@@ -800,14 +772,7 @@ impl<'a> App<'a> {
 
     pub fn dump_session(&self, board: &mut CurrentMonitorBoard, now: u32) {
         let uptime_s = now / 1000;
-        let mode_name = match self.screen_mode {
-            ScreenMode::Hero => "HERO",
-            ScreenMode::Graph => "GRAPH",
-            ScreenMode::Stats => "STATS",
-            ScreenMode::Histogram => "HISTO",
-            ScreenMode::BigDigit => "BIG",
-            ScreenMode::UsbDrive => "USB_DRIVE",
-        };
+        let mode_name = self.screen_mode.short_name();
         let c_min = if self.stats.has_samples {
             self.stats.c_min
         } else {
@@ -1134,41 +1099,18 @@ mod tests {
 
     #[test]
     fn test_screen_mode_forward_and_backward_transitions() {
-        let modes = [
-            ScreenMode::Hero,
-            ScreenMode::Graph,
-            ScreenMode::Stats,
-            ScreenMode::Histogram,
-            ScreenMode::BigDigit,
-            ScreenMode::UsbDrive,
-        ];
+        let modes = ScreenMode::ALL;
 
         // Forward cycling
         for (i, &mode) in modes.iter().enumerate() {
             let next_expected = modes[(i + 1) % modes.len()];
-            let next_actual = match mode {
-                ScreenMode::Hero => ScreenMode::Graph,
-                ScreenMode::Graph => ScreenMode::Stats,
-                ScreenMode::Stats => ScreenMode::Histogram,
-                ScreenMode::Histogram => ScreenMode::BigDigit,
-                ScreenMode::BigDigit => ScreenMode::UsbDrive,
-                ScreenMode::UsbDrive => ScreenMode::Hero,
-            };
-            assert_eq!(next_actual, next_expected);
+            assert_eq!(mode.next(), next_expected);
         }
 
         // Backward cycling
         for (i, &mode) in modes.iter().enumerate() {
             let prev_expected = modes[(i + modes.len() - 1) % modes.len()];
-            let prev_actual = match mode {
-                ScreenMode::Hero => ScreenMode::UsbDrive,
-                ScreenMode::Graph => ScreenMode::Hero,
-                ScreenMode::Stats => ScreenMode::Graph,
-                ScreenMode::Histogram => ScreenMode::Stats,
-                ScreenMode::BigDigit => ScreenMode::Histogram,
-                ScreenMode::UsbDrive => ScreenMode::BigDigit,
-            };
-            assert_eq!(prev_actual, prev_expected);
+            assert_eq!(mode.prev(), prev_expected);
         }
     }
 
@@ -1184,28 +1126,11 @@ mod tests {
 
     #[test]
     fn test_nvram_config_packing_and_screen_mode_encoding() {
-        let mode_idx = |m: ScreenMode| -> u16 {
-            match m {
-                ScreenMode::Hero => 0,
-                ScreenMode::Graph => 1,
-                ScreenMode::Stats => 2,
-                ScreenMode::Histogram => 3,
-                ScreenMode::BigDigit => 4,
-                ScreenMode::UsbDrive => 5,
-            }
-        };
-
-        for &mode in &[
-            ScreenMode::Hero,
-            ScreenMode::Graph,
-            ScreenMode::Stats,
-            ScreenMode::Histogram,
-            ScreenMode::BigDigit,
-            ScreenMode::UsbDrive,
-        ] {
-            let config = (mode_idx(mode) << 8) | (BatteryProfile::LiIon2500.id() as u16);
-            assert_eq!((config >> 8) as usize, mode_idx(mode) as usize);
+        for &mode in &ScreenMode::ALL {
+            let config = ((mode.index() as u16) << 8) | (BatteryProfile::LiIon2500.id() as u16);
+            assert_eq!((config >> 8) as usize, mode.index());
             assert_eq!((config & 0xFF) as u8, BatteryProfile::LiIon2500.id());
+            assert_eq!(ScreenMode::from_index(mode.index()), Some(mode));
         }
     }
 

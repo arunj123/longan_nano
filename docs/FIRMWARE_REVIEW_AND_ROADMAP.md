@@ -4,7 +4,7 @@
 **Target Architecture**: Sipeed Longan Nano (GD32VF103CBT6, RISC-V RV32IMAC @ 96/108 MHz, 32 KB SRAM, 128 KB Flash)  
 **Projects Covered**: `prj_usb_msc` (Pure Rust) and `prj_current_monitor` (Pure Rust + Python Telemetry + 3D Enclosure)  
 **Primary Author/Audience**: AI Agents (Autonomous Pair Programmers)  
-**Current Baseline Commit**: `4312a90` (Build `00EA`)
+**Current Baseline Commit**: Build `00EC`
 
 ---
 
@@ -189,11 +189,12 @@ flowchart TD
   - In `crates/gd32vf103-hal/src/usb/` (`hid.rs:316-324`, `cdc_acm.rs:336-344`, `composite.rs:342-350`, `msc/mod.rs:1747-1755`), bounded all `GRSTCTL.TXFF` and `RXFF` FIFO flush polling loops with `timeout = 100_000u32`, eliminating all unbounded spin-loops across the HAL USB stack (`[MON-HAL-01]`).
   - Verified with 143 passing host unit tests (`cargo test --workspace --target x86_64-pc-windows-msvc`), OpenOCD JTAG target flashing on `192.168.0.63`, and 100% passing live hardware suites (`test_usb_drive_mode.py`: 12/12 PASS, `stream_remote_monitor.py`: 5/5 PASS, `test_remote_current_monitor.py`: 30/30 PASS).
 
-- [ ] **Task 6.9: Display, UI & AI Maintainer Artifacts (P1/P2)**:
-  - In `screen_graph.rs:draw_layout()`, skip `redraw_grid` when `trigger_mode != TriggerMode::Single` (`[MON-UI-03]`).
-  - In `main.rs`, sample `board.mcu_temp.read_temperature_tenth_c()` once at boot (`[MON-UI-03]`).
-  - In `prj_current_monitor/src/ui/mod.rs`, implement `ScreenMode::ALL`, `COUNT`, `next()`, `prev()`, and `from_index()` (`[MON-AI-04]`).
-  - Commit `docs/AI_MAINTAINER.md` as the authoritative AI developer guide (`[MON-AI-04]`).
+- [x] **Task 6.9: Display, UI & AI Maintainer Artifacts (P1/P2)** *(Verified Build 00EC)*:
+  - In `screen_graph.rs:draw_layout()`, skipped `redraw_grid` when `trigger_mode != TriggerMode::Single`, eliminating 105 redundant `set_pixel` SPI dot transactions immediately overwritten by `replot_history` (`[MON-UI-03]`).
+  - In `main.rs`, sampled `board.mcu_temp.read_temperature_tenth_c()` once during boot initialization so stats screen and telemetry report calibrated temperature immediately instead of defaulting to 25.0 °C (`[MON-UI-03]`).
+  - In `prj_current_monitor/src/ui/mod.rs`, implemented `ScreenMode::ALL`, `COUNT`, `index()`, `from_index()`, `next()`, `prev()`, `name()`, and `short_name()` with comprehensive unit tests (`[MON-AI-04]`). Refactored `app.rs` (`next_screen_mode`, `prev_screen_mode`, `screen_mode_name`, `dump_session`, `save_nvram_config`) and `main.rs` (BKP restoration, CLI `b'1'..=b'6'`, HID `SetMode`, 1 Hz heartbeat) to use the centralized enum registry, eliminating repetitive match blocks and saving Flash code size.
+  - Authored and committed `docs/AI_MAINTAINER.md` as the authoritative AI developer guide; updated `GEMINI.md` to reference the pure Rust architecture and `AI_MAINTAINER.md` (`[MON-AI-04]`). Updated `tools/test_remote_ui_cycling.py` to cover Screen 6 and unified command dispatch strings.
+  - Verified with 146 passing host unit tests across workspace (61 in `prj_current_monitor`, 11 in `prj_usb_msc`), OpenOCD JTAG target flashing on `192.168.0.63`, and 100% passing live hardware suites (`stream_remote_monitor.py`: 30/30 PASS, `test_usb_drive_mode.py`: 12/12 PASS with rotation from `LOG_0152.CSV` to `LOG_0153.CSV`, `test_remote_current_monitor.py`: 30/30 PASS, `test_remote_ui_cycling.py`: 22/22 PASS).
 
 ---
 
@@ -227,7 +228,7 @@ flowchart TD
      3. Explicitly direct/prompt the user to start a **new chat session**, informing them that the next session can resume directly from `docs/FIRMWARE_REVIEW_AND_ROADMAP.md`.
 
 ### 5.2 Active Session State & Next-Session Handoff
-- **Latest Verified Build**: `Build 00EB` (`prj_current_monitor`: `.text = 91,930`, `.rodata = 31,392` -> text total = `123,322` bytes / 94.1% Flash, `.data = 0`, `.bss = 8,196` bytes, `.stack = 24,572` bytes; 58 host tests passing in `prj_current_monitor` / 143 total across workspace; hardware verified on `192.168.0.63` via OpenOCD JTAG flash, `tools/test_usb_drive_mode.py` 100% PASS with rotation from `LOG_0150.CSV` to `LOG_0151.CSV`, `tools/stream_remote_monitor.py` 5/5 packets PASS, and `tools/test_remote_current_monitor.py` 30/30 packets PASS).
-- **Active Phase**: **Phase 6 (Extended): Multi-Model Audit Resolution & Release Candidate 1 (RC1) Hardening (ACTIVE)**.
+- **Latest Verified Build**: `Build 00EC` (`prj_current_monitor`: `.text = 92,472`, `.rodata = 31,352` -> text total = `123,824` bytes / 94.5% Flash, `.data = 0`, `.bss = 8,196` bytes, `.stack = 24,572` bytes / 24.0 KB stack headroom; 61 host tests passing in `prj_current_monitor` / 146 total across workspace; hardware verified on `192.168.0.63` via OpenOCD JTAG flash, `tools/test_usb_drive_mode.py` 12/12 PASS with rotation from `LOG_0152.CSV` to `LOG_0153.CSV`, `tools/stream_remote_monitor.py` 30/30 packets PASS, `tools/test_remote_current_monitor.py` 30/30 packets PASS, and `tools/test_remote_ui_cycling.py` 22/22 test suites PASS).
+- **Active Phase**: **Phase 7: Master Release Milestone v1.0.0 End-to-End Verification & Release Tagging (UPCOMING)**.
 - **Immediate Next Step**:
-  - Implement **Task 6.9: Display, UI & AI Maintainer Artifacts (P1/P2)** (`[MON-UI-03]`, `[MON-AI-04]`).
+  - Implement **Task 7.1: Master Release Milestone v1.0.0 End-to-End Verification & Documentation**.

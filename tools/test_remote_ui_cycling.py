@@ -91,6 +91,7 @@ for key, expected_mode, expected_label in [
     ('3', '3: STATS', 'STATS'),
     ('4', '4: HISTOGRAM', 'HISTO'),
     ('5', '5: BIG DIGIT', 'BIG'),
+    ('6', '6: USB DRIVE', 'USB_DRIVE'),
     ('m', '1: HERO', 'HERO'),
 ]:
     ok, lines = send_and_expect(key, [f'[UI] Screen mode: {expected_mode}'], timeout=1.5)
@@ -215,7 +216,7 @@ try:
     t0 = time.time()
     while time.time() - t0 < 2.0:
         line = ser.readline().decode('utf-8', errors='replace').strip()
-        if '[HID-CMD] Synchronized RTC epoch to: 1760091240' in line:
+        if '[RTC] Set Unix epoch to: 1760091240' in line or '[HID-CMD] Synchronized RTC epoch to: 1760091240' in line:
             hid_rtc_ok = True
             break
 except Exception as e:
@@ -240,7 +241,7 @@ try:
     t0 = time.time()
     while time.time() - t0 < 2.0:
         line = ser.readline().decode('utf-8', errors='replace').strip()
-        if '[HID-CMD] Set Over-Current Alert Limit to: 2500 mA' in line:
+        if '[LIMIT] Set Over-Current Alert Limit to: 2500 mA' in line or '[HID-CMD] Set Over-Current Alert Limit to: 2500 mA' in line:
             hid_lim_ok = True
             break
 except Exception as e:
@@ -274,21 +275,21 @@ results['test_btn_single'] = {'pass': ok_k, 'lines': lines_k}
 time.sleep(0.4)
 send_and_expect('2', ['[UI] Screen mode: 2: GRAPH'], timeout=1.5)
 time.sleep(0.2)
-ok_dg, lines_dg = send_and_expect('K', ['[BUTTON] Double-click: Trigger Mode ->'], timeout=2.0)
+ok_dg, lines_dg = send_and_expect('K', ['[TRIG] Trigger Mode:'], timeout=2.0)
 results['test_btn_dbl_graph'] = {'pass': ok_dg, 'lines': lines_dg}
 
 # TEST 18: PA8 Simulated Double-Click in Stats Mode ('3' then 'K' -> Cycle Battery Profile)
 time.sleep(0.4)
 send_and_expect('3', ['[UI] Screen mode: 3: STATS'], timeout=1.5)
 time.sleep(0.2)
-ok_db, lines_db = send_and_expect('K', ['[BUTTON] Double-click: Battery profile ->'], timeout=2.0)
+ok_db, lines_db = send_and_expect('K', ['[BATT] Switched battery profile to:'], timeout=2.0)
 results['test_btn_dbl_batt'] = {'pass': ok_db, 'lines': lines_db}
 
 # TEST 19: PA8 Simulated Double-Click in Hero Mode ('1' then 'K' -> Rotate SD Log File)
 time.sleep(0.4)
 send_and_expect('1', ['[UI] Screen mode: 1: HERO'], timeout=1.5)
 time.sleep(0.2)
-ok_ds, lines_ds = send_and_expect('K', ['[BUTTON] Double-click: SD Rotated to new file: LOG_'], timeout=2.0)
+ok_ds, lines_ds = send_and_expect('K', ['[SD] Rotated to new file: LOG_'], timeout=2.0)
 results['test_btn_dbl_sd'] = {'pass': ok_ds, 'lines': lines_ds}
 
 # TEST 20: PA8 Simulated Long-Press Hold & Tare Trigger ('P' -> Progress Steps & Tare Trigger)
