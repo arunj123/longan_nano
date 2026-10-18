@@ -2,11 +2,10 @@ import os
 import sys
 import time
 import threading
-import paramiko
 
-HOST = "192.168.0.63"
-USER = "arun"
-PASS = "arun"
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from ssh_util import HOST, USER, PASS, create_ssh_client
+
 REMOTE_DIR = "/home/arun/longan_nano_tools"
 REMOTE_CFG = f"{REMOTE_DIR}/openocd-sipeed-libusb.cfg"
 
@@ -19,9 +18,7 @@ def run(hex_path, monitor_duration=12):
 
     # 1. Connect SSH for monitor
     print(f"[1/4] Connecting to {USER}@{HOST} for UART monitor...")
-    mon_client = paramiko.SSHClient()
-    mon_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    mon_client.connect(HOST, username=USER, password=PASS, timeout=15)
+    mon_client = create_ssh_client(timeout=15)
 
     _, mon_out, _ = mon_client.exec_command(
         "python3 -u /home/arun/longan_nano_tools/uart_monitor.py",
@@ -44,9 +41,7 @@ def run(hex_path, monitor_duration=12):
 
     # 2. Flash via second SSH connection
     print(f"[2/4] Uploading {os.path.basename(hex_path)}...")
-    flash_client = paramiko.SSHClient()
-    flash_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    flash_client.connect(HOST, username=USER, password=PASS, timeout=15)
+    flash_client = create_ssh_client(timeout=15)
 
     sftp = flash_client.open_sftp()
     remote_hex = f"{REMOTE_DIR}/{os.path.basename(hex_path)}"

@@ -1,12 +1,16 @@
-import paramiko
+import os
+import sys
 
-client = paramiko.SSHClient()
-client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-client.connect("192.168.0.63", username="arun", password="arun")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from ssh_util import HOST, USER, PASS, create_ssh_client
 
-remote_code = """
+client = create_ssh_client(timeout=10)
+
+target_port = sys.argv[1] if len(sys.argv) > 1 else "/dev/ttyACM1"
+
+remote_code = f"""
 import serial, time
-s = serial.Serial('/dev/ttyACM1', 115200, timeout=2)
+s = serial.Serial('{target_port}', 115200, timeout=2)
 
 test_strings = [
     b'Ping from Linux host!',

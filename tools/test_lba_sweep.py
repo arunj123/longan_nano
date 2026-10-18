@@ -1,20 +1,18 @@
-import paramiko
+import os
 import sys
 import time
 
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 
-HOST = "192.168.0.63"
-USER = "arun"
-PASS = "arun"
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from ssh_util import HOST, USER, PASS, create_ssh_client
 
-client = paramiko.SSHClient()
-client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-client.connect(HOST, username=USER, password=PASS, timeout=15)
+target_dev = sys.argv[1] if len(sys.argv) > 1 else "/dev/sdb"
+client = create_ssh_client(timeout=15)
 
 def run_dd(name, bs, skip, count, timeout=5):
-    cmd = f"echo {PASS} | sudo -S dd if=/dev/sdb of=/tmp/dd_test.bin bs={bs} skip={skip} count={count} iflag=direct"
+    cmd = f"echo {PASS} | sudo -S dd if={target_dev} of=/tmp/dd_test.bin bs={bs} skip={skip} count={count} iflag=direct"
     t0 = time.time()
     try:
         stdin, stdout, stderr = client.exec_command(cmd, timeout=timeout)

@@ -10,11 +10,9 @@ import os
 import sys
 import time
 import re
-import paramiko
 
-HOST = "192.168.0.63"
-USER = "arun"
-PASS = "arun"
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from ssh_util import HOST, USER, PASS, create_ssh_client
 
 LOCAL_DIR = os.path.dirname(os.path.abspath(__file__))
 MSC_DIR = os.path.join(LOCAL_DIR, "virtual_usb_msc")
@@ -40,9 +38,7 @@ def run_remote(client, cmd, sudo=False):
 
 def main():
     log(f"Connecting to {USER}@{HOST}...")
-    client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    client.connect(HOST, username=USER, password=PASS, allow_agent=False, look_for_keys=False, timeout=15)
+    client = create_ssh_client(timeout=15)
 
     log(f"Ensuring remote directory: {REMOTE_BASE}...")
     run_remote(client, f"mkdir -p {REMOTE_BASE}")

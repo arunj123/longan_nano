@@ -2,16 +2,16 @@ import os
 import struct
 import time
 import sys
-import paramiko
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from ssh_util import HOST, USER, PASS, create_ssh_client
 
 def main():
     print("==================================================")
     print(" Longan Nano USB Composite Remote Test")
     print("==================================================")
 
-    ssh = paramiko.SSHClient()
-    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    ssh.connect('192.168.0.63', username='arun', password='arun')
+    ssh = create_ssh_client(timeout=10)
 
     # Python script executed on the remote host to test /dev/hidraw1
     remote_code = '''python3 -c "
@@ -43,7 +43,7 @@ except Exception as e:
     print('ERROR:', e)
 "'''
 
-    stdin, stdout, stderr = ssh.exec_command('echo arun | sudo -S ' + remote_code)
+    stdin, stdout, stderr = ssh.exec_command(f"echo '{PASS}' | sudo -S " + remote_code)
 
     for line in stdout:
         line_str = line.strip()

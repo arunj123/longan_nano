@@ -104,7 +104,9 @@ All test and diagnostic tools are maintained in `tools/`:
 | `tools/unstick_host.py` | Kills stuck host disk processes and cycles xHCI port disable/enable to recover from USB error loops. |
 | `tools/test_reads_direct.py` | Issues SCSI `READ_10` commands via `sg_raw` to benchmark single-sector and 8-sector multi-sector reads. |
 | `tools/test_lba_sweep.py` | Sweeps LBAs using direct I/O (`dd iflag=direct`) across sectors 0 to 560. |
-| `tools/dump_msc_trace.py` | Halts target via OpenOCD JTAG and dumps the in-memory circular trace buffer (`CBW_RECV`, `SCSI_RES`, `CSW_SENT`). |
-| `tools/dump_stats.py` | Inspects live `g_msc_stats` (sectors read/written, last SD result code, error LBA). |
-| `tools/dump_ep1_debug.py` | Dumps hardware IN endpoint state transitions and timestamp log from target SRAM. |
-| `tools/check_status.py` | Dumps the active BOT context struct (`ctx.state`, `ctx.csw`, LBA, remaining bytes). |
+| `tools/test_usb_drive_mode.py` | End-to-end regression test suite verifying drive lifecycle, mount/unmount, file rotation, and SCSI transfers. |
+| `tools/pcap_capture.py` | Captures raw USB Mass Storage traffic via usbmon/tcpdump on the remote Linux host. |
+| `tools/parse_pcap.py` | Decodes USB pcap captures into CBW, CSW, and DATA stage packets with residue verification. |
+| `tools/remote_flash.py` | Uploads and flashes firmware binary over JTAG via OpenOCD with SRST-less execution resume. |
+| `tools/remote_uart_monitor.py` | Streams real-time serial logs from `/dev/ttyUSB1` @ 115200 baud over SSH. |
+| `tools/uart_monitor.py` | Local Windows UART monitor on COM port (auto-detects FT2232D @ 115200 baud). |

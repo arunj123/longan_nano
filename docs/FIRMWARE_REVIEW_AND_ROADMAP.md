@@ -194,7 +194,14 @@ flowchart TD
   - In `main.rs`, sampled `board.mcu_temp.read_temperature_tenth_c()` once during boot initialization so stats screen and telemetry report calibrated temperature immediately instead of defaulting to 25.0 °C (`[MON-UI-03]`).
   - In `prj_current_monitor/src/ui/mod.rs`, implemented `ScreenMode::ALL`, `COUNT`, `index()`, `from_index()`, `next()`, `prev()`, `name()`, and `short_name()` with comprehensive unit tests (`[MON-AI-04]`). Refactored `app.rs` (`next_screen_mode`, `prev_screen_mode`, `screen_mode_name`, `dump_session`, `save_nvram_config`) and `main.rs` (BKP restoration, CLI `b'1'..=b'6'`, HID `SetMode`, 1 Hz heartbeat) to use the centralized enum registry, eliminating repetitive match blocks and saving Flash code size.
   - Authored and committed `docs/AI_MAINTAINER.md` as the authoritative AI developer guide; updated `GEMINI.md` to reference the pure Rust architecture and `AI_MAINTAINER.md` (`[MON-AI-04]`). Updated `tools/test_remote_ui_cycling.py` to cover Screen 6 and unified command dispatch strings.
-  - Verified with 146 passing host unit tests across workspace (61 in `prj_current_monitor`, 11 in `prj_usb_msc`), OpenOCD JTAG target flashing on `192.168.0.63`, and 100% passing live hardware suites (`stream_remote_monitor.py`: 30/30 PASS, `test_usb_drive_mode.py`: 12/12 PASS with rotation from `LOG_0152.CSV` to `LOG_0153.CSV`, `test_remote_current_monitor.py`: 30/30 PASS, `test_remote_ui_cycling.py`: 22/22 PASS).
+- [x] **Task 6.10: Tools & Test Infrastructure Cleanup & Dual-Platform Hardening**:
+  - Audited all Python utilities across `tools/`, `scratch/`, and review folders.
+  - Removed 51 obsolete, redundant, or duplicate scripts (including 11 historical `verify_build_*` snapshots from archived phases, obsolete C++ memory dump scripts relying on dead static addresses, duplicate unstick/cmd/check scripts, and ephemeral scratch scripts).
+  - Preserved full dual-platform support for using the device on both local Windows host and remote Linux testbed (`192.168.0.63`).
+  - Enhanced `tools/uart_monitor.py` with automatic FTDI FT2232D port detection (`0403:6010` Interface 1 / Channel B), CLI argument support (`COMxx` or `/dev/ttyUSBx`), and `LONGAN_UART_PORT` fallback.
+  - Refactored `tools/test_reads_direct.py`, `tools/test_lba_sweep.py`, `tools/flash_and_monitor.py`, `tools/pcap_capture.py`, `tools/test_extended_usb_serial.py`, `tools/test_remote_composite.py`, and `tools/test_virtual_msc.py` to use centralized `ssh_util` and configurable target device paths.
+  - Completely overhauled `tools/README.md` and updated `prj_usb_msc/README.md` with structured documentation of the surviving toolkit.
+  - Verified 100% passing tests: all surviving tools pass Python syntax compilation; 146 workspace unit tests pass; live hardware suites pass (`tools/check_remote_state.py`, `tools/remote_exec.py`, `tools/stream_remote_monitor.py` 5/5, `tools/test_remote_current_monitor.py` 30/30, and `tools/test_usb_drive_mode.py` 12/12).
 
 ---
 
