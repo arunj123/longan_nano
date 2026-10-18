@@ -499,7 +499,7 @@ pub struct SampleAggregator {
     pub count: u16,
     pub c_min: i16,
     pub c_max: i16,
-    pub last_overflow: bool,
+    pub any_overflow: bool,
 }
 
 impl SampleAggregator {
@@ -511,8 +511,18 @@ impl SampleAggregator {
             count: 0,
             c_min: i16::MAX,
             c_max: i16::MIN,
-            last_overflow: false,
+            any_overflow: false,
         }
+    }
+
+    pub fn reset(&mut self) {
+        self.v_sum = 0;
+        self.c_sum = 0;
+        self.p_sum = 0;
+        self.count = 0;
+        self.c_min = i16::MAX;
+        self.c_max = i16::MIN;
+        self.any_overflow = false;
     }
 
     #[inline]
@@ -527,7 +537,7 @@ impl SampleAggregator {
         if reading.current_tenth_ma > self.c_max {
             self.c_max = reading.current_tenth_ma;
         }
-        self.last_overflow = reading.overflow;
+        self.any_overflow = self.any_overflow || reading.overflow;
     }
 
     pub fn finish_and_reset(&mut self, fallback: &InaReading) -> InaReading {
@@ -542,17 +552,11 @@ impl SampleAggregator {
             voltage_mv: avg_v,
             current_tenth_ma: avg_c,
             power_tenth_mw: avg_p,
-            overflow: self.last_overflow,
+            overflow: self.any_overflow,
             is_reverse: avg_c < 0,
         };
 
-        self.v_sum = 0;
-        self.c_sum = 0;
-        self.p_sum = 0;
-        self.count = 0;
-        self.c_min = i16::MAX;
-        self.c_max = i16::MIN;
-        self.last_overflow = false;
+        self.reset();
 
         res
     }
@@ -745,5 +749,58 @@ mod tests {
         assert_eq!(avg.power_tenth_mw, 8500);
         assert!(avg.overflow);
         assert_eq!(agg.count, 0);
+    }
+
+    #[test]
+    fn test_sample_aggregator_any_overflow_retention() {
+        let mut agg = SampleAggregator::new();
+        // Sample 1 overflows
+        let r1 = InaReading {
+            voltage_mv: 5000,
+            current_tenth_ma: 32000,
+            power_tenth_mw: 160000,
+            overflow: true,
+            is_reverse: false,
+        };
+        // Sample 2 does not overflow
+        let r2 = InaReading {
+            voltage_mv: 5000,
+            current_tenth_ma: 1000,
+            power_tenth_mw: 5000,
+            overflow: false,
+            is_reverse: false,
+        };
+        agg.record(&r1);
+        agg.record(&r2);
+        assert!(agg.any_overflow);
+
+        let fallback = InaReading::default();
+        let avg = agg.finish_and_reset(&fallback);
+        // Overflow flag must be preserved in the 1-second aggregate even though the final sample was normal
+        assert!(avg.overflow);
+        assert!(!agg.any_overflow);
+    }
+
+    #[test]
+    fn test_sample_aggregator_reset() {
+        let mut agg = SampleAggregator::new();
+        let r = InaReading {
+            voltage_mv: 5000,
+            current_tenth_ma: 100,
+            power_tenth_mw: 5000,
+            overflow: true,
+            is_reverse: false,
+        };
+        agg.record(&r);
+        assert_eq!(agg.count, 1);
+        assert!(agg.any_overflow);
+        agg.reset();
+        assert_eq!(agg.count, 0);
+        assert!(!agg.any_overflow);
+        assert_eq!(agg.v_sum, 0);
+        assert_eq!(agg.c_sum, 0);
+        assert_eq!(agg.p_sum, 0);
+        assert_eq!(agg.c_min, i16::MAX);
+        assert_eq!(agg.c_max, i16::MIN);
     }
 }

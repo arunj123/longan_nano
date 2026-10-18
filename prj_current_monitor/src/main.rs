@@ -484,11 +484,16 @@ fn main() -> ! {
         if dt_ms >= 100 {
             app.last_10hz_ms = if dt_ms >= 200 { now } else { app.last_10hz_ms.wrapping_add(100) };
 
+            let dt_sample_ms = now.wrapping_sub(app.last_sample_ms);
+            app.last_sample_ms = now;
+
             let mut reading = InaReading::default();
+            let mut sample_valid = false;
 
             if app.ina_present {
                 match board.ina219.read_all() {
                     Ok(d) => {
+                        sample_valid = true;
                         app.i2c_err_count = 0;
                         // Apply near-zero deadband to eliminate ADC quantization jitter
                         let c_tenth = if d.current_tenth_ma >= -1 && d.current_tenth_ma <= 1 {
@@ -532,6 +537,7 @@ fn main() -> ! {
                     if board.ina219.init(4096).is_ok() {
                         app.ina_present = true;
                         app.i2c_err_count = 0;
+                        app.last_sample_ms = now;
                         board.led_red.off();
                         writeln!(board.uart0, "[I2C] INA219 hot-plug reconnected!").ok();
                     }
@@ -539,12 +545,12 @@ fn main() -> ! {
             }
 
             // Update waveform circular history buffer (pause when Single capture is halted)
-            if !(app.graph_screen.trigger_mode == TriggerMode::Single && app.graph_screen.trigger_state == TriggerState::Halted) {
+            if sample_valid && !(app.graph_screen.trigger_mode == TriggerMode::Single && app.graph_screen.trigger_state == TriggerState::Halted) {
                 app.history.push(reading.current_tenth_ma);
             }
 
-            // Only record histogram and session statistics when sensor is online
-            if app.ina_present {
+            // Only record histogram and session statistics when sample is valid
+            if sample_valid {
                 app.histogram.record(reading.abs_current_tenth());
                 app.stats.update(reading.voltage_mv, reading.current_tenth_ma, reading.power_tenth_mw);
             }
@@ -552,9 +558,10 @@ fn main() -> ! {
             // Update Battery Fuel Gauge
             app.battery.update(reading.voltage_mv, &app.accum, app.stats.avg_current_tenth_ma());
 
-            // Check Over-Current (using absolute current magnitude) and Low-Voltage Alert
+            // Check Over-Current (using absolute current magnitude and saturation overflow) and Low-Voltage Alert
             let is_over_current = app.current_limit_ma > 0
-                && reading.abs_current_tenth() > ((app.current_limit_ma as u32) * 10);
+                && (reading.abs_current_tenth() >= ((app.current_limit_ma as u32) * 10)
+                    || (app.current_limit_ma >= 3200 && reading.overflow));
             let is_low_voltage = app.battery.is_low_voltage;
             app.over_current = is_over_current;
             let is_alert = is_over_current || is_low_voltage;
@@ -567,8 +574,8 @@ fn main() -> ! {
             app.last_reading = reading;
 
             // Drift-free millisecond energy & charge integration
-            if app.ina_present && reading.voltage_mv > 500 && reading.current_tenth_ma != 0 {
-                app.accum.update(reading.power_tenth_mw, reading.current_tenth_ma, dt_ms);
+            if sample_valid && reading.voltage_mv > 500 && reading.current_tenth_ma != 0 {
+                app.accum.update(reading.power_tenth_mw, reading.current_tenth_ma, dt_sample_ms.min(500));
             }
 
             let usb_configured = board.is_usb_configured();

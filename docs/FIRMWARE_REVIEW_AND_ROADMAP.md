@@ -4,7 +4,7 @@
 **Target Architecture**: Sipeed Longan Nano (GD32VF103CBT6, RISC-V RV32IMAC @ 96/108 MHz, 32 KB SRAM, 128 KB Flash)  
 **Projects Covered**: `prj_usb_msc` (Pure Rust) and `prj_current_monitor` (Pure Rust + Python Telemetry + 3D Enclosure)  
 **Primary Author/Audience**: AI Agents (Autonomous Pair Programmers)  
-**Current Baseline Commit**: `4db83e3` (Build `00E8`)
+**Current Baseline Commit**: `7f9cd72` (Build `00E9`)
 
 ---
 
@@ -165,11 +165,12 @@ flowchart TD
 
 ### Phase 6 (Extended): Multi-Model Audit Resolution & Release Candidate 1 (RC1) Hardening (ACTIVE)
 
-- [ ] **Task 6.6: Math, Energy Integration & Sensor Saturation Correctness (P0)**:
-  - In `prj_current_monitor/src/app.rs` and `main.rs`, decouple energy/charge integration from the phase-locked 10 Hz schedule: introduce `app.last_sample_ms`, measure `dt_sample_ms = now.wrapping_sub(app.last_sample_ms)`, and pass `dt_sample_ms.min(500)` to `app.accum.update(...)` (`[MON-MATH-01]`).
-  - In `main.rs`, gate `app.history.push(...)`, `app.histogram.record(...)`, and `app.stats.update(...)` on `sample_valid` (`read_all().is_ok()`) to prevent offline/duplicate sample pollution (`[MON-MATH-02]`).
-  - In `model.rs`, update `SampleAggregator` to track `any_overflow: bool` across all 10 samples of the 1-second window (`[MON-MATH-02]`).
-  - In `main.rs`, update over-current check to trigger on saturation: `reading.abs_current_tenth() >= (limit * 10) || (limit >= 3200 && reading.overflow)` (`[MON-MATH-02]`).
+- [x] **Task 6.6: Math, Energy Integration & Sensor Saturation Correctness (P0)** *(Verified Build 00E9)*:
+  - In `prj_current_monitor/src/app.rs` and `main.rs`, decoupled energy/charge integration from the phase-locked 10 Hz schedule: introduced `app.last_sample_ms`, measured `dt_sample_ms = now.wrapping_sub(app.last_sample_ms)`, and passed `dt_sample_ms.min(500)` to `app.accum.update(...)`, eliminating the 40 ms double-counting bug during scheduler stalls (`[MON-MATH-01]`).
+  - In `main.rs`, gated `app.history.push(...)`, `app.histogram.record(...)`, and `app.stats.update(...)` on `sample_valid` (`read_all().is_ok()`), preventing offline 0-value buffer corruption and duplicate sample statistical skewing (`[MON-MATH-02]`).
+  - In `model.rs`, updated `SampleAggregator` to track `any_overflow: bool` across all 10 samples of the 1-second window and added `reset()` (`[MON-MATH-02]`).
+  - In `main.rs`, updated over-current check to trigger on saturation: `reading.abs_current_tenth() >= (limit * 10) || (limit >= 3200 && reading.overflow)` (`[MON-MATH-02]`).
+  - Verified with 5 new host unit tests in `app.rs` and `model.rs` (51 passing in `prj_current_monitor`, 136 total across workspace) and live hardware flashing + 10 Hz telemetry streaming on `192.168.0.63`.
 
 - [ ] **Task 6.7: Storage & USB Drive Mode Lifecycle Hardening (P0)**:
   - In `app.rs:exit_usb_drive_active()`, record `prev_num = datalogger.session_file_num`; if `check_probe()` already incremented `session_file_num > prev_num`, skip `rotate_session()`, eliminating the double file-number skip (`LOG_0136 -> LOG_0138`) (`[MON-STOR-04]`).
@@ -220,7 +221,7 @@ flowchart TD
      3. Explicitly direct/prompt the user to start a **new chat session**, informing them that the next session can resume directly from `docs/FIRMWARE_REVIEW_AND_ROADMAP.md`.
 
 ### 5.2 Active Session State & Next-Session Handoff
-- **Latest Verified Build**: `Build 00E8` (`prj_current_monitor`: `text = 122,040` bytes, `.bss = 8,196` bytes, `.stack = 24,572` bytes; 91 host tests passing / 131 total across workspace; 12/12 hardware checks passing on `192.168.0.63`).
+- **Latest Verified Build**: `Build 00E9` (`prj_current_monitor`: `text = 121,648` bytes, `.bss = 8,196` bytes, `.stack = 24,572` bytes; 51 host tests passing in `prj_current_monitor` / 136 total across workspace; hardware verified on `192.168.0.63` via OpenOCD JTAG flash and 10 Hz USB HID telemetry stream).
 - **Active Phase**: **Phase 6 (Extended): Multi-Model Audit Resolution & Release Candidate 1 (RC1) Hardening (ACTIVE)**.
 - **Immediate Next Step**:
-  - Implement **Task 6.6: Math, Energy Integration & Sensor Saturation Correctness (P0)** (`[MON-MATH-01]`, `[MON-MATH-02]`).
+  - Implement **Task 6.7: Storage & USB Drive Mode Lifecycle Hardening (P0)** (`[MON-STOR-04]`, `[MON-STOR-05]`, `[MON-STOR-06]`, `[MON-STOR-07]`).

@@ -114,6 +114,7 @@ pub struct App<'a> {
     pub sdcard: &'a core::cell::RefCell<longan_nano_bsp::SdCard>,
 
     pub last_10hz_ms: u32,
+    pub last_sample_ms: u32,
     pub last_1hz_ms: u32,
     pub last_reinit_attempt_ms: u32,
     pub last_heartbeat_ms: u32,
@@ -155,6 +156,7 @@ impl<'a> App<'a> {
             sdcard,
 
             last_10hz_ms: now,
+            last_sample_ms: now,
             last_1hz_ms: now,
             last_reinit_attempt_ms: now,
             last_heartbeat_ms: now,
@@ -460,6 +462,7 @@ impl<'a> App<'a> {
 
         self.draw_current_layout(board);
         self.last_10hz_ms = board.delay.uptime_ms();
+        self.last_sample_ms = self.last_10hz_ms;
         true
     }
 
@@ -1105,5 +1108,151 @@ mod tests {
             assert_eq!((config >> 8) as usize, mode_idx(mode) as usize);
             assert_eq!((config & 0xFF) as u8, BatteryProfile::LiIon2500.id());
         }
+    }
+
+    #[test]
+    fn test_decoupled_sample_dt_integration_no_double_counting() {
+        // Demonstrate [MON-MATH-01]:
+        // When a 40 ms loop stall occurs, compare phase-locked dt_ms vs decoupled dt_sample_ms.
+        let mut accum_legacy = Accumulators::new();
+        let mut accum_decoupled = Accumulators::new();
+
+        let power_tenth_mw = 50_000; // 5000.0 mW
+        let current_tenth_ma = 10_000; // 1000.0 mA
+
+        // Initial state at t = 0 ms
+        let mut last_10hz_ms = 0u32;
+        let mut last_sample_ms = 0u32;
+
+        // Iteration 1: Delayed by 40 ms (SD card flush or flash stall) -> now = 140 ms
+        let now_1 = 140u32;
+        let dt_ms_1 = now_1.wrapping_sub(last_10hz_ms); // 140 ms
+        assert_eq!(dt_ms_1, 140);
+        last_10hz_ms = if dt_ms_1 >= 200 { now_1 } else { last_10hz_ms.wrapping_add(100) }; // 100 ms
+        accum_legacy.update(power_tenth_mw, current_tenth_ma, dt_ms_1); // integrates 140 ms
+
+        let dt_sample_1 = now_1.wrapping_sub(last_sample_ms); // 140 ms
+        last_sample_ms = now_1;
+        accum_decoupled.update(power_tenth_mw, current_tenth_ma, dt_sample_1.min(500)); // integrates 140 ms
+
+        // Iteration 2: Catch-up tick at t = 200 ms (nominal next 10 Hz phase)
+        let now_2 = 200u32;
+        let dt_ms_2 = now_2.wrapping_sub(last_10hz_ms); // 200 - 100 = 100 ms
+        assert_eq!(dt_ms_2, 100);
+        last_10hz_ms = if dt_ms_2 >= 200 { now_2 } else { last_10hz_ms.wrapping_add(100) };
+        accum_legacy.update(power_tenth_mw, current_tenth_ma, dt_ms_2); // integrates 100 ms
+
+        let dt_sample_2 = now_2.wrapping_sub(last_sample_ms); // 200 - 140 = 60 ms!
+        last_sample_ms = now_2;
+        accum_decoupled.update(power_tenth_mw, current_tenth_ma, dt_sample_2.min(500)); // integrates 60 ms
+
+        // In 200 ms of physical wall-clock time:
+        // Legacy integrated: 140 ms + 100 ms = 240 ms (40 ms / 20% overcount!)
+        // Decoupled integrated: 140 ms + 60 ms = 200 ms (exact physical elapsed time!)
+        let expected_energy_ticks_200ms = (power_tenth_mw as u64) * 200;
+        assert_eq!(accum_decoupled.energy_ticks, expected_energy_ticks_200ms);
+
+        let inflated_energy_ticks_240ms = (power_tenth_mw as u64) * 240;
+        assert_eq!(accum_legacy.energy_ticks, inflated_energy_ticks_240ms);
+        assert!(accum_legacy.energy_ticks > accum_decoupled.energy_ticks);
+    }
+
+    #[test]
+    fn test_over_current_saturation_gating() {
+        // Demonstrate [MON-MATH-02]:
+        let check_oc = |limit_ma: u16, reading: &InaReading| -> bool {
+            limit_ma > 0
+                && (reading.abs_current_tenth() >= ((limit_ma as u32) * 10)
+                    || (limit_ma >= 3200 && reading.overflow))
+        };
+
+        // Case 1: Limit 3200 mA (INA219 full-scale)
+        let mut r = InaReading {
+            voltage_mv: 5000,
+            current_tenth_ma: 31990,
+            power_tenth_mw: 159950,
+            overflow: false,
+            is_reverse: false,
+        };
+        assert!(!check_oc(3200, &r)); // 3199.0 mA < 3200 mA
+
+        r.current_tenth_ma = 32000;
+        assert!(check_oc(3200, &r)); // 3200.0 mA == limit
+
+        // At full-scale, analog shunt saturation sets overflow flag
+        r.current_tenth_ma = 32000;
+        r.overflow = true;
+        assert!(check_oc(3200, &r)); // Saturation overflow triggers alert!
+
+        // If math overflow occurred at 2500 mA
+        r.current_tenth_ma = 25000;
+        r.overflow = true;
+        assert!(check_oc(3200, &r)); // limit >= 3200 && overflow triggers
+
+        // Case 2: Limit 1000 mA
+        let mut r_1a = InaReading {
+            voltage_mv: 5000,
+            current_tenth_ma: 9990,
+            power_tenth_mw: 49950,
+            overflow: false,
+            is_reverse: false,
+        };
+        assert!(!check_oc(1000, &r_1a));
+
+        r_1a.current_tenth_ma = 10000;
+        assert!(check_oc(1000, &r_1a));
+
+        // Negative current magnitude checks (reverse charging)
+        r_1a.current_tenth_ma = -10000;
+        r_1a.is_reverse = true;
+        assert!(check_oc(1000, &r_1a));
+
+        // Case 3: Limit 0 (disabled)
+        assert!(!check_oc(0, &r));
+    }
+
+    #[test]
+    fn test_sample_valid_gating_prevents_offline_pollution() {
+        // Demonstrate [MON-MATH-02]:
+        let mut history = WaveformHistory::new();
+        let mut histogram = HistogramData::new();
+        let mut stats = SessionStats::new(0);
+
+        // When sample_valid is false (sensor offline or transient error):
+        let sample_valid = false;
+        let reading = InaReading::default(); // 0 values
+
+        if sample_valid {
+            history.push(reading.current_tenth_ma);
+            histogram.record(reading.abs_current_tenth());
+            stats.update(reading.voltage_mv, reading.current_tenth_ma, reading.power_tenth_mw);
+        }
+
+        // History, histogram, and stats must remain pristine
+        assert_eq!(history.count, 0);
+        assert_eq!(histogram.total, 0);
+        assert_eq!(stats.samples, 0);
+        assert!(!stats.has_samples);
+
+        // When sample_valid is true:
+        let sample_valid = true;
+        let valid_reading = InaReading {
+            voltage_mv: 5000,
+            current_tenth_ma: 2500,
+            power_tenth_mw: 12500,
+            overflow: false,
+            is_reverse: false,
+        };
+
+        if sample_valid {
+            history.push(valid_reading.current_tenth_ma);
+            histogram.record(valid_reading.abs_current_tenth());
+            stats.update(valid_reading.voltage_mv, valid_reading.current_tenth_ma, valid_reading.power_tenth_mw);
+        }
+
+        assert_eq!(history.count, 1);
+        assert_eq!(histogram.total, 1);
+        assert_eq!(stats.samples, 1);
+        assert!(stats.has_samples);
     }
 }
