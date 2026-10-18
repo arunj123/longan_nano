@@ -201,14 +201,14 @@ When prompting an AI to generate OpenSCAD, CadQuery, FreeCAD, or STL 3D models f
 
 ### 4.1 Enclosure Architectural Topologies
 
-#### Topology 1: Side-by-Side Dual-Board Enclosure (Desktop Monitor)
+#### Topology 1: Side-by-Side Dual-Board Snap-Fit Enclosure (Desktop Monitor)
 - **Reference Model**: [`longan_nano_ina219_case.scad`](../prj_current_monitor/enclosure/longan_nano_ina219_case.scad)
-- **Layout**: Longan Nano mounted on the left; Blue INA219 breakout mounted on the right.
-- **Overall Case Dimensions**: `75.0 mm` (width) × `55.0 mm` (depth) × `20.0–24.0 mm` (height).
-- **Two-Part Enclosure**:
-  - **Base (Lower Half, `14.0 mm` height)**: Houses internal alignment posts, USB-C side slot, MicroSD side slot, and front wire terminal port.
-  - **Lid (Upper Half, `10.0 mm` height)**: Houses LCD viewing window, LCD flex strain-relief shelf, BOOT/RESET button holes, and rear ventilation slots.
-- **Inter-Board Wiring**: 4 internal jumper wires (3V3, GND, SCL, SDA) between Longan Nano pins (Edge 1, Pins 5, 6, 16, 1) and INA219 header.
+- **Layout**: Side-by-side non-overlapping bays — Sipeed Longan Nano in the front-right bay (USB-C flush with the `+X` right wall, FPC ribbon on the `-X` left edge) and Blue INA219 breakout in the rear-left bay (3.5 mm screw terminal flush with the `+Y` rear wall).
+- **Overall Case Dimensions**: `75.0 mm` (width) × `55.0 mm` (length/depth) × `22.0 mm` (height), `2.0 mm` wall thickness, `0.6 mm` tolerance clearance, `2.0 mm` corner radius.
+- **Two-Part Snap-Fit Enclosure**:
+  - **Base (Lower Half, `14.0 mm` height)**: Houses the Longan Nano cradle with 3.8 mm center-notch indexing pegs (`7.0 mm` bottom clearance for MicroSD socket & headers), 4× M2.5 INA219 corner standoffs (`17.8 × 21.0 mm` spacing), `11.0 × 5.0 mm` right-wall USB-C cutout, `13.0 × 3.0 mm` left-wall + bottom MicroSD card access slots, `11.0 × 9.5 mm` rear-wall wire terminal window, perimeter counterbore step, snap-fit detent grooves, and fingernail pry notches.
+  - **Lid (Upper Half, `8.0 mm` height + `2.2 mm` snap skirt)**: Houses the `24.5 × 14.0 mm` LCD viewing window, `28.0 × 14.5 mm` recessed LCD glass bezel shelf (`1.8 mm` deep) with mandatory `4.0 × 6.0 × 1.8 mm` FPC flex cable relief pocket on the left edge, dual `Ø 4.0 mm` BOOT0/RESET button access holes with guide sleeves, dual `Ø 4.0 mm` terminal screwdriver access holes, 4× `3.5 mm` top thermal ventilation slots directly over the `R100` shunt resistor + 4× `3.5 mm` rear exhaust slots, and zero-overhang cantilever snap-fit ribs.
+- **Inter-Board Wiring**: 4 internal jumper wires (3V3, GND, SCL, SDA) routed through the open central wiring courtyard between Longan Nano pins (Edge 1, Pins 5, 6, 16, 1) and the INA219 6-pin header.
 
 #### Topology 2: Stacked "Sandwich" Compact Enclosure (Handheld Meter)
 - **Layout**: Longan Nano mounted directly above the INA219 module.

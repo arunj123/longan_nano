@@ -39,6 +39,8 @@ Write-Host "Rendering High-Res Preview Images..." -ForegroundColor Yellow
 & $OpenScad -D mode=lid --preview --viewall --autocenter --imgsize=1024,768 -o "$OutDir\preview_lid.png" "$ScadFile"
 & $OpenScad -D mode=lid_print --preview --viewall --autocenter --imgsize=1024,768 -o "$OutDir\preview_lid_print.png" "$ScadFile"
 & $OpenScad -D mode=print --preview --viewall --autocenter --imgsize=1280,720 -o "$OutDir\preview_print.png" "$ScadFile"
+& $OpenScad -D mode=ghost --preview --viewall --autocenter --imgsize=1280,960 -o "$OutDir\preview_ghost.png" "$ScadFile"
 
 Write-Host "=== All files successfully generated in $OutDir ===" -ForegroundColor Green
 Get-ChildItem -Path "$OutDir" -Include *.stl,*.3mf,*.png,*.scad | Select-Object Name, Length, LastWriteTime
+
