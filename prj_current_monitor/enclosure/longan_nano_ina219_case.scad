@@ -46,34 +46,34 @@ longan_l        = 46.2;  // Nominal PCB length including routing tolerance (X-ax
 longan_w        = 20.0;  // Nominal PCB width (Y-axis, mm)
 longan_t        = 1.0;   // FR4 PCB thickness (mm)
 
-// LCD Module (0.96" 160x80 IPS, mounted between pin rows)
-// Pin grid verification (IMG_8185 & IMG_8186):
-//   - Black plastic bezel left edge: Pin 3.5 (X_pcb = 7.8 mm)
-//   - Black LCD glass surface: Pin 4.3 (X_pcb = 9.8 mm) to Pin 13.2 (X_pcb = 32.5 mm)
-//   - Active area (21.7 x 10.8 mm) centered at X_pcb = 21.15 mm, Y_pcb = 10.0 mm
-lcd_glass_x_ofs = 7.8;   // Left edge of black LCD module body from PCB left edge (mm)
-lcd_glass_l     = 25.0;  // Total black LCD module length (7.8..32.8 mm)
-lcd_glass_w     = 14.2;  // Outer LCD module width + foam tape margin (mm)
-lcd_win_cx_ofs  = 21.15; // Center of LCD active window from PCB left edge (mm)
-lcd_win_l       = 22.0;  // Top viewport cutout length (X: 10.15..32.15 mm)
-lcd_win_w       = 11.4;  // Top viewport cutout width (Y: 4.3..15.7 mm, hides red PCB gap)
-lcd_pocket_d    = 1.0;   // Underside recess depth in lid ceiling for LCD glass & FPC (mm)
+// LCD Module (0.96" 160x80 IPS, 13.5 mm breadth x 28.0 mm length)
+// Physical print verification (IMG_8185 & IMG_8187):
+//   - Outer LCD module body: 28.0 mm length (X_pcb = 7.53..35.53 mm) x 13.5 mm breadth
+//   - Top viewport cutout: 27.2 mm inner / 28.0 mm beveled length x 11.4 mm inner / 12.6 mm beveled breadth
+//   - Underside pocket: 28.9 mm length (X_pcb = 6.80..35.70 mm) x 15.2 mm breadth x 1.4 mm depth
+lcd_glass_x_ofs = 7.4;   // Left (-X) edge of 28.0 mm LCD module body from PCB left edge (mm)
+lcd_glass_l     = 28.0;  // Full black LCD module length (7.4..35.4 mm, empirically measured 28.0 mm)
+lcd_glass_w     = 14.2;  // Outer LCD module width (13.5 mm) + foam tape margin (mm)
+lcd_win_cx_ofs  = 21.10; // Center of LCD top window from PCB left edge (spans X_pcb = 7.50..34.70 mm)
+lcd_win_l       = 27.2;  // Top viewport inner length (27.2 mm inner, 28.0 mm with top bevel)
+lcd_win_w       = 11.4;  // Top viewport inner breadth (11.4 mm inner, 12.6 mm with top bevel; fits breadth)
+lcd_pocket_d    = 1.4;   // Underside recess depth in lid ceiling for 13.5x28.0 mm LCD module (mm)
 
-// 8-pin FPC Display Flex Cable Relief Pocket (folded over left edge of LCD, X_pcb = 3.2..8.2 mm)
+// 8-pin FPC Display Flex Cable Relief Pocket (folded over left edge of LCD, X_pcb = 3.0..8.0 mm)
 fpc_relief_l    = 5.0;   // Relief pocket X length (mm)
-fpc_relief_w    = 8.0;   // Relief pocket Y width (mm)
-fpc_relief_d    = 1.0;   // Relief pocket Z depth into lid underside (mm)
+fpc_relief_w    = 8.5;   // Relief pocket Y width (mm)
+fpc_relief_d    = 1.4;   // Relief pocket Z depth into lid underside (mm)
 
 // USB Type-C Port (protrudes ~3.0 mm from right edge of Longan Nano)
 usbc_protrude   = 3.0;   // Protrusion past right PCB edge (mm)
 usbc_cut_w      = 11.5;  // Wall cutout width (Y-axis, mm)
 usbc_cut_h      = 4.8;   // Wall cutout height in Base (Z = 9.4..14.2 mm)
 
-// Tactile Pushbuttons (BOOT0 and RESET between Pin 14 [B13/B1] and Pin 15 [B12/B10])
-btn_hole_d      = 4.2;   // Button access hole diameter (mm)
-btn_x_ofs       = 35.75; // Exact button center X offset from Longan left edge (mm)
-btn_reset_y     = 6.3;   // RESET button Y offset from Longan front edge (mm)
-btn_boot_y      = 13.7;  // BOOT0 button Y offset from Longan front edge (mm)
+// Tactile Pushbuttons (BOOT0 and RESET, calibrated directly to IMG_8187.JPG & 2.54 mm grid)
+btn_hole_d      = 4.0;   // Button access hole diameter (mm)
+btn_x_ofs       = 37.50; // Calibrated button center X offset from Longan left edge (+1.75 mm toward +X USB-C)
+btn_reset_y     = 6.45;  // RESET button Y offset from Longan front (-Y) edge (mm)
+btn_boot_y      = 13.30; // BOOT0 button Y offset from Longan front (-Y) edge (mm)
 
 // Placement of Longan Nano in Right/Front Bay (0.5 mm standoff from +X Right inner wall)
 longan_right_gap = 0.5;
@@ -332,9 +332,9 @@ module ina219_mounts() {
 // ============================================================================
 module lid() {
     // Computed feature coordinates in lid space (0..case_w, 0..case_l, 0..lid_h)
-    lcd_glass_x   = longan_x + lcd_glass_x_ofs;              // 34.1 mm
+    lcd_glass_x   = longan_x + lcd_glass_x_ofs;              // 33.7 mm (X_pcb = 7.4 mm)
     lcd_glass_y   = longan_cy - lcd_glass_w / 2;             // 8.4 mm
-    lcd_win_x     = longan_x + lcd_win_cx_ofs - lcd_win_l/2; // 36.45 mm
+    lcd_win_x     = longan_x + lcd_win_cx_ofs - lcd_win_l/2; // 33.8 mm (X_pcb = 7.5 mm)
     lcd_win_y     = longan_cy - lcd_win_w / 2;               // 9.8 mm
 
     // Terminal / sense wire access centers near Rear (+Y) edge of INA219
@@ -354,33 +354,34 @@ module lid() {
                 lid_snap_skirt();
             }
 
-            // 3. LCD Viewing Window Cutout (22.0 mm x 11.4 mm through top plate)
+            // 3. LCD Viewing Window Cutout (27.2 mm inner / 28.0 mm beveled x 11.4 mm inner)
             translate([lcd_win_x, lcd_win_y, -1.0])
                 cube([lcd_win_l, lcd_win_w, lid_h + 2.0]);
 
-            //    Top exterior 45-degree viewing bevel around LCD window (0.6 mm deep)
+            //    Top exterior viewing bevel around LCD window (28.0 mm x 12.6 mm outer opening,
+            //    preserving a solid bridge on the +X side next to the buttons)
             hull() {
-                translate([lcd_win_x, lcd_win_y, lid_h - 0.6])
+                translate([lcd_win_x, lcd_win_y, lid_h - 0.5])
                     cube([lcd_win_l, lcd_win_w, 0.1]);
-                translate([lcd_win_x - 0.6, lcd_win_y - 0.6, lid_h - 0.05])
-                    cube([lcd_win_l + 1.2, lcd_win_w + 1.2, 0.1]);
+                translate([lcd_win_x - 0.5, lcd_win_y - 0.6, lid_h - 0.05])
+                    cube([lcd_win_l + 0.8, lcd_win_w + 1.2, 0.1]);
             }
 
-            // 4. Unified Underside Recessed Pocket for LCD Module Body (1.0 mm deep)
+            // 4. Unified Underside Recessed Pocket for 13.5 x 28.0 mm LCD Module (28.9 x 15.2 x 1.4 mm)
             translate([lcd_glass_x - 0.6, lcd_glass_y - 0.5, -0.5])
-                cube([lcd_glass_l + 1.3, lcd_glass_w + 1.0, lcd_pocket_d + 0.5]);
+                cube([lcd_glass_l + 0.9, lcd_glass_w + 1.0, lcd_pocket_d + 0.5]);
 
-            // 5. CRITICAL: Relief Pocket on Left (-X) Edge for Folded 8-Pin FPC Ribbon (1.0 mm deep)
-            translate([longan_x + 3.2, longan_cy - fpc_relief_w/2, -0.5])
+            // 5. CRITICAL: Relief Pocket on Left (-X) Edge for Folded 8-Pin FPC Ribbon (1.4 mm deep)
+            translate([longan_x + 3.0, longan_cy - fpc_relief_w/2, -0.5])
                 cube([fpc_relief_l, fpc_relief_w, fpc_relief_d + 0.5]);
 
-            // 6. Tactile Button Access Holes: RESET & BOOT0 (2x Ø 4.2 mm at X_pcb = 35.75 mm)
+            // 6. Tactile Button Access Holes: RESET & BOOT0 (2x Ø 4.0 mm at X_pcb = 37.50 mm, Y = 6.45/13.30 mm)
             for (by = [longan_y + btn_reset_y, longan_y + btn_boot_y]) {
                 translate([longan_x + btn_x_ofs, by, -1.0])
                     cylinder(d = btn_hole_d, h = lid_h + 2.0);
                 // Top ergonomic finger chamfer
-                translate([longan_x + btn_x_ofs, by, lid_h - 0.8])
-                    cylinder(d1 = btn_hole_d, d2 = btn_hole_d + 1.6, h = 0.85);
+                translate([longan_x + btn_x_ofs, by, lid_h - 0.5])
+                    cylinder(d1 = btn_hole_d, d2 = btn_hole_d + 0.9, h = 0.55);
             }
 
             // 7. Dual Ø 4.0 mm Access Holes over INA219 VIN-/VIN+ Pads / Terminal Screws
@@ -484,13 +485,13 @@ module ghost_hardware() {
     translate([longan_x, longan_y, longan_pcb_z]) {
         color([0.85, 0.15, 0.15])
             cube([longan_l, longan_w, longan_t]);
-        // 0.96" LCD Module (X_pcb = 7.8..32.8 mm)
+        // 0.96" LCD Module (13.5 mm breadth x 28.0 mm length at X_pcb = 7.4..35.4 mm)
         color([0.1, 0.1, 0.15])
             translate([lcd_glass_x_ofs, (longan_w - 13.5)/2, longan_t])
                 cube([lcd_glass_l, 13.5, 2.8]);
-        // 8-pin FPC Ribbon (folded over left edge at X_pcb = 4.0..7.8 mm)
+        // 8-pin FPC Ribbon (folded over left edge at X_pcb = 3.6..7.4 mm)
         color([0.85, 0.55, 0.1])
-            translate([4.0, (longan_w - 5.5)/2, longan_t])
+            translate([3.6, (longan_w - 5.5)/2, longan_t])
                 cube([3.8, 5.5, 2.5]);
         // 4-pin JTAG Male Header on Left Edge (protrudes 8.5 mm to -X)
         color([0.75, 0.75, 0.2])
@@ -500,10 +501,10 @@ module ghost_hardware() {
         color([0.75, 0.75, 0.78])
             translate([longan_l - 4.5, (longan_w - 8.94)/2, longan_t])
                 cube([4.5 + usbc_protrude, 8.94, 3.16]);
-        // BOOT0 & RESET Buttons (at X_pcb = 35.75 mm, Y_pcb = 6.3 / 13.7 mm)
+        // BOOT0 & RESET Buttons (at X_pcb = 37.50 mm, Y_pcb = 6.45 / 13.30 mm)
         color([0.95, 0.95, 0.95]) {
-            translate([btn_x_ofs, btn_reset_y, longan_t]) cylinder(d = 2.6, h = 2.5);
-            translate([btn_x_ofs, btn_boot_y, longan_t])  cylinder(d = 2.6, h = 2.5);
+            translate([btn_x_ofs, btn_reset_y, longan_t]) cylinder(d = 2.4, h = 2.5);
+            translate([btn_x_ofs, btn_boot_y, longan_t])  cylinder(d = 2.4, h = 2.5);
         }
         // Bottom MicroSD Socket
         color([0.7, 0.7, 0.72])

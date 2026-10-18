@@ -58,24 +58,27 @@
 - **Controller & Interface**: ST7735 SPI LCD (SPI0 peripheral, 8-pin 0.5 mm pitch FPC flex connector).
 - **Resolution**: `160 × 80` RGB pixels.
 - **Active Display Window Area**: `21.70 mm` length × `10.80 mm` width (0.96-inch diagonal).
-- **Outer LCD Body & Glass Dimensions** *(Empirically verified on 2.54 mm PCB pin grid in `IMG_8185.JPG` & `IMG_8186.JPG`)*:
-  - Left black plastic bezel step: `X_pcb = 7.80 mm` (`Pin 3.5`) to `9.80 mm` (`Pin 4.3`).
-  - Smooth black LCD glass top surface: `X_pcb = 9.80 mm` (`Pin 4.3`) to `32.50 mm` (`Pin 13.2`), length `22.70 mm` (`24.70–25.00 mm` total body length including left plastic bezel), width `13.50 mm` (`14.20 mm` pocket width with foam adhesive margin), centered at `X_pcb = 21.15 mm`, `Y_pcb = 10.00 mm`.
-- **Recommended Case Window Opening**: `22.00 mm` length × `11.40 mm` width, centered at `X_pcb = 21.15 mm`, `Y_pcb = 10.00 mm` (cleanly frames the `21.7 × 10.8 mm` active IPS area while hiding the red FR4 PCB and leaving a solid bridge before the buttons).
+- **Outer LCD Body & Glass Dimensions** *(Empirically verified on 2.54 mm PCB pin grid and physical test print `IMG_8187.JPG`)*:
+  - Total outer LCD module body (glass + left black plastic bezel): **`28.00 mm` length × `13.50 mm` breadth**, spanning `X_pcb = 7.40 mm` to `35.40 mm` (`14.20 mm` nominal pocket width with foam adhesive margin).
+  - Left black plastic bezel step: `X_pcb = 7.40 mm` to `10.50 mm` (`3.10 mm` step).
+  - Smooth black LCD glass top surface: `X_pcb = 10.50 mm` to `35.40 mm` (`24.90 mm` glass length, touching the left edge of the tactile button housings).
+- **Recommended Case Window Opening & Underside Pocket**:
+  - Top Viewport Cutout: `27.20 mm` inner length (`28.00 mm` outer beveled length) × `11.40 mm` inner breadth (`12.60 mm` outer beveled breadth), centered at `X_pcb = 21.10 mm`, `Y_pcb = 10.00 mm`.
+  - Underside Lid Recessed Pocket: `28.90 mm` length (`X_pcb = 6.80..35.70 mm`) × `15.20 mm` breadth × `1.40 mm` depth to house the full `13.50 × 28.00 mm` LCD module flush against the lid.
 - **CRITICAL FPC Cable Relief Requirement**:
-  - The flexible ribbon cable wraps tightly around the left edge of the display (`X_pcb = 3.50..7.80 mm`) to connect to the solder pads.
+  - The flexible ribbon cable wraps tightly around the left edge of the display (`X_pcb = 3.00..8.00 mm`) to connect to the solder pads.
   - **Do NOT clamp or apply downward pressure** on the folded ribbon edge.
-  - The enclosure top lid MUST feature an internal recess / relief pocket of at least `5.0 mm × 8.0 mm` with `1.20–1.80 mm` depth over the flex fold to prevent trace fatigue or shearing.
+  - The enclosure top lid MUST feature an internal recess / relief pocket of at least `5.0 mm × 8.5 mm` with `1.40 mm` depth over the flex fold to prevent trace fatigue or shearing.
 
 ### 2.4 Button, Connector & Peripheral Cutout Positions
 - **USB Type-C Port**:
   - Location: Right edge, centered on the 20.0 mm board width.
   - Recommended Wall Cutout: `11.5 mm` width × `4.5–5.0 mm` height (provides clearance for USB-C cable overmold shroud).
-- **Tactile Buttons (`BOOT0` & `RESET`)** *(Calibrated to 2.54 mm pin header grid in `IMG_8185.JPG` & `IMG_8186.JPG`)*:
-  - Both buttons sit directly between `Pin 14` (`B13` / `B1`, `X_pcb = 34.48 mm`) and `Pin 15` (`B12` / `B10`, `X_pcb = 37.02 mm`), at **`X_pcb = 35.75 mm`** from the left PCB edge (`10.35 mm` from the right PCB edge).
-  - `BOOT0` (PA8): `X_pcb = 35.75 mm`, `Y_pcb = 13.70 mm` from front (`VB..RST`) edge.
-  - `RESET` (NRST): `X_pcb = 35.75 mm`, `Y_pcb = 6.30 mm` from front (`VB..RST`) edge (`7.40 mm` center-to-center Y spacing).
-  - Recommended Button Cutouts: Circular holes `Ø 4.20 mm` with top ergonomic chamfer.
+- **Tactile Buttons (`BOOT0` & `RESET`)** *(Calibrated to 2.54 mm pin header grid & physical test print `IMG_8187.JPG`)*:
+  - Both buttons sit between `Pin 14` (`B13` / `B1`) and `Pin 15` (`B12` / `B10`) — accounting for the `3.80 mm` (`+1` pin pitch) center notch gap — at **`X_pcb = 37.50 mm`** in the enclosure cradle (`~8.0 mm` from the right PCB edge).
+  - `BOOT0` (PA8): `X_pcb = 37.50 mm`, `Y_pcb = 13.30 mm` from front (`VB..RST`) edge.
+  - `RESET` (NRST): `X_pcb = 37.50 mm`, `Y_pcb = 6.45 mm` from front (`VB..RST`) edge (`6.85 mm` center-to-center Y spacing).
+  - Recommended Button Cutouts: Circular holes `Ø 4.00 mm` with top ergonomic chamfer.
 - **MicroSD (TF) Card Slot**:
   - Location: Bottom side of PCB (`1.80 mm` profile height).
   - Note: External enclosure card slots are omitted when firmware provides USB Mass Storage (`prj_usb_msc` / `prj_current_monitor` Screen 6 USB Drive Mode).
@@ -211,8 +214,8 @@ When prompting an AI to generate OpenSCAD, CadQuery, FreeCAD, or STL 3D models f
 - **Layout**: Side-by-side non-overlapping bays — Sipeed Longan Nano in the front-right bay (USB-C flush with the `+X` right wall, FPC ribbon and 4-pin JTAG header on the `-X` left edge) and Blue INA219 breakout in the rear-left bay (`25.5 mm` X width × `22.3 mm` Y length, `VIN-/VIN+` flush with the `+Y` rear wall).
 - **Overall Case Dimensions**: `75.0 mm` (width) × `55.0 mm` (length/depth) × `17.5 mm` (low-profile assembled height), `2.0 mm` wall thickness, `0.8–1.2 mm` PCB pocket clearance, `2.0 mm` corner radius.
 - **Two-Part Snap-Fit Enclosure**:
-  - **Base (Lower Half, `13.5 mm` height)**: Houses the Longan Nano corner cradle (`47.2 × 21.0 mm` pocket at `Z = 9.5 mm`, omitting pinching notch pegs and leaving a `12.6 mm` left gap for the 4-pin JTAG header), 4× INA219 corner standoffs (`20.4 mm` X × `17.2 mm` Y spacing, `4.0 mm` height with tapered `Ø 1.9 -> 1.5 mm` poles and `26.7 × 23.5 mm` lateral guide pocket), `11.5 × 4.5 mm` right-wall USB-C cutout, `11.5 × 7.5 mm` rear-wall wire window, full 360° perimeter counterbore step, 4-wall snap-fit detent grooves (Front, Rear, Left, Right), and fingernail pry notches. (MicroSD slots omitted since USB MSC Drive Mode is built-in).
-  - **Lid (Low-Profile Upper Half, `4.0 mm` height + `2.0 mm` 360° interlocking skirt)**: Houses the `22.0 × 11.4 mm` beveled LCD viewing window centered at `X_pcb = 21.15 mm`, internal LCD pocket (`26.3 × 15.2 mm`) with mandatory `5.0 × 8.0 × 1.2 mm` FPC flex cable relief pocket on the left edge, dual `Ø 4.2 mm` chamfered BOOT0/RESET button access holes at `X_pcb = 35.75 mm`, `Y_pcb = 6.3 / 13.7 mm`, dual `Ø 4.0 mm` wire/terminal access holes, 4× thermal ventilation slots directly over the `R100` shunt resistor, and a full 360° interlocking perimeter skirt with 4-wall snap beads that prevent sliding in both X and Y directions.
+  - **Base (Lower Half, `14.2 mm` height)**: Houses the Longan Nano corner cradle (`47.2 × 21.0 mm` pocket at `Z = 9.5 mm`, omitting pinching notch pegs and leaving a `12.6 mm` left gap for the 4-pin JTAG header), 4× INA219 corner standoffs (`20.4 mm` X × `17.2 mm` Y spacing, `4.0 mm` height with tapered `Ø 1.9 -> 1.5 mm` poles and `26.7 × 23.5 mm` lateral guide pocket), `11.5 × 4.8 mm` right-wall USB-C cutout, `11.5 × 8.2 mm` rear-wall wire window, full 360° perimeter counterbore step, 4-wall snap-fit detent grooves (Front, Rear, Left, Right), and fingernail pry notches. (MicroSD slots omitted since USB MSC Drive Mode is built-in).
+  - **Lid (Ultra-Low-Profile Upper Half, `2.4 mm` plate + `2.0 mm` 360° interlocking skirt)**: Houses the `27.2 × 11.4 mm` inner (`28.0 × 12.6 mm` outer beveled) LCD viewing window centered at `X_pcb = 21.10 mm`, internal LCD pocket (`28.9 × 15.2 × 1.4 mm`, sized for the full `13.5 × 28.0 mm` LCD module) with mandatory `5.0 × 8.5 × 1.4 mm` FPC flex cable relief pocket on the left edge, dual `Ø 4.0 mm` chamfered BOOT0/RESET button access holes at `X_pcb = 37.50 mm`, `Y_pcb = 6.45 / 13.30 mm`, dual `Ø 4.0 mm` wire/terminal access holes, 4× thermal ventilation slots directly over the `R100` shunt resistor, and a full 360° interlocking perimeter skirt with 4-wall snap beads that prevent sliding in both X and Y directions.
 - **Inter-Board Wiring**: 4 internal jumper wires (3V3, GND, SCL, SDA) routed through the open central wiring courtyard between Longan Nano pins (Edge 1, Pins 5, 6, 16, 1) and the INA219 6-pin header.
 
 #### Topology 2: Stacked "Sandwich" Compact Enclosure (Handheld Meter)
@@ -235,11 +238,11 @@ When prompting an AI to generate OpenSCAD, CadQuery, FreeCAD, or STL 3D models f
 | **Wall Thickness** | `1.80–2.00 mm` | Provides structural rigidity for FDM (PLA/PETG) with 4 perimeters (0.4 mm nozzle). |
 | **PCB Cradle Clearance** | `0.50–0.60 mm` per side | `1.0–1.2 mm` total pocket clearance prevents FDM inner-wall shrinkage from pinching PCBs. |
 | **360° Lid Skirt Clearance** | `0.25 mm` per side | Continuous 4-wall interlocking skirt + 4-wall snap beads prevent X/Y lid sliding. |
-| **LCD Viewport Window** | `22.00 mm × 11.40 mm` | Centered at `X_pcb = 21.15 mm`; exposes `21.7 × 10.8 mm` IPS area while hiding red PCB. |
-| **LCD Module Pocket** | `26.30 mm × 15.20 mm × 1.00 mm` | Underside recess spanning `X_pcb = 7.2..33.5 mm` to clear display glass and foam tape. |
-| **FPC Flex Relief Notch** | `5.00 mm × 8.00 mm × 1.20 mm` | **MANDATORY**: Relief channel at `X_pcb = 3.2..8.2 mm` for folded display flex ribbon. |
+| **LCD Viewport Window** | `27.20 mm × 11.40 mm` (`28.0 × 12.6 mm` bevel) | Centered at `X_pcb = 21.10 mm`; exposes full `28.0 mm` LCD length while hiding red PCB. |
+| **LCD Module Pocket** | `28.90 mm × 15.20 mm × 1.40 mm` | Underside recess spanning `X_pcb = 6.8..35.7 mm` to fit the `13.5 × 28.0 mm` LCD module. |
+| **FPC Flex Relief Notch** | `5.00 mm × 8.50 mm × 1.40 mm` | **MANDATORY**: Relief channel at `X_pcb = 3.0..8.0 mm` for folded display flex ribbon. |
 | **USB Type-C Cutout** | `11.50 mm × 4.80 mm` | Allows clearance for USB-C connector shell and cable housing overmold. |
-| **Button Access Holes** | `2 × Ø 4.20 mm` holes | Located at `X_pcb = 35.75 mm`, `Y_pcb = 6.30 & 13.70 mm` (between Pin 14 and Pin 15). |
+| **Button Access Holes** | `2 × Ø 4.00 mm` holes | Located at `X_pcb = 37.50 mm`, `Y_pcb = 6.45 & 13.30 mm` (calibrated to `IMG_8187.JPG`). |
 | **INA219 Standoff Grid** | `20.40 mm (X) × 17.20 mm (Y)` | Matches `25.5 mm (X) × 22.3 mm (Y)` PCB corner holes with `Ø 1.9 -> 1.5 mm` tapered pins. |
 | **Thermal Dissipation** | 4× slots (`1.6 × 8.0 mm`) | Located over the R100 shunt resistor. At 3.2A, the shunt dissipates $P = I^2 R \approx 1.02\text{ W}$. |
 
@@ -254,19 +257,19 @@ Generate a 3D-printable two-piece snap-fit enclosure (Base and Low-Profile Lid) 
 Hardware Modules to House:
 1. Microcontroller Board: Sipeed Longan Nano (GD32VF103CBT6 RISC-V) with 0.96" IPS LCD:
    - PCB Size: 46.2 mm (L) x 20.0 mm (W) x 1.0 mm (H); cradle pocket 47.2 x 21.0 mm (no center-notch pegs).
-   - Display: 0.96" LCD (active area 21.7 x 10.8 mm, module body X_pcb = 7.8..32.8 mm, width 13.5 mm).
-   - Top LCD Window: 22.0 x 11.4 mm with 45-deg bevel, centered at X_pcb = 21.15 mm, Y_pcb = 10.0 mm.
-   - Display Flex Cable: 8-pin FPC ribbon folded over left edge (X_pcb = 3.2..8.2 mm); REQUIRES 5x8x1.2 mm relief pocket.
+   - Display: 0.96" LCD (outer module dimensions 13.5 mm breadth x 28.0 mm length at X_pcb = 7.4..35.4 mm).
+   - Top LCD Window: 27.2 x 11.4 mm inner (28.0 x 12.6 mm outer bevel), centered at X_pcb = 21.10 mm, Y_pcb = 10.0 mm; underside pocket 28.9 x 15.2 x 1.4 mm.
+   - Display Flex Cable: 8-pin FPC ribbon folded over left edge (X_pcb = 3.0..8.0 mm); REQUIRES 5x8.5x1.4 mm relief pocket.
    - Left JTAG Header: 4-pin header on left edge protruding 8.5 mm; leave 12.6 mm gap between left cradle stops.
    - USB-C Port: Protrudes 3.0 mm from right edge, needs 11.5 x 4.8 mm wall cutout.
    - No MicroSD card cutout (USB MSC mode is used).
-   - Buttons: BOOT0 and RESET at X_pcb = 35.75 mm, Y_pcb = 6.3 mm and 13.7 mm; 4.2 mm chamfered holes.
+   - Buttons: BOOT0 and RESET at X_pcb = 37.50 mm, Y_pcb = 6.45 mm and 13.30 mm; 4.0 mm chamfered holes.
 2. Sensor Board: Blue INA219 DC Current Sensor Breakout:
    - Orientation: VIN-/VIN+ at Rear (+Y) wall, 6-pin header at Front (-Y) side.
    - PCB Size: 25.5 mm (X width) x 22.3 mm (Y length) x 1.6 mm (H); pocket 26.7 x 23.5 mm.
    - 4x Corner Standoffs: 20.4 mm (X) x 17.2 mm (Y) center spacing, 4.0 mm tall, tapered 1.9->1.5 mm poles.
-   - Wall Cutout: 11.5 x 7.5 mm rear wire entry window + dual 4.0 mm top access holes + 4x thermal slots.
+   - Wall Cutout: 11.5 x 8.2 mm rear wire entry window + dual 4.0 mm top access holes + 4x thermal slots.
 Case Constraints:
-- Layout: Side-by-side (75.0 mm W x 55.0 mm L x 17.5 mm H: 13.5 mm Base + 4.0 mm Lid).
+- Layout: Side-by-side (75.0 mm W x 55.0 mm L x 16.6 mm H: 14.2 mm Base + 2.4 mm Lid).
 - Full 360-degree interlocking skirt + 4-wall snap detents (Front, Rear, Left, Right) to prevent X/Y sliding.
 ```
