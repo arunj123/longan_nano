@@ -30,7 +30,7 @@ pub struct UsbDriveScreen {
     file_field: DirtyField<24>,
     action_field: DirtyField<24>,
     prompt_field: DirtyField<24>,
-    badge_field: DirtyField<16>,
+    badge_field: DirtyField<24>,
 }
 
 impl UsbDriveScreen {
@@ -74,12 +74,13 @@ impl UsbDriveScreen {
         sector_count: u32,
         current_file: &str,
         msc_stats: Option<&MscStats>,
+        is_maxed: bool,
     ) {
-        // 1. Header Badge: [STANDBY] vs [PC MOUNTED] vs [EJECTED]
+        // 1. Header Badge: [STANDBY] vs [PC MOUNTED] vs [EJECTED (SAFE)]
         let host_ejected = msc_stats.map_or(false, |s| s.host_ejected);
         let write_protected = msc_stats.map_or(false, |s| s.write_protected);
 
-        let mut b_buf = [0u8; 16];
+        let mut b_buf = [0u8; 24];
         let mut b_cur = BufferCursor::new(&mut b_buf);
         let (badge_col, is_active) = match self.state {
             UsbDriveState::Standby => {
@@ -88,7 +89,7 @@ impl UsbDriveScreen {
             }
             UsbDriveState::Active => {
                 if host_ejected {
-                    write!(b_cur, "[EJECTED]").ok();
+                    write!(b_cur, "[EJECTED (SAFE)]").ok();
                     (COL_CYAN, true)
                 } else {
                     write!(b_cur, "[PC MOUNTED]").ok();
@@ -98,8 +99,9 @@ impl UsbDriveScreen {
         };
         let b_str = b_cur.as_str();
         if self.badge_field.update(b_str) {
-            lcd.fill_rect(80, 2, 76, 8, COL_BG_TOP);
-            lcd.draw_string(84, 2, b_str, &FONT_5X7, badge_col, COL_BG_TOP);
+            lcd.fill_rect(60, 2, 98, 8, COL_BG_TOP);
+            let x = 158u16.saturating_sub(b_str.len() as u16 * 6);
+            lcd.draw_string(x, 2, b_str, &FONT_5X7, badge_col, COL_BG_TOP);
         }
 
         // 2. Line 1: State
@@ -113,8 +115,8 @@ impl UsbDriveScreen {
                 write!(s_cur, "ACTIVE (MSC RO)").ok();
                 COL_MINT
             } else {
-                write!(s_cur, "ACTIVE (MSC)").ok();
-                COL_MINT
+                write!(s_cur, "ACTIVE (MSC RW)").ok();
+                COL_AMBER
             }
         } else {
             write!(s_cur, "STANDBY (HID)").ok();
@@ -159,11 +161,17 @@ impl UsbDriveScreen {
         // 4. Line 3: Active File Name
         let mut f_buf = [0u8; 24];
         let mut f_cur = BufferCursor::new(&mut f_buf);
-        write!(f_cur, "{}", current_file).ok();
+        let f_col = if is_maxed {
+            write!(f_cur, "{} [MAX]", current_file).ok();
+            COL_AMBER
+        } else {
+            write!(f_cur, "{}", current_file).ok();
+            COL_WHITE
+        };
         let f_str = f_cur.as_str();
         if self.file_field.update(f_str) {
             lcd.fill_rect(44, 40, 114, 8, COL_BLACK);
-            lcd.draw_string(44, 40, f_str, &FONT_5X7, COL_WHITE, COL_BLACK);
+            lcd.draw_string(44, 40, f_str, &FONT_5X7, f_col, COL_BLACK);
         }
 
         // 5. Line 4: Action / Transfer Stats
@@ -189,15 +197,22 @@ impl UsbDriveScreen {
         // 6. Line 5: Navigation Prompt
         let mut p_buf = [0u8; 24];
         let mut p_cur = BufferCursor::new(&mut p_buf);
-        if is_active {
-            write!(p_cur, "CLICK PA8: EXIT/RESUME").ok();
+        let p_col = if is_active {
+            if host_ejected {
+                write!(p_cur, "CLICK PA8: SAFE RESUME").ok();
+                COL_CYAN
+            } else {
+                write!(p_cur, "CLICK PA8: FORCE EXIT").ok();
+                COL_AMBER
+            }
         } else {
             write!(p_cur, "CLICK PA8: ADVANCE").ok();
-        }
+            COL_TEXT_MUTED
+        };
         let p_str = p_cur.as_str();
         if self.prompt_field.update(p_str) {
             lcd.fill_rect(4, 64, 154, 8, COL_BLACK);
-            lcd.draw_string(4, 64, p_str, &FONT_5X7, COL_TEXT_MUTED, COL_BLACK);
+            lcd.draw_string(4, 64, p_str, &FONT_5X7, p_col, COL_BLACK);
         }
     }
 }
@@ -240,5 +255,37 @@ pub mod tests {
 
         screen.state_field.invalidate();
         assert!(screen.state_field.update("ACTIVE (MSC)"));
+    }
+
+    #[test]
+    fn test_usb_drive_badge_and_prompt_formatting() {
+        let mut screen = UsbDriveScreen::new();
+
+        // Standby
+        assert_eq!(screen.state, UsbDriveState::Standby);
+        assert!(screen.badge_field.update("[STANDBY]"));
+        assert!(screen.prompt_field.update("CLICK PA8: ADVANCE"));
+
+        // Active - PC Mounted (Host connected, not ejected)
+        screen.state = UsbDriveState::Active;
+        assert!(screen.badge_field.update("[PC MOUNTED]"));
+        assert!(screen.prompt_field.update("CLICK PA8: FORCE EXIT"));
+
+        // Active - Host Ejected (LOEJ / START=0 received from OS)
+        assert!(screen.badge_field.update("[EJECTED (SAFE)]"));
+        assert!(screen.prompt_field.update("CLICK PA8: SAFE RESUME"));
+    }
+
+    #[test]
+    fn test_usb_drive_max_file_formatting() {
+        let mut screen = UsbDriveScreen::new();
+        assert!(screen.file_field.update("LOG_0001.CSV"));
+
+        // When is_maxed is true:
+        let mut f_buf = [0u8; 24];
+        let mut f_cur = BufferCursor::new(&mut f_buf);
+        write!(f_cur, "{} [MAX]", "LOG_9999.CSV").ok();
+        assert_eq!(f_cur.as_str(), "LOG_9999.CSV [MAX]");
+        assert!(screen.file_field.update(f_cur.as_str()));
     }
 }

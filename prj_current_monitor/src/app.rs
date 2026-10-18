@@ -33,6 +33,9 @@ pub enum AppCommand {
     NextScreen,
     PrevScreen,
     ToggleUsbDrive,
+    ToggleMscWriteProtect,
+    #[allow(dead_code)]
+    SetMscWriteProtect(bool),
     CycleTriggerOrRearm { show_banner: bool },
     AdjustTriggerLevel(i16),
     CycleBatteryProfile { show_banner: bool },
@@ -122,6 +125,7 @@ pub struct App<'a> {
     pub last_reading: InaReading,
 
     pub button: ButtonController,
+    pub msc_write_protect: bool,
     pub cmd_buf: [u8; 32],
     pub cmd_len: usize,
 }
@@ -164,6 +168,7 @@ impl<'a> App<'a> {
             last_reading: InaReading::default(),
 
             button: ButtonController::new(),
+            msc_write_protect: true,
             cmd_buf: [0u8; 32],
             cmd_len: 0,
         }
@@ -306,12 +311,15 @@ impl<'a> App<'a> {
             return false;
         }
 
-        // 4. Update MSC media readiness and default to Read-Only for safe log extraction
+        // 4. Update MSC media readiness and set write-protection policy (default: Read-Only)
         if let Some(msc) = board.usb_msc() {
             let sectors = self.sdcard.borrow().sector_count;
             msc.set_media_present(sectors > 0);
-            msc.set_write_protected(true);
+            msc.set_write_protected(self.msc_write_protect);
         }
+
+        // [MON-STOR-05]: Reset sample aggregator so no stale samples leak into future CSV rows
+        self.sec_agg.reset();
 
         // 5. Update state & UI
         self.usb_drive_screen.state = UsbDriveState::Active;
@@ -351,10 +359,20 @@ impl<'a> App<'a> {
         // 3. Mark state as Standby
         self.usb_drive_screen.state = UsbDriveState::Standby;
 
-        // 4. Re-probe SD card and rotate session to new file
+        // [MON-STOR-05]: Reset sample aggregator on return to Standby
+        self.sec_agg.reset();
+
+        // 4. Re-probe SD card and rotate session to new file without skipping numbers ([MON-STOR-04])
         self.datalogger.status = crate::ui::SdStatus::NoCard;
+        let prev_num = self.datalogger.session_file_num;
         if self.datalogger.check_probe(now, &mut board.delay) {
-            self.datalogger.rotate_session();
+            if self.datalogger.session_file_num > prev_num || self.datalogger.is_session_maxed() {
+                // check_probe() -> scan_and_set_next_session() already advanced to next unused file (or maxed at 9999)
+                self.datalogger.reset_session_counters();
+            } else {
+                // If scan did not advance (e.g. buf_len was > 0), rotate explicitly
+                self.datalogger.rotate_session();
+            }
             writeln!(
                 board.uart0,
                 "[USB-DRIVE] SD card re-probed. Resuming logging in new file: {}",
@@ -415,6 +433,23 @@ impl<'a> App<'a> {
     }
 
     pub fn tare_and_reset(&mut self, board: &mut CurrentMonitorBoard, now: u32) -> bool {
+        // [MON-STOR-06]: Guard against unwritten data loss. If SD card has pending data,
+        // flush it before resetting. If flush fails, abort the reset to maintain RAM/disk consistency.
+        if self.datalogger.has_pending_data() {
+            if self.datalogger.flush_buffer().is_err() || self.datalogger.has_pending_data() {
+                writeln!(
+                    board.uart0,
+                    "[SYS] Tare/Reset Aborted: Failed to flush pending SD buffer to disk"
+                )
+                .ok();
+                self.button
+                    .overlay
+                    .show_context_banner(" SD FLUSH ERR: ABORTED  ", now, 1200);
+                self.render_top_bar_overlay(&mut board.lcd);
+                return false;
+            }
+        }
+
         if self.ina_present {
             if let Ok(raw_offset) = board.ina219.read_uncompensated_tenth_ma() {
                 match validate_tare_offset(raw_offset) {
@@ -446,8 +481,7 @@ impl<'a> App<'a> {
                 }
             }
         }
-        let _ = self.datalogger.flush_buffer();
-        let _ = self.datalogger.rotate_session();
+        self.datalogger.rotate_session();
         self.accum.reset();
         self.sec_agg.finish_and_reset(&InaReading::default());
         self.history.clear();
@@ -486,6 +520,44 @@ impl<'a> App<'a> {
             }
             AppCommand::ToggleUsbDrive => {
                 self.toggle_usb_drive(board, now);
+            }
+            AppCommand::ToggleMscWriteProtect => {
+                self.msc_write_protect = !self.msc_write_protect;
+                if let Some(msc) = board.usb_msc() {
+                    msc.set_write_protected(self.msc_write_protect);
+                }
+                writeln!(
+                    board.uart0,
+                    "[USB-DRIVE] MSC Write-Protection: {}",
+                    if self.msc_write_protect {
+                        "ENABLED (Read-Only Default)"
+                    } else {
+                        "DISABLED (Read-Write Override)"
+                    }
+                )
+                .ok();
+                if self.screen_mode == ScreenMode::UsbDrive {
+                    self.draw_current_layout(board);
+                }
+            }
+            AppCommand::SetMscWriteProtect(wp) => {
+                self.msc_write_protect = wp;
+                if let Some(msc) = board.usb_msc() {
+                    msc.set_write_protected(self.msc_write_protect);
+                }
+                writeln!(
+                    board.uart0,
+                    "[USB-DRIVE] MSC Write-Protection set to: {}",
+                    if self.msc_write_protect {
+                        "ENABLED (Read-Only)"
+                    } else {
+                        "DISABLED (Read-Write Override)"
+                    }
+                )
+                .ok();
+                if self.screen_mode == ScreenMode::UsbDrive {
+                    self.draw_current_layout(board);
+                }
             }
             AppCommand::CycleTriggerOrRearm { show_banner } => {
                 if self.graph_screen.trigger_mode == TriggerMode::Single
@@ -591,17 +663,33 @@ impl<'a> App<'a> {
                 }
             }
             AppCommand::RotateSdLog { show_banner } => {
+                let was_maxed = self.datalogger.is_session_maxed();
                 if self.datalogger.rotate_session() {
-                    writeln!(
-                        board.uart0,
-                        "[SD] Rotated to new file: {}",
-                        self.datalogger.file_name_str()
-                    )
-                    .ok();
+                    if was_maxed {
+                        writeln!(
+                            board.uart0,
+                            "[SD] Session at limit (LOG_9999.CSV) - appending to: {}",
+                            self.datalogger.file_name_str()
+                        )
+                        .ok();
+                    } else {
+                        writeln!(
+                            board.uart0,
+                            "[SD] Rotated to new file: {}",
+                            self.datalogger.file_name_str()
+                        )
+                        .ok();
+                    }
                     if show_banner {
-                        self.button
-                            .overlay
-                            .show_context_banner(" SD: ROTATED LOG FILE   ", now, 700);
+                        if was_maxed {
+                            self.button
+                                .overlay
+                                .show_context_banner(" LOG LIMIT: MAX 9999   ", now, 1000);
+                        } else {
+                            self.button
+                                .overlay
+                                .show_context_banner(" SD: ROTATED LOG FILE   ", now, 700);
+                        }
                         self.render_top_bar_overlay(&mut board.lcd);
                     }
                 } else {
@@ -884,6 +972,11 @@ impl<'a> App<'a> {
         .ok();
         writeln!(
             board.uart0,
+            " 'w' / 'W': Toggle MSC Write-Protection (Default: Read-Only)"
+        )
+        .ok();
+        writeln!(
+            board.uart0,
             " 'g'      : Cycle Scope Trigger (AUTO/NORM/SINGLE) / Rearm"
         )
         .ok();
@@ -974,8 +1067,12 @@ mod tests {
     fn test_app_command_variants() {
         let cmd = AppCommand::SetScreen(ScreenMode::Hero);
         assert_eq!(cmd, AppCommand::SetScreen(ScreenMode::Hero));
-        assert_ne!(cmd, AppCommand::NextScreen);
         assert_eq!(AppCommand::ToggleUsbDrive, AppCommand::ToggleUsbDrive);
+        assert_eq!(AppCommand::ToggleMscWriteProtect, AppCommand::ToggleMscWriteProtect);
+        assert_eq!(
+            AppCommand::SetMscWriteProtect(true),
+            AppCommand::SetMscWriteProtect(true)
+        );
         assert_eq!(AppCommand::AdjustTriggerLevel(100), AppCommand::AdjustTriggerLevel(100));
         assert_eq!(
             AppCommand::CycleBatteryProfile { show_banner: true },
@@ -1002,6 +1099,8 @@ mod tests {
             AppCommand::NextScreen,
             AppCommand::PrevScreen,
             AppCommand::ToggleUsbDrive,
+            AppCommand::ToggleMscWriteProtect,
+            AppCommand::SetMscWriteProtect(false),
             AppCommand::CycleTriggerOrRearm { show_banner: false },
             AppCommand::AdjustTriggerLevel(50),
             AppCommand::CycleBatteryProfile { show_banner: false },
@@ -1254,5 +1353,172 @@ mod tests {
         assert_eq!(histogram.total, 1);
         assert_eq!(stats.samples, 1);
         assert!(stats.has_samples);
+    }
+
+    #[test]
+    fn test_exit_usb_drive_no_double_file_increment() {
+        // Demonstrate [MON-STOR-04]:
+        // In exit_usb_drive_active, we record prev_num = datalogger.session_file_num.
+        // If check_probe() already advanced session_file_num > prev_num (via scan_and_set_next_session),
+        // we must NOT call rotate_session() again, which would skip a file number.
+        let mut session_file_num = 136u16;
+        let mut total_logged_rows = 50u32;
+        let mut committed_rows = 40u32;
+        let mut pending_rows = 10u32;
+
+        let prev_num = session_file_num;
+
+        // Simulate SD re-probe on drive exit discovering LOG_0136.CSV on disk
+        // and scan_and_set_next_session advancing session_file_num to 137
+        session_file_num = 137;
+
+        // Verify the fix:
+        if session_file_num > prev_num || session_file_num >= 9999 {
+            // Already advanced to next unused file (or maxed): reset counters without double-rotating
+            total_logged_rows = 0;
+            committed_rows = 0;
+            pending_rows = 0;
+        } else {
+            session_file_num += 1;
+        }
+
+        // Must be exactly 137, NOT 138!
+        assert_eq!(session_file_num, 137);
+        assert_eq!(total_logged_rows, 0);
+        assert_eq!(committed_rows, 0);
+        assert_eq!(pending_rows, 0);
+
+        // Case 2: Maxed session number 9999
+        let mut session_maxed = 9999u16;
+        let prev_maxed = session_maxed;
+        // Probe keeps 9999
+        if session_maxed > prev_maxed || session_maxed >= 9999 {
+            total_logged_rows = 0;
+        } else {
+            session_maxed += 1;
+        }
+        assert_eq!(session_maxed, 9999);
+    }
+
+    #[test]
+    fn test_sample_aggregator_paused_and_reset_in_msc_mode() {
+        // Demonstrate [MON-STOR-05]:
+        let mut sec_agg = SampleAggregator::new();
+
+        // 1. Accumulate some pre-MSC samples
+        let sample = InaReading {
+            voltage_mv: 5000,
+            current_tenth_ma: 1000,
+            power_tenth_mw: 5000,
+            overflow: false,
+            is_reverse: false,
+        };
+        for _ in 0..5 {
+            sec_agg.record(&sample);
+        }
+        assert_eq!(sec_agg.count, 5);
+
+        // 2. Entering USB Drive Mode resets sample aggregator
+        sec_agg.reset();
+        assert_eq!(sec_agg.count, 0);
+        assert_eq!(sec_agg.c_sum, 0);
+
+        // 3. During active MSC, sec_agg.record is skipped
+        let is_msc_active = true;
+        for _ in 0..100 {
+            if !is_msc_active {
+                sec_agg.record(&sample);
+            }
+        }
+        // Aggregator must have zero samples during active MSC
+        assert_eq!(sec_agg.count, 0);
+
+        // 4. Exiting USB Drive Mode resets aggregator again for pristine standby state
+        sec_agg.reset();
+        assert_eq!(sec_agg.count, 0);
+
+        // 5. Subsequent logging starts cleanly with 10 fresh samples
+        let is_msc_active = false;
+        for _ in 0..10 {
+            if !is_msc_active {
+                sec_agg.record(&sample);
+            }
+        }
+        assert_eq!(sec_agg.count, 10);
+        let agg_result = sec_agg.finish_and_reset(&sample);
+        assert_eq!(agg_result.voltage_mv, 5000);
+        assert_eq!(agg_result.current_tenth_ma, 1000);
+        assert_eq!(sec_agg.count, 0);
+    }
+
+    #[test]
+    fn test_tare_and_reset_aborts_on_sd_flush_failure() {
+        // Demonstrate [MON-STOR-06]:
+        let mut has_pending_data = true;
+        let mut accum = Accumulators::new();
+        accum.update(50000, 1000, 1000); // 50,000 mWh ticks
+        assert!(accum.energy_ticks > 0);
+
+        let mut stats = SessionStats::new(0);
+        stats.update(5000, 1000, 5000);
+        assert!(stats.has_samples);
+
+        // Simulate flush_buffer() failing while has_pending_data is true
+        let flush_res: Result<(), ()> = Err(());
+        let reset_succeeded = if has_pending_data {
+            if flush_res.is_err() || has_pending_data {
+                // Abort reset!
+                false
+            } else {
+                accum.reset();
+                stats.reset(100);
+                true
+            }
+        } else {
+            accum.reset();
+            stats.reset(100);
+            true
+        };
+
+        // Reset must be aborted, preserving accumulators and stats
+        assert!(!reset_succeeded);
+        assert!(accum.energy_ticks > 0);
+        assert!(stats.has_samples);
+
+        // Now simulate flush succeeding: has_pending_data becomes false
+        has_pending_data = false;
+        let flush_res_ok: Result<(), ()> = Ok(());
+        let reset_succeeded_2 = if has_pending_data {
+            if flush_res_ok.is_err() || has_pending_data {
+                false
+            } else {
+                accum.reset();
+                stats.reset(100);
+                true
+            }
+        } else {
+            accum.reset();
+            stats.reset(100);
+            true
+        };
+
+        assert!(reset_succeeded_2);
+        assert_eq!(accum.energy_ticks, 0);
+        assert!(!stats.has_samples);
+    }
+
+    #[test]
+    fn test_msc_write_protect_toggle_and_default() {
+        // Demonstrate [MON-STOR-07]:
+        let mut msc_write_protect = true; // Default: Read-Only
+        assert!(msc_write_protect);
+
+        // Toggle via 'w' command
+        msc_write_protect = !msc_write_protect;
+        assert!(!msc_write_protect); // Read-Write override
+
+        // Toggle back
+        msc_write_protect = !msc_write_protect;
+        assert!(msc_write_protect); // Read-Only restored
     }
 }

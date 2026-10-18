@@ -117,6 +117,7 @@ impl TelemetryStreamer {
     }
 
     #[inline]
+    #[allow(dead_code)]
     pub const fn seq(&self) -> u8 {
         self.seq
     }

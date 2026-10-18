@@ -187,6 +187,20 @@ impl<'a> SdDatalogger<'a> {
         self.set_session_num(next_num);
     }
 
+    /// Returns `true` if the session file number has reached the maximum 4-digit limit (9999).
+    #[inline]
+    pub fn is_session_maxed(&self) -> bool {
+        self.session_file_num >= 9999
+    }
+
+    /// Resets session row tracking counters to 0 for a new session file.
+    #[inline]
+    pub fn reset_session_counters(&mut self) {
+        self.total_logged_rows = 0;
+        self.committed_rows = 0;
+        self.pending_rows = 0;
+    }
+
     /// Testable helper that flushes using `flush_fn` and rotates to the next sequential
     /// log file ONLY if the old buffer is empty after flushing.
     /// Prevents old-session buffered rows from being written into a new session file.
@@ -199,9 +213,7 @@ impl<'a> SdDatalogger<'a> {
         }
         let next_num = self.session_file_num.saturating_add(1).min(9999);
         self.set_session_num(next_num);
-        self.total_logged_rows = 0;
-        self.committed_rows = 0;
-        self.pending_rows = 0;
+        self.reset_session_counters();
         true
     }
 
@@ -514,6 +526,45 @@ mod tests {
         assert_eq!(logger.session_file_num, 11);
         assert_eq!(logger.file_name_str(), "LOG_0011.CSV");
         assert!(!logger.has_pending_data());
+        assert_eq!(logger.total_logged_rows, 0);
+        assert_eq!(logger.committed_rows, 0);
+        assert_eq!(logger.pending_rows, 0);
+    }
+
+    #[test]
+    fn test_is_session_maxed_and_reset_session_counters() {
+        let sd = make_dummy_sdcard();
+        let mut logger = SdDatalogger::new(&sd, 0);
+
+        logger.set_session_num(9998);
+        assert!(!logger.is_session_maxed());
+
+        logger.set_session_num(9999);
+        assert!(logger.is_session_maxed());
+        assert_eq!(logger.file_name_str(), "LOG_9999.CSV");
+
+        // Rotate when at limit 9999 clamps to 9999 and resets counters
+        logger.total_logged_rows = 150;
+        logger.committed_rows = 140;
+        logger.pending_rows = 10;
+
+        let rotated = logger.rotate_session_with_flush(|s| {
+            s.buf_len = 0;
+            Ok(())
+        });
+        assert!(rotated);
+        assert_eq!(logger.session_file_num, 9999);
+        assert!(logger.is_session_maxed());
+        assert_eq!(logger.file_name_str(), "LOG_9999.CSV");
+        assert_eq!(logger.total_logged_rows, 0);
+        assert_eq!(logger.committed_rows, 0);
+        assert_eq!(logger.pending_rows, 0);
+
+        // Explicit reset_session_counters test
+        logger.total_logged_rows = 42;
+        logger.committed_rows = 40;
+        logger.pending_rows = 2;
+        logger.reset_session_counters();
         assert_eq!(logger.total_logged_rows, 0);
         assert_eq!(logger.committed_rows, 0);
         assert_eq!(logger.pending_rows, 0);

@@ -306,6 +306,7 @@ fn main() -> ! {
                         None
                     }
                     b'r' | b'R' | b'n' | b'N' => Some(AppCommand::RotateSdLog { show_banner: false }),
+                    b'w' | b'W' => Some(AppCommand::ToggleMscWriteProtect),
                     b'o' | b'O' => Some(AppCommand::ToggleLcdRotation),
                     b'f' | b'F' => Some(AppCommand::FlushSd),
                     b's' | b'S' => Some(AppCommand::DumpSession),
@@ -508,7 +509,11 @@ fn main() -> ! {
                             overflow: d.overflow,
                             is_reverse: c_tenth < 0,
                         };
-                        app.sec_agg.record(&reading);
+                        let is_msc_active = app.screen_mode == ScreenMode::UsbDrive
+                            && app.usb_drive_screen.state == UsbDriveState::Active;
+                        if !is_msc_active {
+                            app.sec_agg.record(&reading);
+                        }
                         board.led_red.off();
                     }
                     Err(_) => {
@@ -651,12 +656,14 @@ fn main() -> ! {
                         };
                         let sectors = sdcard_cell.borrow().sector_count;
                         let filename = app.datalogger.file_name_str();
+                        let is_maxed = app.datalogger.is_session_maxed();
                         app.usb_drive_screen.update(
                             &mut board.lcd,
                             app.datalogger.status,
                             sectors,
                             filename,
                             msc_stats,
+                            is_maxed,
                         );
                     }
                 }

@@ -4,7 +4,7 @@
 **Target Architecture**: Sipeed Longan Nano (GD32VF103CBT6, RISC-V RV32IMAC @ 96/108 MHz, 32 KB SRAM, 128 KB Flash)  
 **Projects Covered**: `prj_usb_msc` (Pure Rust) and `prj_current_monitor` (Pure Rust + Python Telemetry + 3D Enclosure)  
 **Primary Author/Audience**: AI Agents (Autonomous Pair Programmers)  
-**Current Baseline Commit**: `7f9cd72` (Build `00E9`)
+**Current Baseline Commit**: `4312a90` (Build `00EA`)
 
 ---
 
@@ -172,11 +172,16 @@ flowchart TD
   - In `main.rs`, updated over-current check to trigger on saturation: `reading.abs_current_tenth() >= (limit * 10) || (limit >= 3200 && reading.overflow)` (`[MON-MATH-02]`).
   - Verified with 5 new host unit tests in `app.rs` and `model.rs` (51 passing in `prj_current_monitor`, 136 total across workspace) and live hardware flashing + 10 Hz telemetry streaming on `192.168.0.63`.
 
-- [ ] **Task 6.7: Storage & USB Drive Mode Lifecycle Hardening (P0)**:
-  - In `app.rs:exit_usb_drive_active()`, record `prev_num = datalogger.session_file_num`; if `check_probe()` already incremented `session_file_num > prev_num`, skip `rotate_session()`, eliminating the double file-number skip (`LOG_0136 -> LOG_0138`) (`[MON-STOR-04]`).
-  - In `main.rs` and `app.rs`, pause `sec_agg.record(&reading)` during active MSC mode and reset `sec_agg` on drive mode transitions (`[MON-STOR-05]`).
-  - In `app.rs:tare_and_reset()`, abort session reset if `flush_buffer()` fails when SD is present, maintaining RAM/disk consistency (`[MON-STOR-06]`).
-  - In `logger.rs`, handle session rollover at 9999 gracefully (`[MON-STOR-07]`).
+- [x] **Task 6.7: Storage & USB Drive Mode Lifecycle Hardening (P0)** *(Verified Build 00EA)*:
+  - In `prj_current_monitor/src/app.rs:exit_usb_drive_active()`, recorded `prev_num = datalogger.session_file_num`; if `check_probe()` already incremented `session_file_num > prev_num` (or if maxed at 9999), reset session counters without calling `rotate_session()` a second time, eliminating the double file-number skip (`LOG_0136 -> LOG_0138`) (`[MON-STOR-04]`). Verified empirically on target hardware: rotated cleanly from `LOG_0148.CSV` to `LOG_0149.CSV` without skipping.
+  - In `main.rs` and `app.rs`, paused `sec_agg.record(&reading)` during active MSC mode (`is_msc_active`) and reset `sec_agg` on `enter_usb_drive_active()` and `exit_usb_drive_active()`, eliminating multi-minute sample accumulation leaks and 1-second average corruption (`[MON-STOR-05]`).
+  - In `app.rs:tare_and_reset()`, guarded against unwritten data loss: checked `has_pending_data()`, and if `flush_buffer()` fails, aborts tare/reset with `"SD FLUSH ERR: ABORTED"`, preserving sync between RAM and disk (`[MON-STOR-06]`).
+  - In `ui/screen_usbdrive.rs`, `app.rs`, and `logger.rs`:
+    - Dynamically formatted header badge to show `[EJECTED (SAFE)]` vs `[PC MOUNTED]` vs `[STANDBY]` (`[MON-STOR-07]`).
+    - Displayed navigation prompt `CLICK PA8: SAFE RESUME` when host ejected, vs `CLICK PA8: FORCE EXIT` when mounted (`[MON-STOR-07]`).
+    - Added `w` / `W` CLI command and `AppCommand::ToggleMscWriteProtect` with default Read-Only (`msc_write_protect: true`), providing a documented override (`[MON-STOR-07]`).
+    - Added `is_session_maxed()` in `logger.rs`, formatted `"LOG_9999.CSV [MAX]"` in amber on Screen 6, and signaled with context banner `" LOG LIMIT: MAX 9999   "` on rollover attempt (`[MON-STOR-07]`).
+  - Verified with 7 new host unit tests in `app.rs`, `logger.rs`, and `screen_usbdrive.rs` (58 passing in `prj_current_monitor`, 143 total across workspace) and live hardware flashing + full USB Drive mode lifecycle verification on `192.168.0.63` (`tools/test_usb_drive_mode.py`: 100% PASS).
 
 - [ ] **Task 6.8: Security, Memory Map Reconciliation & HAL Robustness (P0/P1)**:
   - In `tools/test_usb_drive_mode.py`, `test_remote_ui_cycling.py`, `stream_remote_monitor.py`, `hid_tcp_bridge.py`, `test_remote_current_monitor.py`, load credentials from `os.environ.get("LONGAN_SSH_PASS", "arun")` and configurable SSH key auth (`[MON-SEC-01]`).
@@ -221,7 +226,7 @@ flowchart TD
      3. Explicitly direct/prompt the user to start a **new chat session**, informing them that the next session can resume directly from `docs/FIRMWARE_REVIEW_AND_ROADMAP.md`.
 
 ### 5.2 Active Session State & Next-Session Handoff
-- **Latest Verified Build**: `Build 00E9` (`prj_current_monitor`: `text = 121,648` bytes, `.bss = 8,196` bytes, `.stack = 24,572` bytes; 51 host tests passing in `prj_current_monitor` / 136 total across workspace; hardware verified on `192.168.0.63` via OpenOCD JTAG flash and 10 Hz USB HID telemetry stream).
+- **Latest Verified Build**: `Build 00EA` (`prj_current_monitor`: `.text = 91,886`, `.rodata = 31,392` -> text total = `123,278` bytes, `.data = 0`, `.bss = 8,196` bytes, `.stack = 24,572` bytes; 58 host tests passing in `prj_current_monitor` / 143 total across workspace; hardware verified on `192.168.0.63` via OpenOCD JTAG flash and `tools/test_usb_drive_mode.py` 100% PASS with rotation from `LOG_0148.CSV` to `LOG_0149.CSV`).
 - **Active Phase**: **Phase 6 (Extended): Multi-Model Audit Resolution & Release Candidate 1 (RC1) Hardening (ACTIVE)**.
 - **Immediate Next Step**:
-  - Implement **Task 6.7: Storage & USB Drive Mode Lifecycle Hardening (P0)** (`[MON-STOR-04]`, `[MON-STOR-05]`, `[MON-STOR-06]`, `[MON-STOR-07]`).
+  - Implement **Task 6.8: Security, Memory Map Reconciliation & HAL Robustness (P0/P1)** (`[MON-SEC-01]`, `[MON-MEM-02]`, `[MON-HAL-01]`).
