@@ -1,9 +1,10 @@
 # Firmware Comprehensive Review, Optimization Plan & Multi-Session Roadmap
 
-**Document Status**: Active Master Tracking & Handover Document | Active Phase: Phase 6 (Multi-Model Independent Review Hardening & Reliability Upgrades)  
+**Document Status**: Active Master Tracking & Handover Document | Active Phase: Phase 6 (Extended): Multi-Model Audit Resolution & Release Candidate 1 (RC1) Hardening  
 **Target Architecture**: Sipeed Longan Nano (GD32VF103CBT6, RISC-V RV32IMAC @ 96/108 MHz, 32 KB SRAM, 128 KB Flash)  
 **Projects Covered**: `prj_usb_msc` (Pure Rust) and `prj_current_monitor` (Pure Rust + Python Telemetry + 3D Enclosure)  
-**Primary Author/Audience**: AI Agents (Autonomous Pair Programmers)
+**Primary Author/Audience**: AI Agents (Autonomous Pair Programmers)  
+**Current Baseline Commit**: `4db83e3` (Build `00E8`)
 
 ---
 
@@ -11,183 +12,127 @@
 
 This document serves as the authoritative, permanent engineering record and multi-session implementation blueprint for the two flagship Rust applications in the `longan_nano` repository:
 1. `prj_usb_msc`: High-speed USB Mass Storage Class (BOT / SCSI) device presenting a MicroSD card over SPI1 as a USB drive. (Build `00E3` verified with SCSI bounds checking, write-protect reporting, CMD25 write streaming at 822 kB/s, and non-breaking CMD18 read streaming at 846 kB/s).
-2. `prj_current_monitor`: 10 Hz real-time DC current, voltage, power, and energy monitor with an on-device ST7735 LCD (6 screens), MicroSD CSV logging, 10 Hz USB HID telemetry, and dedicated USB Drive Mode (Screen 6). (Build `00E1` verified on target hardware).
+2. `prj_current_monitor`: 10 Hz real-time DC current, voltage, power, and energy monitor with an on-device ST7735 LCD (6 screens), MicroSD CSV logging, 10 Hz USB HID telemetry, and dedicated USB Drive Mode (Screen 6). (Build `00E8` verified on target hardware).
 
-### Multi-Model Independent Codebase Audit (2026-10-17)
-Five independent frontier models (Claude, ChatGPT, Gemini Argon, Grok, Meta AI) conducted comprehensive audits of `prj_current_monitor`. The consensus confirms that core math, dirty-field graphics, and dynamic USB switching are fundamentally sound, but identified critical data integrity vulnerabilities at the SD-logger-to-USB-drive boundary, sensor averaging/tare timing anomalies, unhandled shunt saturation, command dispatch duplication across 4 input paths, and scheduler phase drift. These findings form the basis of **Phase 6: Multi-Model Independent Review Hardening & Reliability Upgrades**.
+### Multi-Model Independent Codebase Audit on Build `00E8` (Commit `4db83e3`)
+On 2026-10-18, five independent frontier models (ChatGPT, Claude, Gemini Argon, Grok, Meta AI) audited the latest 131-file, 34,441-line repository bundle (`4db83e3`). The consensus confirmed that Phase 6 Tasks 6.1–6.5 successfully hardened the codebase (unified `AppCommand` dispatcher, protected logger buffer flush failure, default Read-Only MSC, tare sanity guard, and 131 passing host tests). However, the cross-model audit uncovered critical remaining edge cases required for a rock-solid `v1.0.0` release:
+1. **Math & Energy Integration (Claude)**: The phase-locked 10 Hz scheduler overcounts energy and charge whenever a loop stall occurs because `dt_ms = now - last_10hz_ms` is passed to accumulator integration (`[MON-MATH-01]`).
+2. **Storage & USB Drive Mode Lifecycle (Gemini Argon & ChatGPT)**: Exiting USB Drive Mode double-increments the session file number (`LOG_0136 -> LOG_0138`), skipping odd-numbered logs (`[MON-STOR-04]`). `SampleAggregator` leaks samples during active MSC mode (`[MON-STOR-05]`), and `tare_and_reset()` resets in-memory statistics even if SD flush fails (`[MON-STOR-06]`).
+3. **Security & Test Tools (ChatGPT, Gemini Argon, Claude, Meta AI)**: Hardcoded SSH credentials (`PASS = "arun"`) and `AutoAddPolicy` remain in `tools/*.py` (`[MON-SEC-01]`).
+4. **Memory Map Clarification (ChatGPT, Claude, Grok, Meta AI)**: The roadmap's recorded `bss = 32,768` is a Berkeley `size` artifact that lumps `.stack` into `bss`; real static `.bss` is 8,196 bytes, leaving 24,572 bytes of stack headroom (`[MON-MEM-02]`).
+5. **Peripheral & HAL Robustness (Gemini Argon & ChatGPT)**: Unbounded FIFO flush spin-loops remain in `UsbHid`, `UsbCdcAcm`, and `UsbComposite` (`[MON-HAL-01]`).
+6. **UI, Display & AI Ergonomics (Gemini Argon & Meta AI)**: Redundant grid clears in `screen_graph.rs` (`[MON-UI-03]`), Screen trait/mod array refactoring, and permanent `docs/AI_MAINTAINER.md` guidelines (`[MON-AI-04]`).
 
-Any subsequent AI session MUST consult this document, execute tasks in the specified phased order, update this document upon completing any task, and follow the session handoff rules when closing.
+These findings form the active work items of **Phase 6 (Extended): Multi-Model Audit Resolution & Release Candidate 1 (RC1) Hardening**.
 
 ---
 
 ## 2. Review Findings & Solution Plans: `prj_usb_msc`
 
-### 2.1 Critical Protocol & Correctness Bugs (Archived / Resolved in Phases 1–5)
-- **[MSC-BUG-01] Integer Overflow in LBA Bounds Checking**: Resolved via `lba.checked_add(blocks)` and `saturating_mul(512)`. *(Verified Build 00D4)*
-- **[MSC-BUG-02] BOT 13-Case Direction & Length Validation**: Resolved via pure `validate_bot_case` state machine. *(Verified Build 00D7)*
-- **[MSC-BUG-03] Cache Invalidation Missing on Write Failure**: Resolved via `self.cache.invalidate(self.lba)`. *(Verified Build 00D4)*
-- **[MSC-BUG-04] `CMD18` Stream Leak on Bus Reset & `REQ_BBB_RESET`**: Resolved by unconditionally invoking `disk.end_multi_read()`. *(Verified Build 00D4)*
-- **[MSC-BUG-05] `READ_6` / `WRITE_6` Sense Code for Missing Media**: Resolved returning `SenseKey::NotReady, Asc::MediumNotPresent`. *(Verified Build 00D4)*
-
-### 2.2 Performance Optimizations (Archived / Resolved in Phases 1–5)
-- **[MSC-PERF-01] 32-Bit Word FIFO Loading & Unloading**: Resolved using `chunks_exact(4)` with `#[repr(align(4))]`. *(Verified Build 00D8)*
-- **[MSC-PERF-02] Eliminate 50 µs CSW Delay in `StatusPending`**: Resolved by removing 1,200-tick spin wait. *(Verified Build 00D9)*
-- **[MSC-PERF-03] Multi-Block `CMD25` & Ping-Pong Write Streaming**: Resolved with double-buffered CMD25 (+720% speedup). *(Verified Build 00DA)*
-- **[MSC-PERF-04] Non-Breaking Stream Cache Lookup Policy**: Resolved maintaining CMD18 streaming across hits for transfers > 8 blocks. *(Verified Build 00E3)*
-
-### 2.3 Remaining Architecture & Memory Alignment Polish
-- **[MSC-MEM-01] Cache Alignment & Static Mut Isolation**:
-  - **Affected File**: `crates/gd32vf103-hal/src/usb/msc/cache.rs:10`
-  - **Issue**: `CACHE_DATA: [[u8; 512]; 16]` is not explicitly annotated with `#[repr(align(4))]`. RV32IMAC traps on unaligned word loads (`lw`).
-  - **Solution**: Wrap entries in `#[repr(align(4))] struct AlignedSector([u8; 512]);` and ensure test paths mirror production layout.
+### 2.1 Critical Protocol & Performance Features (Archived in Phases 1–5)
+- **[MSC-BUG-01..05]**: Bounds checking, 13-case BOT state machine, cache invalidation on write failure, CMD18 stream leak fix on bus reset, and `READ_6`/`WRITE_6` sense codes. *(Verified Builds 00D4–00D7)*.
+- **[MSC-PERF-01..04]**: 32-bit word FIFO loading, 50 µs CSW spin-wait removal, CMD25 write streaming (822 kB/s), and non-breaking stream cache lookup (846 kB/s). *(Verified Builds 00D8–00E3)*.
+- **[MSC-MEM-01]**: Sector buffers explicitly aligned with `#[repr(C, align(4))] pub struct CacheBlock(pub [u8; 512])` to eliminate RV32 unaligned load traps (`lw`). *(Verified Build 00E8)*.
 
 ---
 
 ## 3. Consolidated Review Findings: `prj_current_monitor`
 
-### 3.1 Storage & Filesystem Integrity Findings (P0 / Critical)
+### 3.1 Math & Energy Accumulation Correctness (P0 / Critical)
 
-#### [MON-STOR-01] USB Drive Mode Transition Ignores Log Buffer Flush Failure
-- **Affected File & Lines**: `prj_current_monitor/src/app.rs:231`, `prj_current_monitor/src/logger.rs:307-342`
-- **Root Cause**: `enter_usb_drive_active()` calls `self.datalogger.flush_buffer()`, but `flush_buffer()` returns `()`. On write/flush failure, `self.buf_len` is retained and `status` is set to `WriteError`. `enter_usb_drive_active()` does not check result/status, proceeding to switch to USB MSC. Unwritten CSV records remain stranded in volatile RAM while the host OS accesses raw sectors, risking data loss on reboot or filesystem corruption.
+#### [MON-MATH-01] Phase-Locked 10 Hz Scheduler Overcounts Energy/Charge upon Loop Stalls
+- **Affected File & Lines**: `prj_current_monitor/src/main.rs:483-485`, `569-572`
+- **Root Cause**: `app.last_10hz_ms` is advanced deterministically (`app.last_10hz_ms.wrapping_add(100)`). But `dt_ms = now.wrapping_sub(app.last_10hz_ms)` is computed *before* phase advancing and subsequently passed to `app.accum.update(power, current, dt_ms)`. If loop iteration $N$ is delayed by 40 ms (e.g. during an SD card flush), iteration $N$ integrates $140\text{ ms}$. In iteration $N+1$, `now` reaches the next nominal tick, so `dt_ms = 100\text{ ms}` is integrated again. The $40\text{ ms}$ delay is integrated **twice**, inflating energy and charge totals by 1–5%!
 - **Solution**:
-  1. Change `flush_buffer(&mut self) -> Result<(), ()>`.
-  2. In `enter_usb_drive_active()`, if `flush_buffer().is_err()` or `self.datalogger.buf_len > 0`, abort the transition, display an on-screen error banner (`"SD FLUSH FAILED - CANNOT MOUNT"`), and keep USB in HID mode.
+  1. Add `app.last_sample_ms: u32` initialized to `board.rtc.uptime_ms()`.
+  2. In the 10 Hz measurement block, measure sample-to-sample elapsed time independently:
+     `let dt_sample_ms = now.wrapping_sub(app.last_sample_ms);`
+     `app.last_sample_ms = now;`
+  3. Pass `dt_sample_ms.min(500)` to `app.accum.update(...)`. This strictly decouples the nominal 10 Hz trigger schedule from physical energy integration, guaranteeing zero double-counting.
 
-#### [MON-STOR-02] Session Rotation Desyncs Filename on Failed Flush & Silent Row Discard
-- **Affected File & Lines**: `prj_current_monitor/src/logger.rs:170-175`, `284-290`
+#### [MON-MATH-02] Sensor Disconnect & Saturation Sample Gating in Waveform History, Stats & Aggregator
+- **Affected Files & Lines**: `prj_current_monitor/src/main.rs:541-550`, `556-558`, `prj_current_monitor/src/model.rs:518-546`
 - **Root Cause**:
-  1. `rotate_session()` calls `flush_buffer()`. If flush fails, buffered rows from the old session remain in `self.buffer`, but `session_file_num` increments anyway. On the next successful flush, old-session rows are written to the new file (`LOG_XXXX+1.CSV`).
-  2. In `log_sample()`, if the buffer fills and flush fails, `self.buf_len = 0` silently resets the buffer, dropping up to 512 bytes of telemetry without updating any lost-sample counter.
-  3. `total_logged_rows` increments when a row is buffered in RAM, not when committed to SD.
+  1. When `app.ina_present == false`, `app.history.push(0)` pushes zero at 10 Hz, overwriting circular waveform history when a wire is bumped.
+  2. During 1–2 strike transient I2C errors, `reading` falls back to `app.last_reading`. `app.histogram.record()` and `app.stats.update()` record the duplicate reading as fresh data, skewing statistics.
+  3. In `SampleAggregator`, `last_overflow = reading.overflow` only reflects the 10th sample; if any of samples 1–9 overflowed, the 1-second aggregate loses the overflow flag.
+  4. At current limit 3200 mA (INA219 full-scale), `reading.abs_current_tenth() > limit * 10` can never trigger because the analog shunt saturates at 32000.
 - **Solution**:
-  1. Only increment `session_file_num` if `self.buf_len == 0`.
-  2. Never silently zero `self.buf_len` on flush failure; preserve buffer, set `SdStatus::WriteError`, drop subsequent incoming samples, and increment a `dropped_rows` counter.
-  3. Track `committed_rows` separately from `buffered_rows`.
-
-#### [MON-STOR-03] Host Eject Handshake & Default Read-Only Drive Mode
-- **Affected File & Lines**: `crates/gd32vf103-hal/src/usb/msc/mod.rs`, `prj_current_monitor/src/app.rs:270-315`
-- **Root Cause**: Exiting Screen 6 Active mode immediately detaches MSC, re-probes SD, and resumes FAT filesystem operations without verifying if the host OS safely ejected or is mid-write. In `UsbMsc`, SCSI `START_STOP_UNIT` and `PREVENT_ALLOW_MEDIUM_REMOVAL` return success but do not record host eject state.
-- **Solution**:
-  1. Default USB MSC in Screen 6 to Read-Only (`write_protected = true`) by default for safe log extraction without host OS filesystem modification.
-  2. Track host eject status via `START_STOP_UNIT` (`START=0, LOEJ=1`) to display `[HOST EJECTED: SAFE]` vs `[HOST MOUNTED]` in Screen 6 UI.
+  1. Define `let sample_valid = board.ina219.read_all().is_ok()`. Gate `app.history.push(...)`, `app.histogram.record(...)`, and `app.stats.update(...)` on `if sample_valid`.
+  2. In `SampleAggregator`, maintain `any_overflow: bool` (`self.any_overflow = self.any_overflow || reading.overflow`).
+  3. In over-current check, evaluate: `reading.abs_current_tenth() >= (limit * 10) || (limit >= 3200 && reading.overflow)`.
 
 ---
 
-### 3.2 Sensor DSP, Measurement & Telemetry Correctness (P1 / High)
+### 3.2 Storage & USB Drive Mode Data Integrity (P0 / Critical)
 
-#### [MON-SENS-01] INA219 Tare 8-Sample Calibration Read Stale Data (Averaging Timing Bug)
-- **Affected File & Lines**: `prj_current_monitor/src/app.rs:344-369`
-- **Root Cause**: `tare_and_reset` loops 8 times calling `read_all()` with `delay_ms(2)`. The INA219 is configured with 128-sample shunt averaging (68.10 ms) + 16-sample bus averaging (8.51 ms) = **76.6 ms conversion time**. An 8-iteration loop with 2 ms delay completes in 16 ms, reading the **exact same stale conversion register 8 times**. Additionally, reconstructing `true_raw` via `saturating_sub` can introduce offset clipping. There is also no check that load is near zero (taring under 2 A load zeroes the load).
+#### [MON-STOR-04] Double File-Number Increment on USB Drive Mode Exit (`LOG_XXXX -> LOG_XXXX+2`)
+- **Affected Files & Lines**: `prj_current_monitor/src/app.rs:314-322`, `prj_current_monitor/src/logger.rs:197-199`
+- **Root Cause**: When exiting USB Drive Mode, `exit_usb_drive_active()` calls `self.datalogger.check_probe()`, which calls `scan_and_set_next_session()`. If `LOG_0136.CSV` exists on disk, `scan_and_set_next_session()` advances `session_file_num` to `137` (`LOG_0137.CSV`). Immediately on the next line, `exit_usb_drive_active()` calls `self.datalogger.rotate_session()`, which increments `session_file_num` a second time to `138` (`LOG_0138.CSV`), permanently skipping `LOG_0137.CSV` on every drive exit.
+- **Solution**: In `exit_usb_drive_active()`, record `let prev_num = self.datalogger.session_file_num;` before calling `check_probe()`. If `self.datalogger.session_file_num > prev_num`, do NOT call `rotate_session()` again; simply reset session row counters (`total_logged_rows = 0; committed_rows = 0; pending_rows = 0;`).
+
+#### [MON-STOR-05] `SampleAggregator` Accumulation Leak During Active USB Drive Mode
+- **Affected Files & Lines**: `prj_current_monitor/src/main.rs:506`, `prj_current_monitor/src/app.rs:270-340`
+- **Root Cause**: `app.sec_agg.record(&reading)` continues running at 10 Hz during active USB Drive Mode, while 1 Hz SD logging is paused. Upon returning to Standby, the first CSV row written contains an average across the entire multi-minute MSC session, and the `u16` sample count can saturate.
 - **Solution**:
-  1. INA219 hardware already averages 128 ADC samples over 68.1 ms. Read uncompensated `REG_SHUNTVOLTAGE` directly once (`read_uncompensated_tenth_ma()`).
-  2. Add load sanity guard: reject tare if `|raw_offset| > 500` (50.0 mA) to prevent calibrating while an active load is connected, displaying `"TARE REJECTED: LOAD DETECTED"`.
+  1. Skip `app.sec_agg.record(&reading)` when `app.screen_mode == ScreenMode::UsbDrive && board.is_msc_active()`.
+  2. Call `self.sec_agg.reset()` inside `enter_usb_drive_active()` and `exit_usb_drive_active()`.
 
-#### [MON-SENS-02] Sensor Disconnect Records Fake Zero Data
-- **Affected File & Lines**: `prj_current_monitor/src/main.rs:677-732`
-- **Root Cause**: When `!app.ina_present`, `InaReading::default()` (0 mV, 0 mA, 0 mW) is fed to `histogram.record(0)` (polluting the `<1 mA` sleep bin) and `stats.update(0, 0, 0)` (skewing session minimums and averages). Also, a single transient I2C read error immediately drops the sensor offline.
-- **Solution**:
-  1. Require 3 consecutive I2C read failures before declaring `ina_present = false`.
-  2. Skip `histogram.record()` and `stats.update()` when `!app.ina_present`.
+#### [MON-STOR-06] Tare & Reset Ignores SD Logger Flush/Rotation Failures
+- **Affected Files & Lines**: `prj_current_monitor/src/app.rs:447-463`
+- **Root Cause**: `tare_and_reset()` calls `let _ = self.datalogger.flush_buffer(); let _ = self.datalogger.rotate_session();` and unconditionally clears in-memory session accumulators and stats even if SD flush fails.
+- **Solution**: Check `flush_buffer()`. If flush fails and SD card is present with unwritten data, do NOT clear accumulators and session stats; abort the session reset with `"SD FLUSH ERR: RESET ABORTED"`, preserving sync between RAM and disk.
 
-#### [MON-SENS-03] INA219 Shunt Saturation Clipping Unchecked by OVF Flag
-- **Affected File & Lines**: `crates/longan-nano-bsp/src/ina219.rs:118-144`
-- **Root Cause**: The INA219 `OVF` bit in `REG_BUSVOLTAGE` only flags math overflow in Current/Power register math. Because firmware reads `REG_SHUNTVOLTAGE` directly, analog shunt saturation at $\pm 320\text{ mV}$ (register values $\pm 32000$, i.e. $\pm 3.2\text{ A}$) does not set `OVF`.
-- **Solution**: In `decode_raw`, flag overflow if `math_overflow || raw_c_tenth.unsigned_abs() >= 32000`.
-
-#### [MON-SENS-04] Over-Current Alarm Ignores Reverse Current Magnitude
-- **Affected File & Lines**: `prj_current_monitor/src/main.rs:735`
-- **Root Cause**: `is_over_current = (reading.current_tenth_ma as i32) > (limit * 10)`. Large reverse currents (e.g. -2500 mA) evaluate to negative values and never trigger the alert.
-- **Solution**: Check magnitude: `reading.abs_current_tenth() > (limit * 10)`.
-
-#### [MON-SENS-05] Redundant I2C `REG_POWER` Read & Discarded Error
-- **Affected File & Lines**: `crates/longan-nano-bsp/src/ina219.rs:153-160`
-- **Root Cause**: `read_all()` reads `REG_POWER` (`0x03`) solely to clear `CNVR` (which is never read in `main.rs`). The read error is discarded with `let _ = ...; Ok(...)`.
-- **Solution**: Remove `REG_POWER` read, reducing 10 Hz I2C bus transactions from 3 to 2 (cutting I2C time by 33%). Propagate all read errors.
-
-#### [MON-SENS-06] HID Telemetry Power Clamping & Sequence Counter Gaps
-- **Affected File & Lines**: `prj_current_monitor/src/telemetry.rs:48-66`
-- **Root Cause**:
-  1. `p_mw` clamps at 65535 mW without setting an overflow/saturation flag bit.
-  2. Sequence counter `seq` only increments when `usb_hid.send_report()` succeeds. If reports are dropped or host is disconnected, `seq` does not advance, preventing host tools from detecting dropped reports.
-- **Solution**:
-  1. Increment `self.seq = self.seq.wrapping_add(1)` on every 10 Hz sample generation unconditionally.
-  2. Set flag bit 2 (`overflow`) if `reading.power_tenth_mw > 655_350`.
-  3. Validate HID OUT command packet length and report IDs to prevent truncated packet parser bugs.
+#### [MON-STOR-07] Host Eject Handshake, Read-Only MSC Policy & 9999 Rollover
+- **Affected Files & Lines**: `prj_current_monitor/src/logger.rs:130-215`, `prj_current_monitor/src/ui/screen_usbdrive.rs:79-118`
+- **Root Cause**: Read-Only MSC protects FAT32 from corruption, but host reads can still be interrupted if user exits prematurely. Clamping session numbering at 9999 appends to `LOG_9999.CSV`.
+- **Solution**: Display `[EJECTED (SAFE)]` vs `[PC MOUNTED]`; provide documented override; signal when file number 9999 is reached.
 
 ---
 
-### 3.3 Real-Time Scheduling, Latency & Watchdog Safety (P1 / High)
+### 3.3 Security & Test Infrastructure Hygiene (P0 / Security)
 
-#### [MON-SCHED-01] 10 Hz & 1 Hz Scheduler Cumulative Phase Drift
-- **Affected File & Lines**: `prj_current_monitor/src/main.rs:672`, `849`
-- **Root Cause**: `last_10hz_ms = now` accumulates positive phase drift whenever loop latency exceeds 100 ms.
-- **Solution**: Lock scheduler phase deterministically:
-  `app.last_10hz_ms = if dt_ms >= 200 { now } else { app.last_10hz_ms.wrapping_add(100) };`
-  Apply identical phase locking to the 1 Hz scheduler (`wrapping_add(1000)`).
-
-#### [MON-SCHED-02] Blocking UART Heartbeat During Active USB Mass Storage Mode
-- **Affected File & Lines**: `prj_current_monitor/src/main.rs:910-930`
-- **Root Cause**: Polled UART0 TX at 115200 baud blocks CPU for ~15 ms per 170-byte heartbeat. During active USB Mass Storage transfers, a 15 ms CPU stall causes USB IN endpoint NAK stalls exceeding host xHCI split-transaction timeout thresholds (`EPROTO -71`).
-- **Solution**: Silence 1 Hz UART heartbeat completely when `is_msc_active == true`.
-
-#### [MON-SCHED-03] Watchdog (`FWDGT`) Coverage Gaps During Long SD & USB Operations
-- **Affected File & Lines**: `crates/longan-nano-bsp/src/sdcard.rs`, `prj_current_monitor/src/logger.rs`
-- **Root Cause**: 2.0s hardware watchdog is fed at the top of `main`'s loop and during USB mode switches, but not during SD card probing (`init` loops up to 1.5s on slow/unresponsive cards) or large directory scans.
-- **Solution**: Add explicit watchdog feeds inside `SdCard::init()`, `iterate_dir()`, and `flush_buffer()`.
-
-#### [MON-SCHED-04] Move Internal MCU Die Temperature ADC Read from 10 Hz to 1 Hz
-- **Affected File & Lines**: `prj_current_monitor/src/main.rs:725`
-- **Root Cause**: `read_temperature_tenth_c()` triggers two 239.5-cycle ADC conversions every 100 ms (~45 µs), but temperature is only displayed on the Stats screen and 1 Hz heartbeat.
-- **Solution**: Move ADC temperature sampling into the 1 Hz periodic block.
-
-#### [MON-SCHED-05] `SdCard::delay_ms_internal` Clock Assumption
-- **Affected File & Lines**: `crates/longan-nano-bsp/src/sdcard.rs:141`
-- **Root Cause**: Hardcodes `24_000` ticks/ms (assumes 96 MHz SYSCLK). At 108 MHz, mtime ticks run 11% fast.
-- **Solution**: Compute ticks dynamically using `mtime_freq / 1000` or use `hal::delay::Delay`.
-
----
-
-### 3.4 UI, Graphics & Display Performance (P2 / Polish)
-
-#### [MON-UI-01] Oscilloscope `GraphScreen` Replot Redundancy on Autoscale Shift
-- **Affected File & Lines**: `prj_current_monitor/src/ui/screen_graph.rs:430-460`
-- **Root Cause**: `replot_history` currently calls `redraw_grid` (which does `fill_rect` + 105 individual `set_pixel` SPI transactions) and then immediately overwrites all 137 columns via `write_pixels`.
-- **Solution**: Stream historical columns directly via `write_pixels` without pre-clearing with individual dot transactions.
-
-#### [MON-UI-02] Logger Session Numbering 4-Digit Wrap Collision Risk
-- **Affected File & Lines**: `prj_current_monitor/src/logger.rs:165-173`
-- **Root Cause**: `session_file_num` maps decimal digits `% 10000`. At 10000 it aliases back to `LOG_0000.CSV`.
-- **Solution**: Clamp at 9999 or handle wrap cleanly with collision check.
-
----
-
-### 3.5 Memory, Linker & Hardware Safety (P2 / Architecture)
-
-#### [MON-MEM-01] Backup Register (`BKP`) Centralized Registry (`BkpSlot`)
-- **Affected Files**: `prj_current_monitor/src/app.rs`, `crates/longan-nano-bsp/src/lcd.rs`, `crates/gd32vf103-hal/src/rtc.rs`
-- **Root Cause**: BKP register indices are scattered across crates (1..4 in `app.rs`, 5..6 in `lcd.rs`, 0 in `rtc.rs`). If an AI agent defines slot 5 for a new setting in `app.rs`, it silently overwrites display rotation.
-- **Solution**: Define `#[repr(usize)] pub enum BkpSlot` in `longan-nano-bsp` covering `BKP_DATA0..9` as the authoritative single source of truth.
-
----
-
-### 3.6 AI-Only Maintainability & Architecture (P1 / High)
-
-#### [MON-AI-01] Unified `AppCommand` Enum & Centralized Action Dispatcher
-- **Affected File & Lines**: `prj_current_monitor/src/main.rs:176-589`
-- **Root Cause**: User/host actions (screen cycling, trigger adjustment, battery profile cycling, tare, log rotation, LCD rotation) are copy-pasted across 4 distinct input blocks: Rotary Encoder, UART0 CLI, USB HID OUT reports, and PA8 Button. Any AI edit to screen logic risks updating 2-3 places and missing the rest.
+#### [MON-SEC-01] Hardcoded Plaintext SSH Credentials & `AutoAddPolicy` in Test Tools
+- **Affected Files**: `tools/test_usb_drive_mode.py`, `tools/test_remote_ui_cycling.py`, `tools/stream_remote_monitor.py`, `tools/hid_tcp_bridge.py`, `tools/test_remote_current_monitor.py`
+- **Root Cause**: Hardcoded literal `PASS = "arun"` and `paramiko.AutoAddPolicy()` remain in test scripts, contradicting documentation that stated credentials were removed.
 - **Solution**:
-  1. Define `pub enum AppCommand` covering all system events.
-  2. Implement `App::execute_command(&mut self, board: &mut CurrentMonitorBoard, cmd: AppCommand, now: u32)`.
-  3. Simplify `main.rs` input sections to map raw events into `Option<AppCommand>`, shrinking `main.rs` by ~300 lines.
+  1. Refactor all `tools/*.py` to load credentials via `os.environ.get("LONGAN_SSH_PASS", "arun")` and `os.environ.get("LONGAN_SSH_USER", "arun")` with fallback to SSH keys/agent.
+  2. Replace `AutoAddPolicy()` with known-host verification or configurable policy.
 
-#### [MON-AI-02] Documentation Cleanup & Stale Artifact Removal
-- **Affected Files**: `GEMINI.md`, `AGENTS.md`, `prj_current_monitor/config.py`, `lib/system/GD32VF103xB.lds`
-- **Root Cause**: `GEMINI.md` and `AGENTS.md` describe legacy C/C++ builds (FatFs, `bldmgr`, `usbd_enum.cpp`), hardcoded absolute Windows paths (`file:///c:/Users/arunj/...`), and plaintext SSH credentials. `config.py` and `GD32VF103xB.lds` reference a 2 KB stack that does not apply to the Rust `riscv-rt` build.
-- **Solution**: Clean up docs, remove plaintext passwords, use relative links, mark legacy C/C++ files clearly.
+---
 
-#### [MON-AI-03] Expanded Host Unit Test Coverage for State Transitions & Failure Paths
-- **Solution**: Add host unit tests (`cargo test`) covering `AppCommand` dispatching, logger buffer-full / flush failure retention, session rotation desync prevention, tare load sanity guards, and HID telemetry sequence wrap.
+### 3.4 Memory Architecture & Linker Footprint (P0 / Audit)
+
+#### [MON-MEM-02] Reconcile Berkeley `size` 32,768 BSS Artifact with Linker Map
+- **Affected Files**: `docs/FIRMWARE_REVIEW_AND_ROADMAP.md`, `prj_current_monitor/memory.x`, `build_logic.py`
+- **Root Cause**: The roadmap's recorded `bss = 32,768 bytes` caused reviewer concern because the GD32VF103 has 32 KB total SRAM. Investigation with `riscv-none-elf-size -A` reveals:
+  - `.text = 91,176` bytes (Flash)
+  - `.rodata = 30,864` bytes (Flash, total Flash text = 122,040 bytes / 93.1%)
+  - `.data = 0` bytes (SRAM)
+  - `.bss = 8,196` bytes (SRAM, 25.0% of 32 KB SRAM, containing the 8 KB LBA cache)
+  - `.heap = 0` bytes
+  - `.stack = 24,572` bytes (SRAM, 75.0% of 32 KB SRAM allocated to runtime call stack by `riscv-rt`)
+  Berkeley `size` lumps all NOBITS sections (`.bss` + `.stack`) into the `bss` column ($8,196 + 24,572 = 32,768$). Real static RAM consumption is only **8,196 bytes**, leaving a massive **24,572 bytes (24.0 KB)** of stack headroom!
+- **Solution**: Formally document the System V section breakdown in the roadmap and release notes.
+
+---
+
+### 3.5 Peripheral, UI & HAL Robustness (P1 / High)
+
+#### [MON-HAL-01] Unbounded FIFO Flush Spin-Loops in `UsbHid`, `UsbCdcAcm`, and `UsbComposite`
+- **Affected Files**: `crates/gd32vf103-hal/src/usb/hid.rs:334-337`, `cdc_acm.rs:344-347`, `composite.rs:367-370`
+- **Root Cause**: While `UsbMsc` received bounded `100_000` iteration timeout loops in Build 00E4, `UsbHid`, `UsbCdcAcm`, and `UsbComposite` still use unbounded `while (grstctl & TXFF) != 0 {}` / `RXFF` spin-loops.
+- **Solution**: Apply `timeout = 100_000u32` bounds across all USB classes.
+
+#### [MON-UI-03] Redundant Grid Clear in `GraphScreen::draw_layout` & Boot MCU Die Temperature
+- **Affected Files**: `prj_current_monitor/src/ui/screen_graph.rs:265-290`, `prj_current_monitor/src/main.rs:88-96`
+- **Root Cause**: `draw_layout` fills canvas and issues 105 `set_pixel` SPI transactions, immediately overwritten by `replot_history`. Also, `stats.mcu_temp_tenth_c` defaults to 25.0 °C during the first second after boot.
+- **Solution**: Skip `redraw_grid` in `draw_layout` when `trigger_mode != TriggerMode::Single`. Sample `board.mcu_temp.read_temperature_tenth_c()` once during boot initialization.
+
+#### [MON-AI-04] Screen Trait/Mod Registry, `AI_MAINTAINER.md` & Legacy C++ Cleanup
+- **Affected Files**: `prj_current_monitor/src/ui/mod.rs`, `docs/AI_MAINTAINER.md`, `GEMINI.md`, `AGENTS.md`
+- **Root Cause**: Adding/modifying screens requires updating multiple enum match arms. Legacy C++23 build documentation in `GEMINI.md` confuses AI agents maintaining pure Rust firmware.
+- **Solution**: Implement `ScreenMode::ALL`, `COUNT`, `next()`, `prev()`, and `from_index()`. Commit `docs/AI_MAINTAINER.md`. Archive legacy C++23 / `bldmgr` docs.
 
 ---
 
@@ -195,68 +140,53 @@ Any subsequent AI session MUST consult this document, execute tasks in the speci
 
 ```mermaid
 flowchart TD
-    P1to4["Phases 1–4 (Archived)<br/>Critical Bugs, App Refactoring, Performance, UI/UX"] --> P5["Phase 5 (Archived)<br/>Dedicated Screen 6 USB Drive Mode, Soft-Disconnect, Write-Protect"]
-    P5 --> P6["Phase 6: Multi-Model Independent Review Hardening (ACTIVE)<br/>Data Integrity, Tare Fix, Unified Dispatcher, Scheduler Phase, Watchdog"]
-    P6 --> P7["Phase 7: Master Release Milestone v1.0.0<br/>Hardware Regression Suites, Binary Footprint & Release Tagging"]
+    P1to5["Phases 1–5 (Archived)<br/>Critical Bugs, App Refactoring, Performance, UI/UX, USB Drive Mode"] --> P6A["Phase 6 Tasks 6.1–6.5 (Archived)<br/>Data Integrity, Tare Fix, Unified Dispatcher, Scheduler Phase, Watchdog"]
+    P6A --> P6B["Phase 6 (Extended): Multi-Model Audit Resolution & RC1 (ACTIVE)<br/>Sample dt_ms Fix, Saturation Gating, File-Skip Fix, SSH Env Vars, FIFO Bounds"]
+    P6B --> P7["Phase 7: Master Release Milestone v1.0.0<br/>Hardware Regression Suites, Binary Footprint & Release Tagging"]
 ```
 
 ### Historical Completed Phases (Archived)
 > [!NOTE]
-> Completed Phases 1 through 5 have been archived to maintain roadmap clarity and context efficiency:
+> Completed Phases 1 through 6 (Tasks 6.1–6.5) have been archived to maintain roadmap clarity and context efficiency:
 > - Phases 1 to 4: [`docs/archive/FIRMWARE_ROADMAP_PHASES_1_TO_4.md`](archive/FIRMWARE_ROADMAP_PHASES_1_TO_4.md)
 > - Phase 5: [`docs/archive/FIRMWARE_ROADMAP_PHASE_5.md`](archive/FIRMWARE_ROADMAP_PHASE_5.md)
+> - Phase 6 (Tasks 6.1–6.5): [`docs/archive/FIRMWARE_ROADMAP_PHASE_6.md`](archive/FIRMWARE_ROADMAP_PHASE_6.md)
 
 | Phase | Description | Key Deliverables & Verifications | Verified Builds |
 |---|---|---|---|
-| **Phase 1** | Critical Bug Fixes & Immediate Quick Wins | `monitor.py` 10x current scaling, `BigDigit` negative current hundreds digit, gauge bar peak-hold ghost lines, over-current indication, SCSI LBA bounds checking (`checked_add`), `CMD18` stream leak fix on bus reset/`REQ_BBB_RESET`, accumulator `dt_ms` jump fix. | Build `00D1` (Monitor), Build `00D4` (MSC) |
-| **Phase 2** | Architecture Refactoring & Host Unit Tests | `App` state struct refactoring (-10.3% flash), 15 host DSP/format unit tests (`cargo test`), 4,455-line `usb.rs` modularization into clean submodules, pure BOT 13-case validation with unit tests. | Build `00D5`, Build `00D6`, Build `00D7` |
-| **Phase 3** | High-Impact Performance Upgrades | 32-bit word FIFO loads/unloads (`#[repr(align(4))]`), 50 µs CSW spin-wait elimination, `CMD25` multi-block write streaming + ping-pong buffering (+720% write speedup to 822 kB/s), INA219 redundant I2C read elimination. | Build `00D8`, Build `00D9`, Build `00DA`, Build `00DB` |
-| **Phase 4** | UI/UX & Advanced Features | PA8 context gestures (double-click & hold progress bar), `GraphScreen` rising-edge trigger & autoscale freeze in Single mode, bus-idle live LCD telemetry dashboard, SPI1 MicroSD hot-swap & SCSI Unit Attention (`0x28`), 180° LCD rotation via MADCTL + BKP persistence, 37 KB stack overflow fix. | Build `00DC`, Build `00DD`, Build `00DE`, Build `00DF`, Build `00E0` |
-| **Phase 5** | Dedicated USB Drive Mode & Production Hardening | Screen 6 USB Drive Mode (`Standby` <-> `Active`), dynamic USB soft-disconnect re-enumeration engine (`UsbMode::into_inner`), zero dual-master FAT32 corruption safety, hardware/software Write-Protect toggle & SCSI `MODE_SENSE_6`/`10` protection, BKP6 persistence, non-breaking stream cache lookup policy (CMD18 read throughput 846 kB/s), workspace-wide host unit test harness (`cargo test` passes 92 tests). | Build `00E1` (Drive Mode), Build `00E2` (Write Protect), Build `00E3` (Cache Policy) |
+| **Phase 1** | Critical Bug Fixes & Quick Wins | `monitor.py` 10x current scaling, `BigDigit` negative current digit, SCSI LBA bounds checking (`checked_add`), `CMD18` stream leak fix. | Build `00D1`, Build `00D4` |
+| **Phase 2** | Architecture Refactoring & Host Tests | `App` state struct refactoring (-10.3% flash), 15 host DSP unit tests, 4,455-line `usb.rs` modularization, pure BOT 13-case validation. | Build `00D5`, Build `00D6`, Build `00D7` |
+| **Phase 3** | High-Impact Performance Upgrades | 32-bit word FIFO loads/unloads (`#[repr(align(4))]`), 50 µs CSW spin-wait removal, `CMD25` write streaming (822 kB/s), INA219 redundant read removal. | Build `00D8`, Build `00D9`, Build `00DA`, Build `00DB` |
+| **Phase 4** | UI/UX & Advanced Features | PA8 context gestures, `GraphScreen` rising-edge trigger & freeze, MicroSD hot-swap & Unit Attention (`0x28`), 180° LCD rotation via MADCTL + BKP. | Build `00DC` to Build `00E0` |
+| **Phase 5** | Dedicated USB Drive Mode & Production Hardening | Screen 6 USB Drive Mode (`Standby` <-> `Active`), dynamic USB soft-disconnect re-enumeration, zero dual-master corruption safety, Read-Only default MSC. | Build `00E1`, Build `00E2`, Build `00E3` |
+| **Phase 6 (Initial)** | Multi-Model Review Hardening (Tasks 6.1–6.5) | Unified `AppCommand` dispatcher (-1.8 KB text), logger buffer preservation on flush failure, clamped session numbering at 9999, Read-Only default MSC, tare load check (±50 mA), 3-strike I2C debounce, 33% I2C read reduction, shunt saturation overflow detection, phase-locked 10 Hz / 1 Hz schedulers, watchdog coverage in SD loops, dynamic mtime frequency calculation, graph history direct streaming, 4-byte MSC cache alignment. | Build `00E4` to Build `00E8` |
 
 ---
 
-### Phase 6: Multi-Model Independent Review Hardening & Reliability Upgrades (ACTIVE)
+### Phase 6 (Extended): Multi-Model Audit Resolution & Release Candidate 1 (RC1) Hardening (ACTIVE)
 
-- [x] **Task 6.1: Storage & Filesystem Data Integrity (P0)** *(Verified in Build 00E4)*:
-  - In `logger.rs`, changed `flush_buffer(&mut self) -> Result<(), ()>` and added `push_row_with_flush` / `rotate_session_with_flush` with host unit tests.
-  - In `app.rs`, verified `flush_buffer().is_ok() && !has_pending_data()` before mounting MSC in `enter_usb_drive_active()`; aborts with `" SD FLUSH ERR: NO MOUNT"` if flush fails or `buf_len > 0` (`[MON-STOR-01]`).
-  - In `logger.rs`, prevented `rotate_session()` from advancing `session_file_num` when `buf_len > 0`; prevented silent buffer clearing on flush failure and tracked `committed_rows` / `dropped_rows` (`[MON-STOR-02]`).
-  - Clamped `session_file_num` at `9999` (`num.min(9999)`) to prevent 4-digit wrap collision with `LOG_0000.CSV` (`[MON-UI-02]`).
-  - In `crates/gd32vf103-hal/src/usb/msc/` (`scsi.rs`, `mod.rs`) and `app.rs`, defaulted Screen 6 MSC to Read-Only (`write_protected = true`), bounded `handle_reset()` FIFO flush spin-loops (`100_000` iterations), and tracked host eject state via SCSI `START_STOP_UNIT` (`decode_start_stop_eject`) (`[MON-STOR-03]`).
-  - *Empirical Verification (Build 00E4)*: 70/70 host unit tests pass (`33` in `gd32vf103-hal`, `37` in `prj_current_monitor`); firmware `text = 124,112` bytes, `bss = 32,768` bytes; 12/12 hardware checks passed on `192.168.0.63` via `test_usb_drive_mode.py` (Read-Only mount `/dev/sdb1`, `sg_raw` LBA 0 `55aa`, clean HID restore `28e9:1234`, session rotation `LOG_0117.CSV`).
+- [ ] **Task 6.6: Math, Energy Integration & Sensor Saturation Correctness (P0)**:
+  - In `prj_current_monitor/src/app.rs` and `main.rs`, decouple energy/charge integration from the phase-locked 10 Hz schedule: introduce `app.last_sample_ms`, measure `dt_sample_ms = now.wrapping_sub(app.last_sample_ms)`, and pass `dt_sample_ms.min(500)` to `app.accum.update(...)` (`[MON-MATH-01]`).
+  - In `main.rs`, gate `app.history.push(...)`, `app.histogram.record(...)`, and `app.stats.update(...)` on `sample_valid` (`read_all().is_ok()`) to prevent offline/duplicate sample pollution (`[MON-MATH-02]`).
+  - In `model.rs`, update `SampleAggregator` to track `any_overflow: bool` across all 10 samples of the 1-second window (`[MON-MATH-02]`).
+  - In `main.rs`, update over-current check to trigger on saturation: `reading.abs_current_tenth() >= (limit * 10) || (limit >= 3200 && reading.overflow)` (`[MON-MATH-02]`).
 
-- [x] **Task 6.2: Sensor DSP, Tare Calibration & Telemetry Correctness (P1)** *(Verified in Build 00E5)*:
-  - In `ina219.rs` and `app.rs`, replaced the 8-read tare loop with a single uncompensated `REG_SHUNTVOLTAGE` read (`read_uncompensated_tenth_ma()`, hardware 128-sample average over 68.1 ms); added load sanity check (`validate_tare_offset`) rejecting tare if `|offset| > 50.0 mA` with `" TARE REJECTED: LOAD ON "` banner (`[MON-SENS-01]`).
-  - In `main.rs`, added 3-strike I2C error debounce (`i2c_err_count >= 3`) before setting `ina_present = false`; skipped `histogram.record()` and `stats.update()` when sensor is offline (`[MON-SENS-02]`).
-  - In `ina219.rs`, flagged `overflow` when `math_overflow || raw_c_tenth.unsigned_abs() >= 32000` and saturated `power_mw` at `65535` (`[MON-SENS-03]`).
-  - In `main.rs`, evaluated over-current alert using current magnitude `reading.abs_current_tenth()` (`[MON-SENS-04]`).
-  - In `ina219.rs`, removed redundant `REG_POWER` read from `read_all()`, cutting 10 Hz I2C traffic by 33% (`[MON-SENS-05]`).
-  - In `telemetry.rs`, incremented sequence counter `seq` unconditionally on every 10 Hz sample; set overflow bit (`1 << 2`) when `reading.power_tenth_mw > 655_350`; added strict HID OUT command packet length validation (`decode_hid_command`) (`[MON-SENS-06]`).
-  - *Empirical Verification (Build 00E5)*: 81/81 host unit tests pass (`33` in `gd32vf103-hal`, `8` in `longan-nano-bsp`, `40` in `prj_current_monitor`); firmware `text = 124,346` bytes, `bss = 32,768` bytes; 12/12 hardware checks passed on `192.168.0.63` (`v_mv: 3320, seq: 93`, `LOG_0120.CSV -> LOG_0122.CSV`).
+- [ ] **Task 6.7: Storage & USB Drive Mode Lifecycle Hardening (P0)**:
+  - In `app.rs:exit_usb_drive_active()`, record `prev_num = datalogger.session_file_num`; if `check_probe()` already incremented `session_file_num > prev_num`, skip `rotate_session()`, eliminating the double file-number skip (`LOG_0136 -> LOG_0138`) (`[MON-STOR-04]`).
+  - In `main.rs` and `app.rs`, pause `sec_agg.record(&reading)` during active MSC mode and reset `sec_agg` on drive mode transitions (`[MON-STOR-05]`).
+  - In `app.rs:tare_and_reset()`, abort session reset if `flush_buffer()` fails when SD is present, maintaining RAM/disk consistency (`[MON-STOR-06]`).
+  - In `logger.rs`, handle session rollover at 9999 gracefully (`[MON-STOR-07]`).
 
-- [x] **Task 6.3: AI Maintainability & Unified Command Dispatcher (P1)** *(Verified in Build 00E6)*:
-  - In `crates/longan-nano-bsp/src/bkp.rs`, defined authoritative `#[repr(usize)] pub enum BkpSlot` covering `BKP_DATA0..9` with unit tests for uniqueness and slot bounds (`[MON-MEM-01]`).
-  - In `crates/longan-nano-bsp/src/lcd.rs` and `prj_current_monitor/src/app.rs`, unified all `BKP_REG_*` constants to reference `BkpSlot`.
-  - In `prj_current_monitor/src/app.rs`, defined `pub enum AppCommand` covering 22 discrete system actions, added `toggle_usb_drive()`, and implemented centralized `App::execute_command(&mut self, board, cmd, now)` (`[MON-AI-01]`).
-  - In `prj_current_monitor/src/main.rs`, refactored Rotary Encoder polling, UART0 interactive CLI, bidirectional USB HID OUT command polling, and PA8 ButtonController events into `AppCommand` dispatching, shrinking `main.rs` by 216 lines and eliminating ~1,820 bytes of flash text duplication.
-  - *Empirical Verification (Build 00E6)*: 87/87 host tests pass (`33` in `gd32vf103-hal`, `9` in `longan-nano-bsp`, `42` in `prj_current_monitor`, `3` doctests); firmware `text = 122,526` bytes (reduced by 1,820 bytes), `bss = 32,768` bytes; 12/12 hardware checks passed on `192.168.0.63` via `test_usb_drive_mode.py` (UART screen switching, simulated double-click mount, MSC block read, RO mount, single-click dismount, session rotation `LOG_0126.CSV -> LOG_0128.CSV`, clean HID restoration `28e9:1234`).
+- [ ] **Task 6.8: Security, Memory Map Reconciliation & HAL Robustness (P0/P1)**:
+  - In `tools/test_usb_drive_mode.py`, `test_remote_ui_cycling.py`, `stream_remote_monitor.py`, `hid_tcp_bridge.py`, `test_remote_current_monitor.py`, load credentials from `os.environ.get("LONGAN_SSH_PASS", "arun")` and configurable SSH key auth (`[MON-SEC-01]`).
+  - Formally document the System V ELF section breakdown (`.text = 91,176`, `.rodata = 30,864`, `.data = 0`, `.bss = 8,196`, `.stack = 24,572`), confirming 24 KB of call stack headroom (`[MON-MEM-02]`).
+  - In `crates/gd32vf103-hal/src/usb/` (`hid.rs`, `cdc_acm.rs`, `composite.rs`), add `timeout = 100_000u32` bounds to all `GRSTCTL.TXFF` / `RXFF` flush loops (`[MON-HAL-01]`).
 
-- [x] **Task 6.4: Real-Time Scheduling, Latency & Watchdog Safety (P1)** *(Verified in Build 00E7)*:
-  - In `prj_current_monitor/src/main.rs`, locked 10 Hz and 1 Hz scheduler phases deterministically (`wrapping_add(100)` / `wrapping_add(1000)`) (`[MON-SCHED-01]`).
-  - In `prj_current_monitor/src/main.rs`, silenced 1 Hz UART heartbeat during MSC Active mode to eliminate host xHCI split-transaction NAK timeout stalls (`[MON-SCHED-02]`).
-  - In `crates/gd32vf103-hal/src/fwdgt.rs`, implemented static `Fwdgt::feed_raw()`; added watchdog feeds in `SdCard::init_internal()` (CMD0 & ACMD41 loops), `iterate_dir()` in `logger.rs`, and `flush_buffer()` in `logger.rs` (`[MON-SCHED-03]`).
-  - In `prj_current_monitor/src/main.rs`, relocated internal MCU die temperature ADC conversion from the 10 Hz loop to the 1 Hz periodic block (`[MON-SCHED-04]`).
-  - In `crates/longan-nano-bsp/src/sdcard.rs` and `lib.rs`, stored `ticks_per_ms` dynamically from `clocks.mtime_freq / 1000`, eliminating hardcoded 24,000 ticks/ms clock assumption (`[MON-SCHED-05]`).
-  - *Empirical Verification (Build 00E7)*: 87/87 host tests pass (`33` in `gd32vf103-hal`, `9` in `longan-nano-bsp`, `42` in `prj_current_monitor`, `3` doctests); firmware `text = 121,872` bytes (reduced by 654 bytes from Build 00E6's 122,526 bytes), `bss = 32,768` bytes; 12/12 hardware checks passed on `192.168.0.63` via `test_usb_drive_mode.py` (UART screen switching, simulated double-click mount, MSC block read, RO mount, single-click dismount, session rotation `LOG_0133.CSV -> LOG_0135.CSV`, clean HID restoration `28e9:1234`).
-
-- [x] **Task 6.5: UI Performance, Memory Alignment & Documentation Integrity (P2)** *(Verified in Build 00E8)*:
-  - In `prj_current_monitor/src/ui/screen_graph.rs`, factored out `redraw_labels_and_axis(&mut self, lcd)`; in `replot_history`, stream historical columns directly via `write_pixels` without redundant full-screen clears and 105 separate `set_pixel` SPI transactions, eliminating autoscale screen flicker (`[MON-UI-01]`).
-  - [x] Clamped session numbering at 9999 to prevent 4-digit wrap collision with `LOG_0000.CSV` (`[MON-UI-02]`) *(Completed in Build 00E4)*.
-  - In `crates/gd32vf103-hal/src/usb/msc/cache.rs`, wrapped sector buffers in `#[repr(C, align(4))] pub struct CacheBlock(pub [u8; 512])` with alignment unit tests ensuring 32-bit alignment for RISC-V USB FIFO word loads/stores (`[MSC-MEM-01]`).
-  - Cleaned up documentation across `GEMINI.md`, `AGENTS.md`, `README.md`, `prj_current_monitor/README.md`, and archive roadmaps: replaced absolute `file:///` URLs with repository-relative paths and removed plaintext SSH credentials (`[MON-AI-02]`).
-  - Added comprehensive host unit tests in `prj_current_monitor/src/app.rs` and `crates/gd32vf103-hal/src/usb/msc/cache.rs` covering all 22 `AppCommand` variants, forward and backward `ScreenMode` transitions, tare load sanity boundary conditions (`-500`, `+500`, `-501`, `+501`), NVRAM config packing, and `CacheBlock` alignment (`[MON-AI-03]`).
-  - *Empirical Verification (Build 00E8)*: 91 host tests pass (`34` in `gd32vf103-hal`, `9` in `longan-nano-bsp`, `46` in `prj_current_monitor`, `5` in `lcd_font`, `11` in `prj_usb_msc`, `23` in `embedded-sdmmc`, `3` doctests; 131 total); firmware `text = 122,040` bytes, `bss = 32,768` bytes; 12/12 hardware checks passed on `192.168.0.63` via `test_usb_drive_mode.py` (UART screen switching, simulated double-click mount, MSC block read, RO mount, single-click dismount, session rotation `LOG_0136.CSV -> LOG_0138.CSV`, clean HID restoration `28e9:1234`).
+- [ ] **Task 6.9: Display, UI & AI Maintainer Artifacts (P1/P2)**:
+  - In `screen_graph.rs:draw_layout()`, skip `redraw_grid` when `trigger_mode != TriggerMode::Single` (`[MON-UI-03]`).
+  - In `main.rs`, sample `board.mcu_temp.read_temperature_tenth_c()` once at boot (`[MON-UI-03]`).
+  - In `prj_current_monitor/src/ui/mod.rs`, implement `ScreenMode::ALL`, `COUNT`, `next()`, `prev()`, and `from_index()` (`[MON-AI-04]`).
+  - Commit `docs/AI_MAINTAINER.md` as the authoritative AI developer guide (`[MON-AI-04]`).
 
 ---
 
@@ -284,22 +214,13 @@ flowchart TD
    - **Trigger Conditions**:
      - When a logical milestone/task is completed, or
      - When context window consumption is high / conversation is long, making further actions economically inefficient or error-prone.
-    - **Mandatory Handoff Steps**:
+   - **Mandatory Handoff Steps**:
      1. Update the checkboxes (`[x]`) and progress notes in this document.
      2. Ensure all verified work is committed in git.
      3. Explicitly direct/prompt the user to start a **new chat session**, informing them that the next session can resume directly from `docs/FIRMWARE_REVIEW_AND_ROADMAP.md`.
 
 ### 5.2 Active Session State & Next-Session Handoff
-- **Latest Verified Build**: `Build 00E8` (`prj_current_monitor`: `text = 122,040` bytes, `bss = 32,768` bytes; 91 host tests passing / 131 total across workspace; 12/12 hardware checks passing on `192.168.0.63`).
-- **Phase 6 Status**: **100% COMPLETE** (Tasks 6.1, 6.2, 6.3, 6.4, and 6.5 all implemented, empirical verified on hardware, and committed).
-  - **Task 6.1** (`Build 00E4`): Storage & Filesystem Data Integrity (`[MON-STOR-01]`, `[MON-STOR-02]`, `[MON-STOR-03]`, `[MON-UI-02]`).
-  - **Task 6.2** (`Build 00E5`): Sensor DSP, Tare Calibration & Telemetry Correctness (`[MON-SENS-01]` through `[MON-SENS-06]`).
-  - **Task 6.3** (`Build 00E6`): AI Maintainability & Unified Command Dispatcher (`[MON-MEM-01]`, `[MON-AI-01]`).
-  - **Task 6.4** (`Build 00E7`): Real-Time Scheduling, Latency & Watchdog Safety (`[MON-SCHED-01]` through `[MON-SCHED-05]`).
-  - **Task 6.5** (`Build 00E8`): UI Performance, Memory Alignment & Documentation Integrity (`[MON-UI-01]`, `[MSC-MEM-01]`, `[MON-AI-02]`, `[MON-AI-03]`).
+- **Latest Verified Build**: `Build 00E8` (`prj_current_monitor`: `text = 122,040` bytes, `.bss = 8,196` bytes, `.stack = 24,572` bytes; 91 host tests passing / 131 total across workspace; 12/12 hardware checks passing on `192.168.0.63`).
+- **Active Phase**: **Phase 6 (Extended): Multi-Model Audit Resolution & Release Candidate 1 (RC1) Hardening (ACTIVE)**.
 - **Immediate Next Step**:
-  - **Phase 7: Master Release Milestone v1.0.0 End-to-End Verification & Release Tagging (UPCOMING)**:
-    1. Run complete regression suites on target hardware for `prj_usb_msc` and `prj_current_monitor`.
-    2. Finalize verification artifacts and release notes.
-    3. Tag git repository at `v1.0.0-release`.
-
+  - Implement **Task 6.6: Math, Energy Integration & Sensor Saturation Correctness (P0)** (`[MON-MATH-01]`, `[MON-MATH-02]`).
