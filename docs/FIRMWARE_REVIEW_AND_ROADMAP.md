@@ -255,5 +255,10 @@ flowchart TD
   - `prj_usb_msc`: Flash = 36,258 B (27.7%), RAM static = 8,196 B (25.0%), Stack headroom = 24,572 B; 100% PASS on SCSI direct reads (1.0 MB/s), LBA sweep (12/12), and 146 unit tests.
   - `prj_current_monitor`: Flash = 123,824 B (94.5%), RAM static = 8,196 B (25.0%), Stack headroom = 24,572 B; 100% PASS on 10 Hz HID telemetry (30/30), UI cycling (22/22 suites), and USB Drive Mode lifecycle (12/12 suites).
 - **Active Phase**: **Phase 7: Master Release Milestone v1.0.0 (COMPLETE)**.
+- **Documentation & Hardware Enclosure Assets**:
+  - Authored authoritative mechanical engineering reference: [`docs/HARDWARE_CASE_DESIGN_SPECS.md`](HARDWARE_CASE_DESIGN_SPECS.md) and [`docs/HARDWARE_CASE_DESIGN_SPECS.txt`](HARDWARE_CASE_DESIGN_SPECS.txt) for directing AI parametric CAD models (OpenSCAD, CadQuery, FreeCAD).
+  - Renamed datasheet to [`docs/sipeed_longan_nano_datasheet_102991302.pdf`](sipeed_longan_nano_datasheet_102991302.pdf) and organized visual assets ([`longan_nano_mechanical_drawing.jpg`](longan_nano_mechanical_drawing.jpg), [`longan_nano_ruler_scale.jpg`](longan_nano_ruler_scale.jpg), [`longan_nano_top_view.jpg`](longan_nano_top_view.jpg), [`longan_nano_bottom_view.jpg`](longan_nano_bottom_view.jpg), [`longan_nano_acrylic_case_side_view.jpg`](longan_nano_acrylic_case_side_view.jpg), [`ina219_blue_breakout_kit.jpg`](ina219_blue_breakout_kit.jpg), [`ina219_blue_top_view.jpg`](ina219_blue_top_view.jpg), [`ina219_blue_bottom_view.jpg`](ina219_blue_bottom_view.jpg)).
+  - Documented physical dimensions, vertical Z stackup, display window & flex cable relief pocket rules, button cutouts, terminal specs, pinouts, and AI prompt templates for both Blue (standard terminal) and Red (compact) INA219 modules.
 - **Immediate Next Step**:
-  - Production maintenance, user field testing, and downstream releases.
+  - Production maintenance, user field testing, downstream CAD case iterations, and releases.
+
