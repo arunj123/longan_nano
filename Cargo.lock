@@ -275,7 +275,7 @@ dependencies = [
 
 [[package]]
 name = "gd32vf103-hal"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "embedded-hal",
  "gd32vf103-pac",
@@ -283,7 +283,7 @@ dependencies = [
 
 [[package]]
 name = "gd32vf103-pac"
-version = "0.1.0"
+version = "1.0.0"
 
 [[package]]
 name = "generic-array"
@@ -380,7 +380,7 @@ dependencies = [
 
 [[package]]
 name = "lcd-font"
-version = "0.1.0"
+version = "1.0.0"
 
 [[package]]
 name = "libc"
@@ -396,7 +396,7 @@ checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
 
 [[package]]
 name = "longan-nano-bsp"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "embedded-hal",
  "gd32vf103-hal",
@@ -465,7 +465,7 @@ dependencies = [
 
 [[package]]
 name = "prj_current_monitor"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "embedded-hal",
  "embedded-sdmmc",
@@ -533,7 +533,7 @@ dependencies = [
 
 [[package]]
 name = "prj_usb_msc"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "embedded-hal",
  "gd32vf103-hal",

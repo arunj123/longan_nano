@@ -14,7 +14,7 @@ ssh = create_ssh_client(timeout=10)
 def test_sg(lba, blocks, expect_pass=True):
     cdb = f"28 00 {(lba>>24)&0xff:02x} {(lba>>16)&0xff:02x} {(lba>>8)&0xff:02x} {lba&0xff:02x} 00 {(blocks>>8)&0xff:02x} {blocks&0xff:02x} 00"
     nbytes = blocks * 512
-    cmd = f"echo {PASS} | sudo -S timeout 3 sg_raw -r {nbytes} {target_dev} {cdb}"
+    cmd = f"echo {PASS} | sudo -S timeout 3 sg_raw -b -r {nbytes} {target_dev} {cdb}"
     t0 = time.time()
     stdin, stdout, stderr = ssh.exec_command(cmd)
     out = stdout.read()
