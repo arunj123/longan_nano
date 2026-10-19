@@ -215,14 +215,15 @@ When prompting an AI to generate OpenSCAD, CadQuery, FreeCAD, or STL 3D models f
 
 ### 4.1 Enclosure Architectural Topologies
 
-#### Topology 1: Side-by-Side Dual-Board Snap-Fit Enclosure (Desktop Monitor, Rev 2)
+#### Topology 1: Side-by-Side Dual-Board Snap-Fit Enclosure (Desktop Monitor, Rev 4)
 - **Reference Model**: [`longan_nano_ina219_case.scad`](../prj_current_monitor/enclosure/longan_nano_ina219_case.scad)
-- **Layout**: Side-by-side non-overlapping bays — Sipeed Longan Nano in the front-right bay (USB-C flush with the `+X` right wall, FPC ribbon and 4-pin JTAG header on the `-X` left edge) and Blue INA219 breakout in the rear-left bay (`25.5 mm` X width × `22.3 mm` Y length, `VIN-/VIN+` flush with the `+Y` rear wall).
-- **Overall Case Dimensions**: `75.0 mm` (width) × `55.0 mm` (length/depth) × `17.5 mm` (low-profile assembled height), `2.0 mm` wall thickness, `0.8–1.2 mm` PCB pocket clearance, `2.0 mm` corner radius.
-- **Two-Part Snap-Fit Enclosure**:
-  - **Base (Lower Half, `14.2 mm` height)**: Houses the Longan Nano corner cradle (`47.2 × 21.0 mm` pocket at `Z = 9.5 mm`, omitting pinching notch pegs and leaving a `12.6 mm` left gap for the 4-pin JTAG header), 4× INA219 corner standoffs (`20.4 mm` X × `17.2 mm` Y spacing, `4.0 mm` height with tapered `Ø 1.9 -> 1.5 mm` poles and `26.7 × 23.5 mm` lateral guide pocket), `11.5 × 4.8 mm` right-wall USB-C cutout, `11.5 × 8.2 mm` rear-wall wire window, full 360° perimeter counterbore step, 4-wall snap-fit detent grooves (Front, Rear, Left, Right), and fingernail pry notches. (MicroSD slots omitted since USB MSC Drive Mode is built-in).
-  - **Lid (Ultra-Low-Profile Upper Half, `2.4 mm` plate + `2.0 mm` 360° interlocking skirt)**: Houses the `27.2 × 11.4 mm` inner (`28.0 × 12.6 mm` outer beveled) LCD viewing window centered at `X_pcb = 21.10 mm`, internal LCD pocket (`28.9 × 15.2 × 1.4 mm`, sized for the full `13.5 × 28.0 mm` LCD module) with mandatory `5.0 × 8.5 × 1.4 mm` FPC flex cable relief pocket on the left edge, dual `Ø 4.0 mm` chamfered BOOT0/RESET button access holes at `X_pcb = 37.50 mm`, `Y_pcb = 6.45 / 13.30 mm`, dual `Ø 4.0 mm` wire/terminal access holes, 4× thermal ventilation slots directly over the `R100` shunt resistor, and a full 360° interlocking perimeter skirt with 4-wall snap beads that prevent sliding in both X and Y directions.
-- **Inter-Board Wiring**: 4 internal jumper wires (3V3, GND, SCL, SDA) routed through the open central wiring courtyard between Longan Nano pins (Edge 1, Pins 5, 6, 16, 1) and the INA219 6-pin header.
+- **Layout**: Side-by-side non-overlapping bays — Sipeed Longan Nano in the front-right bay (USB-C flush with the `+X` right wall, FPC ribbon and 4-pin JTAG header on the `-X` left edge) and Dual Blue INA219 breakouts occupying the Rear-Left (`X = 4.5..30.0 mm`, I2C `0x40`) and Rear-Right (`X = 45.0..70.5 mm`, I2C `0x41`) bays (`VIN-/VIN+` flush with the `+Y` rear wall).
+- **Overall Case Dimensions**: `75.0 mm` (width) × `55.0 mm` (length/depth) × `16.6 mm` (low-profile assembled height: `14.2 mm` Base + `2.4 mm` flat Lid), `2.0 mm` wall thickness, `0.8–1.2 mm` PCB pocket clearance, `2.0 mm` corner radius.
+- **Two-Part Snap-Fit Enclosure + Captive Plunger Insert**:
+  - **Base (Lower Half, `14.2 mm` height)**: Houses the Longan Nano corner cradle (`47.2 × 21.0 mm` pocket at lowered `Z = 9.0 mm` / `longan_post_h = 7.0 mm`, omitting pinching notch pegs and leaving a `12.6 mm` left gap for the 4-pin JTAG header), dual INA219 corner standoffs (`20.4 mm` X × `17.2 mm` Y spacing, `4.0 mm` height with tapered `Ø 1.9 -> 1.5 mm` poles, `26.7 × 23.5 mm` lateral guide pocket, and internal zip-tie / wire strain-relief anchor arches under rear sense pads), `11.5 × 5.2 mm` right-wall USB-C cutout, dual `10.0 × 6.8 mm` rear wire windows (`Z = 7.4..14.2 mm`), full 360° perimeter counterbore step, 4-wall snap-fit detent grooves with rear snap tab centered at `X = 37.5 mm` between the two sensor cutouts, and fingernail pry notches.
+  - **Lid (Ultra-Low-Profile Upper Half, `2.4 mm` plate + `2.0 mm` 360° interlocking skirt)**: Houses the `27.2 × 11.4 mm` inner (`28.0 × 12.6 mm` outer beveled) LCD viewing window centered at `X_pcb = 21.10 mm`, internal LCD pocket (`28.9 × 15.2 × 1.4 mm`) with mandatory `5.0 × 8.5 × 1.4 mm` FPC flex cable relief pocket on the left edge, `0.8 mm` deep underside relief pocket over the USB-C shell and top pin header solder rows (eliminating lid lift), dual `Ø 4.0 mm` chamfered button holes with a stadium-shaped `1.4 mm` deep counterbore pocket on the underside ceiling for the captive button flange, dual groups of 4× thermal ventilation slots directly over the `R100` shunt resistors, and a full 360° interlocking perimeter skirt with 4-wall snap beads.
+  - **Captive Dual-Button Plunger Insert (`button_insert_print()`)**: Single-piece tethered dumbbell insert joining BOOT0 and RESET plungers via a thin `0.6 mm` flexible bridge. Each plunger has a `Ø 3.3 mm` cylindrical stem ($0.35\text{ mm}$ radial clearance in `Ø 4.0 mm` holes), `Ø 5.2 × 0.8 mm` retention flange trapped in the lid counterbore, and a chamfered dome protruding `0.9 mm` above the lid surface ($Z = 17.5\text{ mm}$) with `~0.3 mm` vertical pre-travel play.
+- **Inter-Board Wiring**: Daisy-chained 4-wire bus (`3V3`, `GND`, `SCL`, `SDA`) routed in parallel between Longan Nano pins and both INA219 modules across the central channel.
 
 #### Topology 2: Stacked "Sandwich" Compact Enclosure (Handheld Meter)
 - **Layout**: Longan Nano mounted directly above the INA219 module.
@@ -247,10 +248,14 @@ When prompting an AI to generate OpenSCAD, CadQuery, FreeCAD, or STL 3D models f
 | **LCD Viewport Window** | `27.20 mm × 11.40 mm` (`28.0 × 12.6 mm` bevel) | Centered at `X_pcb = 21.10 mm`; exposes full `28.0 mm` LCD length while hiding red PCB. |
 | **LCD Module Pocket** | `28.90 mm × 15.20 mm × 1.40 mm` | Underside recess spanning `X_pcb = 6.8..35.7 mm` to fit the `13.5 × 28.0 mm` LCD module. |
 | **FPC Flex Relief Notch** | `5.00 mm × 8.50 mm × 1.40 mm` | **MANDATORY**: Relief channel at `X_pcb = 3.0..8.0 mm` for folded display flex ribbon. |
-| **USB Type-C Cutout** | `11.50 mm × 4.80 mm` | Allows clearance for USB-C connector shell and cable housing overmold. |
-| **Button Access Holes** | `2 × Ø 4.00 mm` holes | Located at `X_pcb = 37.50 mm`, `Y_pcb = 6.45 & 13.30 mm` (calibrated to physical Rev 3 print [case_rev3_assembled_top.jpg](../prj_current_monitor/enclosure/case_rev3_assembled_top.jpg)). |
-| **INA219 Standoff Grid** | `20.40 mm (X) × 17.20 mm (Y)` | Matches `25.5 mm (X) × 22.3 mm (Y)` PCB corner holes with `Ø 1.9 -> 1.5 mm` tapered pins. |
-| **Thermal Dissipation** | 4× slots (`1.6 × 8.0 mm`) | Located over the R100 shunt resistor. At 3.2A, the shunt dissipates $P = I^2 R \approx 1.02\text{ W}$. |
+| **USB Type-C Underside Relief** | `6.5 mm (X) × 10.4 mm (Y) × 0.8 mm (Z)` | Prevents USB-C receptacle shell from pushing lid upward; eliminates 0.6 mm seam gap. |
+| **Pin Solder Relief Rails** | `44.2 mm (X) × 2.6 mm (Y) × 0.8 mm (Z)` | Underside relief above top-side header solder pads along front and rear PCB edges. |
+| **Captive Button Plunger** | `Ø 3.3 mm` stem, `Ø 5.2 × 0.8 mm` flange | Fits `Ø 4.0 mm` lid hole ($0.35\text{ mm}$ radial play); flange trapped in $1.4\text{ mm}$ counterbore. |
+| **Button Dome Extension** | `0.90 mm` proud of lid top | Acts as ergonomic tactile fingertip nubs and light pipes for onboard status LEDs. |
+| **Dual INA219 Bay Spacing** | `40.5 mm` center-to-center | Bay 1 at $X = 4.5\text{ mm}$, Bay 2 at $X = 45.0\text{ mm}$; leaves $14.5\text{ mm}$ center wire corridor. |
+| **Rear Snap Detent Location** | Centered at $X = 37.5\text{ mm}$ ($8.0\text{ mm}$ width) | Relocated to solid wall bridge between the dual rear wire cutouts. |
+| **Wire Strain-Relief Anchor** | `8.0 × 3.0 × 4.0 mm` arch with `4.4 × 4.0 mm` slot | Sits under rear sense pads for zip-tie or wire-loop strain relief on external leads. |
+| **Thermal Dissipation** | 4× slots (`1.6 × 8.0 mm`) per sensor | Located over each R100 shunt resistor. At 3.2A, each shunt dissipates $\approx 1.02\text{ W}$. |
 
 ---
 
@@ -278,28 +283,58 @@ The Rev 3 enclosure CAD design (`longan_nano_ina219_case.scad`) has been 3D prin
 
 ---
 
+### 4.4 Rev 4 Mechanical Refinements & Independent Review Verification
+
+Following empirical testing of the Rev 3 physical print, an independent engineering review identified key refinements implemented in Rev 4:
+
+1. **Dual INA219 Current Sensor Expansion (`enable_dual_ina219 = true`)**:
+   - The vacant Rear-Right bay ($X = 45.0..70.5\text{ mm}$, $Y = 29.8..52.1\text{ mm}$) accommodates a second Blue INA219 breakout without expanding outer dimensions ($75 \times 55\text{ mm}$).
+   - **I2C Addressing**: Channel #1 (Rear-Left) uses default address `0x40` (both A0/A1 open). Channel #2 (Rear-Right) uses address `0x41` by bridging the onboard `A0` solder pads with a solder blob.
+   - **Bus Daisy-Chaining**: Power and telemetry (`3V3`, `GND`, `SCL`, `SDA`) run in parallel via short ~30 mm jumpers across the $14.5\text{ mm}$ center corridor without requiring extra MCU GPIOs.
+   - **Rear Snap-Fit Relocation**: The Rear (+Y) snap tab and groove are shifted to $X = 33.5..41.5\text{ mm}$ (centered at $X = 37.5\text{ mm}$, $8.0\text{ mm}$ width) on the solid wall bridge between the two wire exit cutouts.
+
+2. **Captive 3D-Printable Dual-Button Plunger Insert (`button_insert_print()`)**:
+   - Solves the $3.0\text{ mm}$ switch depth gap without weak cantilever flex slots that would weaken the LCD frame.
+   - Single-piece dumbbell insert features twin $\varnothing 3.3\text{ mm}$ stems ($0.35\text{ mm}$ radial clearance in $\varnothing 4.0\text{ mm}$ lid holes) joined by a $0.6\text{ mm}$ flexible tether.
+   - Captive retention flanges ($\varnothing 5.2 \times 0.8\text{ mm}$) seat into an underside stadium-shaped counterbore pocket ($1.4\text{ mm}$ depth), trapping the plungers permanently when the lid is closed.
+   - Domes extend $0.9\text{ mm}$ proud of the lid surface ($Z = 17.5\text{ mm}$) for fingertip actuation and double as optical light pipes for the PC13 red LED.
+
+3. **Lid Gap Elimination Above USB-C Port**:
+   - Longan Nano post height lowered by $0.5\text{ mm}$ (`longan_post_h = 7.0 mm`, PCB bottom $Z = 9.0\text{ mm}$).
+   - Added an underside relief pocket ($6.5 \times 10.4 \times 0.8\text{ mm}$) in the lid directly above the Type-C metal shell.
+   - Added longitudinal underside relief channels ($44.2 \times 2.6 \times 0.8\text{ mm}$) along both pin header solder pad rows, completely eliminating top-side solder joint interference and achieving a flush seam.
+
+4. **Internal Sense-Wire Strain Relief & Window Optimization**:
+   - Added an integrated arch anchor ($8.0 \times 3.0 \times 4.0\text{ mm}$ with a $4.4\text{ mm}$ pass-through slot) under each sensor's rear pad zone, allowing leads to be zip-tied or looped internally before exiting.
+   - Raised the rear window bottom threshold to $Z = 7.4\text{ mm}$ (`10.0 × 6.8 mm` cutout), shielding the lower board and PCB substrate.
+   - Top screw holes replaced with clean `hull()` stadium slots or disabled entirely via `enable_screw_slot = false` for direct-soldered wire leads.
+
+---
+
 ## 5. Concise AI Prompt Template for Generating Case Code
 
 *Copy-paste the prompt below into an LLM or CAD generation tool to produce enclosure source code:*
 
 ```text
-Generate a 3D-printable two-piece snap-fit enclosure (Base and Low-Profile Lid) in OpenSCAD for a DC Power Monitor.
+Generate a 3D-printable two-piece snap-fit enclosure (Base, Low-Profile Lid, and Captive Button Insert) in OpenSCAD for a DC Power Monitor.
 Hardware Modules to House:
 1. Microcontroller Board: Sipeed Longan Nano (GD32VF103CBT6 RISC-V) with 0.96" IPS LCD:
-   - PCB Size: 46.2 mm (L) x 20.0 mm (W) x 1.0 mm (H); cradle pocket 47.2 x 21.0 mm (no center-notch pegs).
+   - PCB Size: 46.2 mm (L) x 20.0 mm (W) x 1.2 mm (H); cradle pocket 47.2 x 21.0 mm at Z = 9.0 mm (post_h = 7.0 mm).
    - Display: 0.96" LCD (outer module dimensions 13.5 mm breadth x 28.0 mm length at X_pcb = 7.4..35.4 mm).
    - Top LCD Window: 27.2 x 11.4 mm inner (28.0 x 12.6 mm outer bevel), centered at X_pcb = 21.10 mm, Y_pcb = 10.0 mm; underside pocket 28.9 x 15.2 x 1.4 mm.
    - Display Flex Cable: 8-pin FPC ribbon folded over left edge (X_pcb = 3.0..8.0 mm); REQUIRES 5x8.5x1.4 mm relief pocket.
    - Left JTAG Header: 4-pin header on left edge protruding 8.5 mm; leave 12.6 mm gap between left cradle stops.
-   - USB-C Port: Protrudes 3.0 mm from right edge, needs 11.5 x 4.8 mm wall cutout.
-   - No MicroSD card cutout (USB MSC mode is used).
-   - Buttons: BOOT0 and RESET at X_pcb = 37.50 mm, Y_pcb = 6.45 mm and 13.30 mm; 4.0 mm chamfered holes.
-2. Sensor Board: Blue INA219 DC Current Sensor Breakout:
+   - USB-C Port: Protrudes 3.0 mm from right edge, needs 11.5 x 5.2 mm wall cutout + 6.5x10.4x0.8 mm lid underside relief.
+   - Top Solder Relief: 44.2 x 2.6 x 0.8 mm lid underside relief channels along front and rear pin header rows.
+   - Buttons: BOOT0 and RESET at X_pcb = 37.50 mm, Y_pcb = 6.45 mm and 13.30 mm; 4.0 mm through-holes + 1.4 mm underside counterbore.
+   - Captive Plunger Insert: Single-piece dumbbell with two 3.3 mm stems, 5.2x0.8 mm retention flanges, 0.9 mm proud domes, 0.6 mm flexible tether.
+2. Dual Sensor Boards: 2x Blue INA219 DC Current Sensor Breakouts (I2C 0x40 & 0x41):
    - Orientation: VIN-/VIN+ at Rear (+Y) wall, 6-pin header at Front (-Y) side.
-   - PCB Size: 25.5 mm (X width) x 22.3 mm (Y length) x 1.6 mm (H); pocket 26.7 x 23.5 mm.
-   - 4x Corner Standoffs: 20.4 mm (X) x 17.2 mm (Y) center spacing, 4.0 mm tall, tapered 1.9->1.5 mm poles.
-   - Wall Cutout: 11.5 x 8.2 mm rear wire entry window + dual 4.0 mm top access holes + 4x thermal slots.
+   - PCB Size: 25.5 mm (X width) x 22.3 mm (Y length) x 1.6 mm (H); pockets 26.7 x 23.5 mm at X = 4.5 mm and X = 45.0 mm.
+   - Corner Standoffs: 20.4 mm (X) x 17.2 mm (Y) center spacing, 4.0 mm tall, tapered 1.9->1.5 mm poles.
+   - Wire Window: 10.0 x 6.8 mm rear cutout (Z = 7.4..14.2 mm) + internal 8x3x4 mm zip-tie strain-relief arch.
+   - Thermal Louvers: 4x slots (1.6 x 8.0 mm) over each R100 shunt resistor.
 Case Constraints:
 - Layout: Side-by-side (75.0 mm W x 55.0 mm L x 16.6 mm H: 14.2 mm Base + 2.4 mm Lid).
-- Full 360-degree interlocking skirt + 4-wall snap detents (Front, Rear, Left, Right) to prevent X/Y sliding.
+- Full 360-degree interlocking skirt + 4-wall snap detents (Front, Rear, Left, Right). Rear snap centered at X = 37.5 mm between sensor cutouts.
 ```

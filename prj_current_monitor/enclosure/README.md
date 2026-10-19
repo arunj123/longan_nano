@@ -15,10 +15,11 @@ This directory contains the 3D-printable snap-fit enclosure files for the Sipeed
   - [`longan_nano_ina219_case.scad`](longan_nano_ina219_case.scad): Fully parameterized 3D model for Base, Lid, and dual-part print beds.
 - **Automated Mesh Export Script**:
   - [`generate_meshes.ps1`](generate_meshes.ps1): PowerShell script that invokes OpenSCAD to render watertight CGAL meshes (`.stl`, `.3mf`) and orthographic PNG previews.
-- **Production Slicer Files & Meshes**:
-  - Combined Print Bed: [`case_both_print.3mf`](case_both_print.3mf), [`case_both_print.stl`](case_both_print.stl)
-  - Base Shell: [`case_base.3mf`](case_base.3mf), [`case_base.stl`](case_base.stl)
-  - Low-Profile Lid (Support-free): [`case_lid_print.3mf`](case_lid_print.3mf), [`case_lid_print.stl`](case_lid_print.stl)
+- **Production Slicer Files & Meshes (Rev 4)**:
+  - Combined Print Bed (Base + Lid + Buttons): [`case_both_print.3mf`](case_both_print.3mf), [`case_both_print.stl`](case_both_print.stl)
+  - Base Shell (Dual INA219 Bays + Wire Arches): [`case_base.3mf`](case_base.3mf), [`case_base.stl`](case_base.stl)
+  - Low-Profile Lid (Support-free, USB-C/Solder Relief): [`case_lid_print.3mf`](case_lid_print.3mf), [`case_lid_print.stl`](case_lid_print.stl)
+  - Captive Dual-Button Plunger Insert: [`case_buttons.3mf`](case_buttons.3mf), [`case_buttons.stl`](case_buttons.stl)
   - Assembly & Exploded Reference: [`case_assembled.stl`](case_assembled.stl), [`case_exploded.stl`](case_exploded.stl)
 - **Empirical 3D Print Verification Photos (Rev 3)**:
   - [`case_rev3_assembled_active.jpg`](case_rev3_assembled_active.jpg): Powered on via USB-C with live ST7735 LCD current display and connected sensor leads.

@@ -85,10 +85,11 @@ An OpenSCAD parametric enclosure model is provided in [`enclosure/`](enclosure/)
 
 - **CAD Source:** [`longan_nano_ina219_case.scad`](enclosure/longan_nano_ina219_case.scad)
 - **Batch Export Script:** [`generate_meshes.ps1`](enclosure/generate_meshes.ps1)
-- **Ready-to-Print Files:**
-  - Base: [`case_base.stl`](enclosure/case_base.stl), [`case_base.3mf`](enclosure/case_base.3mf)
+- **Ready-to-Print Files (Rev 4):**
+  - Combined Bed (Base + Lid + Buttons): [`case_both_print.stl`](enclosure/case_both_print.stl), [`case_both_print.3mf`](enclosure/case_both_print.3mf)
+  - Base (Dual INA219 Bays): [`case_base.stl`](enclosure/case_base.stl), [`case_base.3mf`](enclosure/case_base.3mf)
   - Lid (Support-free bed orientation): [`case_lid_print.stl`](enclosure/case_lid_print.stl), [`case_lid_print.3mf`](enclosure/case_lid_print.3mf)
-  - Combined Dual-Part Bed: [`case_both_print.stl`](enclosure/case_both_print.stl), [`case_both_print.3mf`](enclosure/case_both_print.3mf)
+  - Captive Button Insert: [`case_buttons.stl`](enclosure/case_buttons.stl), [`case_buttons.3mf`](enclosure/case_buttons.3mf)
   - Assembly & Exploded Models: [`case_assembled.stl`](enclosure/case_assembled.stl), [`case_exploded.stl`](enclosure/case_exploded.stl)
 - **Features:**
   - Dedicated alignment mounting nipples for Longan Nano & INA219 breakout.

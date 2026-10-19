@@ -258,13 +258,15 @@ flowchart TD
 - **Documentation & Hardware Enclosure Assets**:
   - Authored authoritative mechanical engineering reference: [`docs/HARDWARE_CASE_DESIGN_SPECS.md`](HARDWARE_CASE_DESIGN_SPECS.md) as the single source of truth for directing AI parametric CAD models (OpenSCAD, CadQuery, FreeCAD).
   - Renamed datasheet to [`docs/sipeed_longan_nano_datasheet_102991302.pdf`](sipeed_longan_nano_datasheet_102991302.pdf) and organized visual assets ([`longan_nano_mechanical_drawing.jpg`](longan_nano_mechanical_drawing.jpg), [`longan_nano_ruler_scale.jpg`](longan_nano_ruler_scale.jpg), [`longan_nano_top_view.jpg`](longan_nano_top_view.jpg), [`longan_nano_bottom_view.jpg`](longan_nano_bottom_view.jpg), [`longan_nano_acrylic_case_side_view.jpg`](longan_nano_acrylic_case_side_view.jpg), [`ina219_blue_breakout_kit.jpg`](ina219_blue_breakout_kit.jpg), [`ina219_blue_top_view.jpg`](ina219_blue_top_view.jpg), [`ina219_blue_bottom_view.jpg`](ina219_blue_bottom_view.jpg)).
-  - Redesigned, 3D-printed, and physically verified [`prj_current_monitor/enclosure/longan_nano_ina219_case.scad`](../prj_current_monitor/enclosure/longan_nano_ina219_case.scad) (Rev 3: `75.0 × 55.0 × 16.6 mm`, `14.2 mm` Base + `2.4 mm` ultra-low-profile flat Lid + `2.0 mm` 360° interlocking skirt). Calibrated and verified across physical print verification photos:
-    1. Active Live Operation: [`case_rev3_assembled_active.jpg`](../prj_current_monitor/enclosure/case_rev3_assembled_active.jpg) (powered on via USB-C, live ST7735 Big Digits display, status LED, and sensor wiring).
-    2. Internal Hardware Layout: [`case_rev3_internal_layout.jpg`](../prj_current_monitor/enclosure/case_rev3_internal_layout.jpg) (Longan Nano cradle with 12.6 mm JTAG header clearance, INA219 standoffs, interconnect wiring, underside LCD pocket, FPC ribbon relief, 360° skirt, and 4-wall snap detents).
-    3. Assembled Top Finish: [`case_rev3_assembled_top.jpg`](../prj_current_monitor/enclosure/case_rev3_assembled_top.jpg) (sub-millimeter beveled LCD window, dual chamfered BOOT0/RESET button apertures, and thermal ventilation louvers).
-    4. Side Profile & Seam: [`case_rev3_side_profile.jpg`](../prj_current_monitor/enclosure/case_rev3_side_profile.jpg) (ultra-low-profile 16.6 mm assembled height and 360° interlocking skirt eliminating X/Y sliding).
-    5. Rear Wire Window: [`case_rev3_rear_wire_window.jpg`](../prj_current_monitor/enclosure/case_rev3_rear_wire_window.jpg) (11.5 × 8.2 mm wire window comfortably routing 18–24 AWG sense leads).
-    6. USB Type-C Port: [`case_rev3_usb_port_side.jpg`](../prj_current_monitor/enclosure/case_rev3_usb_port_side.jpg) (symmetrical clearance around Type-C receptacle accommodating standard cable overmolds).
+  - Redesigned, 3D-printed, and physically verified [`prj_current_monitor/enclosure/longan_nano_ina219_case.scad`](../prj_current_monitor/enclosure/longan_nano_ina219_case.scad):
+    - **Rev 3 Baseline**: Calibrated against physical print verification photos ([`case_rev3_assembled_active.jpg`](../prj_current_monitor/enclosure/case_rev3_assembled_active.jpg), [`case_rev3_internal_layout.jpg`](../prj_current_monitor/enclosure/case_rev3_internal_layout.jpg), [`case_rev3_assembled_top.jpg`](../prj_current_monitor/enclosure/case_rev3_assembled_top.jpg), [`case_rev3_side_profile.jpg`](../prj_current_monitor/enclosure/case_rev3_side_profile.jpg), [`case_rev3_rear_wire_window.jpg`](../prj_current_monitor/enclosure/case_rev3_rear_wire_window.jpg), [`case_rev3_usb_port_side.jpg`](../prj_current_monitor/enclosure/case_rev3_usb_port_side.jpg)).
+    - **Rev 4 Independent Review Upgrades**:
+      1. Dual Blue INA219 current sensor support (`enable_dual_ina219 = true`, Rear-Left `0x40` & Rear-Right `0x41` I2C channels) within existing $75 \times 55\text{ mm}$ footprint.
+      2. 3D-printable captive dual-button plunger insert (`button_insert_print()`) with $0.9\text{ mm}$ proud domes and $1.4\text{ mm}$ lid underside counterbore pocket.
+      3. Lowered Longan post height by $0.5\text{ mm}$ (`7.0 mm`) + lid underside relief pockets over USB-C shell and pin solder joints, eliminating lid lift.
+      4. Internal zip-tie / wire strain-relief anchor arches under each INA219 bay.
+      5. Rear (+Y) snap tab relocated to solid bridge between dual rear wire windows.
+      6. Batch-exported watertight meshes and previews (`generate_meshes.ps1`).
 - **Immediate Next Step**:
   - Production maintenance, user field testing, and downstream releases.
 
