@@ -14,6 +14,8 @@
 //   3. Eliminated 2.1 mm vertical button rattle by increasing button flange height
 //      to 2.6 mm (maintaining exact 0.3 mm switch pre-travel clearance)
 //   4. Resolved underside pocket overlap between LCD recess and button flange pocket
+//   5. Shaved 0.45 mm D-flat on -X (LCD-facing) side of 4.8 mm button flange (X_pcb = 35.55 mm),
+//      clearing 35.40 mm LCD glass by 0.15 mm when button is depressed during switch actuation
 // ============================================================================
 
 $fn = 64; // Smooth cylinder tessellation
@@ -198,7 +200,7 @@ module rounded_slot_z(w, l, h) {
 }
 
 // ============================================================================
-// Module: Captive Dual-Button Plunger Insert (Zero-Rattle Fit)
+// Module: Captive Dual-Button Plunger Insert (Zero-Rattle Fit w/ D-Flat Clearance)
 // ============================================================================
 // Total height Calculation:
 //   Switch top is at Z = 9.0 (PCB bottom) + 1.2 (PCB) + 2.5 (Switch) = 12.7 mm.
@@ -206,6 +208,10 @@ module rounded_slot_z(w, l, h) {
 //   A 2.6 mm flange height restricts vertical travel between Z = 12.7 and 13.0 mm (0.3 mm play).
 //   Top of lid is at Z = 16.6 mm; button top dome reaches Z = 16.6 + 0.9 = 17.5 mm.
 //   Total plunger height = 17.5 - 13.0 = 4.5 mm.
+// Flange D-Flat:
+//   Shaves 0.45 mm off the -X (LCD-facing) side of the 4.8 mm flange (X_pcb = 35.55 mm),
+//   providing 0.15 mm horizontal clearance past the LCD glass edge (X_pcb = 35.40 mm)
+//   to prevent rubbing/bottoming-out when either button is depressed 0.25 mm.
 module button_insert_print() {
     total_h = (case_h + btn_proud_h) - (longan_pcb_z + longan_t + 2.5 + 0.3); // 4.5 mm
     dy      = btn_boot_y - btn_reset_y; // 6.85 mm center-to-center
@@ -213,8 +219,12 @@ module button_insert_print() {
     union() {
         for (y_ofs = [0, dy]) {
             translate([0, y_ofs, 0]) {
-                // 1. Bottom captive retention flange (2.6 mm tall to eliminate vertical rattle)
-                cylinder(d = btn_flange_d, h = btn_flange_h);
+                // 1. Bottom captive retention flange with -X D-flat to clear LCD glass edge
+                difference() {
+                    cylinder(d = btn_flange_d, h = btn_flange_h);
+                    translate([-btn_flange_d, -btn_flange_d/2, -0.1])
+                        cube([btn_flange_d - 1.95, btn_flange_d, btn_flange_h + 0.2]);
+                }
                 // 2. Main cylindrical plunger stem
                 cylinder(d = btn_stem_d, h = total_h - 0.4);
                 // 3. Ergonomic chamfered top cap

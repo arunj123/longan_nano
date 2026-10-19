@@ -251,7 +251,7 @@ When prompting an AI to generate OpenSCAD, CadQuery, FreeCAD, or STL 3D models f
 | **RGB LED Optical Port** | `Ø 2.0 mm` pinhole / `Ø 3.2 mm` diffuser | Centered at `X_pcb = 5.50 mm`, `Y_pcb = 10.0 mm`; configurable `led_view_mode` (`"pinhole"`, `"diffuser"`, `"none"`) with $3.2 \times 3.2 \times 1.0\text{ mm}$ light collector. |
 | **USB Type-C Underside Relief** | `6.5 mm (X) × 10.4 mm (Y) × 0.8 mm (Z)` | Prevents USB-C receptacle shell from pushing lid upward; eliminates 0.6 mm seam gap. |
 | **Pin Solder Relief Rails** | `44.2 mm (X) × 2.6 mm (Y) × 0.8 mm (Z)` | Underside relief above top-side header solder pads along front and rear PCB edges. |
-| **Captive Button Plunger** | `Ø 3.3 mm` stem, `Ø 4.8 × 2.6 mm` flange | Fits `Ø 4.0 mm` lid hole ($0.35\text{ mm}$ radial play); $2.6\text{ mm}$ flange height eliminates $2.1\text{ mm}$ vertical rattle, maintaining exact $0.3\text{ mm}$ pre-travel play. |
+| **Captive Button Plunger** | `Ø 3.3 mm` stem, `Ø 4.8 × 2.6 mm` flange w/ `-X` D-flat | Fits `Ø 4.0 mm` lid hole ($0.35\text{ mm}$ radial play); $2.6\text{ mm}$ flange height eliminates $2.1\text{ mm}$ vertical rattle, maintaining exact $0.3\text{ mm}$ pre-travel play; $0.45\text{ mm}$ D-flat on $-X$ side ($X_{\text{pcb}} = 35.55\text{ mm}$) clears LCD glass edge ($X_{\text{pcb}} = 35.40\text{ mm}$) by $0.15\text{ mm}$ during switch actuation. |
 | **Button Dome Extension** | `0.90 mm` proud of lid top | Acts as ergonomic tactile fingertip nubs and optical light pipes for onboard status LEDs. |
 | **Dual INA219 Bay Spacing** | `40.5 mm` center-to-center | Bay 1 at $X = 4.5\text{ mm}$, Bay 2 at $X = 45.0\text{ mm}$; leaves $14.5\text{ mm}$ center wire corridor. |
 | **Rear Snap Detent Location** | Centered at $X = 37.5\text{ mm}$ ($8.0\text{ mm}$ width) | Relocated to solid wall bridge between the dual rear wire cutouts. |
@@ -330,10 +330,11 @@ Following CAD inspection and slicer analysis of the Rev 4 model, Rev 4.1 introdu
      - `"diffuser"`: $\varnothing 3.2\text{ mm}$ blind pocket stopping $0.40\text{ mm}$ (2 layers @ 0.20 mm) below the top plate. For translucent/light filaments (white, yellow, natural), bridging the flat ceiling produces a seamless glowing indicator.
      - `"none"`: Solid lid for light-shielded applications.
 
-3. **Zero-Rattle Captive Dual-Button Plunger Insert**:
+3. **Zero-Rattle Captive Dual-Button Plunger Insert & D-Flat Glass Clearance**:
    - In Rev 4, the vertical distance from the switch tops ($Z = 12.7\text{ mm}$) to the underside pocket ceiling ($Z = 15.6\text{ mm}$) was $2.9\text{ mm}$, leaving $2.1\text{ mm}$ of rattle play when using a $0.8\text{ mm}$ flange.
    - Rev 4.1 increases the lower retention flange height `btn_flange_h` to **$2.60\text{ mm}$** ($4.5\text{ mm}$ total plunger height), while maintaining a thin $0.60\text{ mm}$ flexible tether.
    - Flange diameter is adjusted to $\varnothing 4.8\text{ mm}$ ($0.4\text{ mm}$ per-side retention over $\varnothing 4.0\text{ mm}$ hole), yielding an exact **$0.30\text{ mm}$ pre-travel clearance** ($2.9 - 2.6 = 0.3\text{ mm}$) that permanently prevents button rattle without exerting static preload on the microswitches.
+   - **Actuation Clearance Catch & D-Flat Resolution**: The LCD module glass ends at $X_{\text{pcb}} = 35.40\text{ mm}$, whereas the unpressed flange around $X_{\text{pcb}} = 37.50\text{ mm}$ extended left to $X_{\text{pcb}} = 35.10\text{ mm}$ ($0.30\text{ mm}$ horizontal overlap at unpressed $Z = 13.00\text{ mm}$). When a switch was pressed down $0.25\text{ mm}$ ($Z = 12.75\text{ mm}$), the flange bottom could contact the top of the glass ($Z = 12.95\text{ mm}$). Shaving $0.45\text{ mm}$ off the $-X$ (LCD-facing) side of the flange (`btn_flange_d - 1.95` cut) pulls its left edge to $X_{\text{pcb}} = 35.55\text{ mm}$, providing an unconditional **$0.15\text{ mm}$ clearance** past the glass at all Z heights while preserving captive retention on the remaining three sides.
 
 4. **Underside Pocket Separation**:
    - The right margin of the underside LCD module recess is trimmed to $X_{\text{pcb}} = 35.40\text{ mm}$, cleanly separating it from the button counterbore pocket ($d = 5.4\text{ mm}$ centered at $X_{\text{pcb}} = 37.50\text{ mm}$) with a distinct $0.5\text{ mm}$ isolation wall.
@@ -357,7 +358,7 @@ Hardware Modules to House:
    - USB-C Port: Protrudes 3.0 mm from right edge, needs 11.5 x 5.2 mm wall cutout + 6.5x10.4x0.8 mm lid underside relief.
    - Top Solder Relief: 44.2 x 2.6 x 0.8 mm lid underside relief channels along front and rear pin header rows.
    - Buttons: BOOT0 and RESET at X_pcb = 37.50 mm, Y_pcb = 6.45 mm and 13.30 mm; 4.0 mm through-holes + 1.4 mm underside counterbore.
-   - Captive Plunger Insert: Single-piece dumbbell with two 3.3 mm stems, 4.8x2.6 mm anti-rattle flanges (0.3 mm pre-travel), 0.9 mm proud domes, 0.6 mm flexible tether.
+   - Captive Plunger Insert: Single-piece dumbbell with two 3.3 mm stems, 4.8x2.6 mm anti-rattle flanges w/ 0.45 mm -X D-flat (0.15 mm LCD glass clearance, 0.3 mm pre-travel), 0.9 mm proud domes, 0.6 mm flexible tether.
 2. Dual Sensor Boards: 2x Blue INA219 DC Current Sensor Breakouts (I2C 0x40 & 0x41):
    - Orientation: VIN-/VIN+ at Rear (+Y) wall, 6-pin header at Front (-Y) side.
    - PCB Size: 25.5 mm (X width) x 22.3 mm (Y length) x 1.6 mm (H); pockets 26.7 x 23.5 mm at X = 4.5 mm and X = 45.0 mm.

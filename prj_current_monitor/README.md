@@ -95,7 +95,7 @@ An OpenSCAD parametric enclosure model is provided in [`enclosure/`](enclosure/)
   - Dedicated alignment mounting nipples for Longan Nano & Dual INA219 breakouts.
   - Active pixel area ST7735 LCD viewport ($23.0 \times 11.4\text{ mm}$) concealing dead bezel and FPC ribbon.
   - Onboard RGB LED optical indicator port (`led_view_mode`: `"pinhole"` or `"diffuser"`).
-  - Zero-rattle captive dual-button plunger insert ($2.6\text{ mm}$ flange, $0.3\text{ mm}$ pre-travel play).
+  - Zero-rattle captive dual-button plunger insert ($2.6\text{ mm}$ flange, $0.3\text{ mm}$ pre-travel play, and $-X$ D-flat for $0.15\text{ mm}$ LCD glass edge clearance).
   - Cutouts for Type-C USB telemetry/power, MicroSD card access, and screw terminal block wiring.
   - Passive convection ventilation louvers.
 - **Physical 3D Print Verification (Rev 3 Enclosure):**

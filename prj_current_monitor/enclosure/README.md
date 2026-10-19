@@ -19,7 +19,7 @@ This directory contains the 3D-printable snap-fit enclosure files for the Sipeed
   - Combined Print Bed (Base + Lid + Buttons): [`case_both_print.3mf`](case_both_print.3mf), [`case_both_print.stl`](case_both_print.stl)
   - Base Shell (Dual INA219 Bays + Wire Arches): [`case_base.3mf`](case_base.3mf), [`case_base.stl`](case_base.stl)
   - Low-Profile Lid (Active Viewport, RGB LED Port, USB-C/Solder Relief): [`case_lid_print.3mf`](case_lid_print.3mf), [`case_lid_print.stl`](case_lid_print.stl)
-  - Zero-Rattle Captive Dual-Button Plunger Insert (2.6 mm flange): [`case_buttons.3mf`](case_buttons.3mf), [`case_buttons.stl`](case_buttons.stl)
+  - Zero-Rattle Captive Dual-Button Plunger Insert (2.6 mm flange w/ -X D-flat to clear LCD glass edge): [`case_buttons.3mf`](case_buttons.3mf), [`case_buttons.stl`](case_buttons.stl)
   - Assembly & Exploded Reference: [`case_assembled.stl`](case_assembled.stl), [`case_exploded.stl`](case_exploded.stl)
 - **Empirical 3D Print Verification Photos (Rev 3)**:
   - [`case_rev3_assembled_active.jpg`](case_rev3_assembled_active.jpg): Powered on via USB-C with live ST7735 LCD current display and connected sensor leads.

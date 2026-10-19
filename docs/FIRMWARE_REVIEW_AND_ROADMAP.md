@@ -265,7 +265,8 @@ flowchart TD
       2. Added onboard RGB status LED optical port at $X_{\text{pcb}} = 5.50\text{ mm}$ backed by a $3.2 \times 3.2 \times 1.0\text{ mm}$ underside light collector, selectable via `led_view_mode`: `"pinhole"` ($\varnothing 2.0\text{ mm}$ micro-beveled hole for direct view or $1.75\text{ mm}$ clear filament light pipe), `"diffuser"` ($\varnothing 3.2\text{ mm}$ blind pocket stopping $0.40\text{ mm}$ / 2 layers below top for translucent filaments), or `"none"`.
       3. Eliminated $2.1\text{ mm}$ vertical button rattle by increasing plunger lower flange height `btn_flange_h` to $2.60\text{ mm}$ ($4.5\text{ mm}$ total plunger height), establishing exact $0.30\text{ mm}$ pre-travel switch clearance without static preload.
       4. Trimmed underside LCD module recess right margin to $X_{\text{pcb}} = 35.40\text{ mm}$, cleanly separating the LCD pocket from the button flange counterbore.
-      5. Full batch export of watertight CGAL meshes (`.stl`, `.3mf`) and orthographic PNG previews via `generate_meshes.ps1`.
+      5. Shaved $0.45\text{ mm}$ D-flat on the $-X$ (LCD-facing) side of the $4.8\text{ mm}$ button flange inside `button_insert_print()` (pulling left edge to $X_{\text{pcb}} = 35.55\text{ mm}$), resolving the $0.30\text{ mm}$ horizontal overlap and providing $0.15\text{ mm}$ clearance past the $35.40\text{ mm}$ LCD glass edge during $0.25\text{ mm}$ button actuation.
+      6. Full batch export of watertight CGAL meshes (`.stl`, `.3mf`) and orthographic PNG previews via `generate_meshes.ps1`.
 - **Immediate Next Step**:
   - Production maintenance, user field testing, and downstream releases.
 
