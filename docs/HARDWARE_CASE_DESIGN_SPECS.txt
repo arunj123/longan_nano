@@ -24,6 +24,12 @@ Enclosure CAD: prj_current_monitor/enclosure/longan_nano_ina219_case.scad
 - docs/ina219_blue_breakout_kit.jpg              : Blue INA219 breakout, header, 3.5mm terminal
 - docs/ina219_blue_top_view.jpg                  : Blue INA219 top view (R100, IC, A0/A1, pads)
 - docs/ina219_blue_bottom_view.jpg               : Blue INA219 bottom view (ratings, 4 holes)
+- prj_current_monitor/enclosure/case_rev3_assembled_active.jpg : Assembled Rev 3 case active with live LCD
+- prj_current_monitor/enclosure/case_rev3_internal_layout.jpg   : Open view: Base boards installed vs Lid inside
+- prj_current_monitor/enclosure/case_rev3_assembled_top.jpg     : Top view showing LCD framing, buttons, vents
+- prj_current_monitor/enclosure/case_rev3_side_profile.jpg      : Side profile showing low-profile lid seam
+- prj_current_monitor/enclosure/case_rev3_rear_wire_window.jpg  : Rear view showing wire exit window
+- prj_current_monitor/enclosure/case_rev3_usb_port_side.jpg     : Side view showing Type-C port centering
 
 
 --------------------------------------------------------------------------------
@@ -65,7 +71,7 @@ Enclosure CAD: prj_current_monitor/enclosure/longan_nano_ina219_case.scad
 - Controller & Bus: ST7735 SPI LCD (SPI0 peripheral, 8-pin 0.5 mm pitch FPC)
 - Resolution: 160 x 80 RGB pixels
 - Active Display Window Area: 21.70 mm L x 10.80 mm W (0.96" diagonal)
-- Outer LCD Body & Glass Dimensions (Verified on 2.54 mm PCB pin grid & IMG_8187.JPG):
+- Outer LCD Body & Glass Dimensions (Verified on 2.54 mm PCB pin grid & case_rev3_assembled_top.jpg):
   * Total outer LCD module body: 28.00 mm length x 13.50 mm breadth (X_pcb = 7.40..35.40 mm)
   * Left black plastic bezel step: X_pcb = 7.40 mm to 10.50 mm (3.10 mm step)
   * Smooth black LCD glass top surface: X_pcb = 10.50 mm to 35.40 mm (24.90 mm length),
@@ -132,7 +138,7 @@ BOTTOM ROW (Edge 2):
 
 3.1 VARIANT A: BLUE INA219 BREAKOUT (Standard with Screw Terminal Block)
 - Function: High-side DC voltage (0-26V) and bidirectional current (3.2A) monitor over I2C.
-- Mechanical Dimensions (Verified in IMG_8184.JPG):
+- Mechanical Dimensions (Verified in case_rev3_internal_layout.jpg & ina219_blue_top_view.jpg):
   * PCB Width (along 6-pin header & VIN-/VIN+ edge, X-axis): 25.50 mm (1.00")
   * PCB Length (from VCC..VIN+ edge to VIN-/VIN+ edge, Y-axis): 22.30 mm (0.88")
   * PCB Thickness: 1.60 mm

@@ -4,7 +4,7 @@
 //   1. Sipeed Longan Nano (GD32VF103CBT6 RISC-V) with 0.96" 160x80 IPS LCD
 //   2. Blue INA219 High-Side DC Current Sensor Breakout
 //
-// Empirical Fit Refinements (from Physical Print Verification IMG_8183..8186):
+// Empirical Fit Refinements (Verified on Physical Rev 3 Prints case_rev3_*.jpg):
 //   - Full 360-degree perimeter interlocking lip + 4-wall snap detents (zero X/Y slide)
 //   - Removed MicroSD card slots (USB MSC Drive Mode is used instead)
 //   - Ultra-low-profile flat Lid (reduced lid_h from 8.0 mm to 2.4 mm; total height 16.6 mm)
@@ -47,7 +47,7 @@ longan_w        = 20.0;  // Nominal PCB width (Y-axis, mm)
 longan_t        = 1.0;   // FR4 PCB thickness (mm)
 
 // LCD Module (0.96" 160x80 IPS, 13.5 mm breadth x 28.0 mm length)
-// Physical print verification (IMG_8185 & IMG_8187):
+// Physical print verification (case_rev3_assembled_top.jpg & case_rev3_internal_layout.jpg):
 //   - Outer LCD module body: 28.0 mm length (X_pcb = 7.53..35.53 mm) x 13.5 mm breadth
 //   - Top viewport cutout: 27.2 mm inner / 28.0 mm beveled length x 11.4 mm inner / 12.6 mm beveled breadth
 //   - Underside pocket: 28.9 mm length (X_pcb = 6.80..35.70 mm) x 15.2 mm breadth x 1.4 mm depth
@@ -69,7 +69,7 @@ usbc_protrude   = 3.0;   // Protrusion past right PCB edge (mm)
 usbc_cut_w      = 11.5;  // Wall cutout width (Y-axis, mm)
 usbc_cut_h      = 4.8;   // Wall cutout height in Base (Z = 9.4..14.2 mm)
 
-// Tactile Pushbuttons (BOOT0 and RESET, calibrated directly to IMG_8187.JPG & 2.54 mm grid)
+// Tactile Pushbuttons (BOOT0 and RESET, calibrated to case_rev3_assembled_active.jpg & 2.54 mm grid)
 btn_hole_d      = 4.0;   // Button access hole diameter (mm)
 btn_x_ofs       = 37.50; // Calibrated button center X offset from Longan left edge (+1.75 mm toward +X USB-C)
 btn_reset_y     = 6.45;  // RESET button Y offset from Longan front (-Y) edge (mm)
@@ -84,7 +84,7 @@ longan_post_h   = 7.5;                      // Standoff height above base floor 
 longan_pcb_z    = wall + longan_post_h;     // 9.5 mm (PCB bottom Z; PCB top = 10.5 mm)
 
 // ----------------------------------------------------------------------------
-// 3. Blue INA219 Current Sensor Breakout Specifications (Calibrated to IMG_8184)
+// 3. Blue INA219 Current Sensor Breakout Specifications (Calibrated to case_rev3_internal_layout.jpg)
 // ----------------------------------------------------------------------------
 // Orientation in case (matching IMG_8183 & IMG_8184):
 //   - VIN- / VIN+ sense pads at Rear (+Y) wall

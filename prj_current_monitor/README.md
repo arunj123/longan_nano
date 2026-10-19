@@ -94,3 +94,10 @@ An OpenSCAD parametric enclosure model is provided in [`enclosure/`](enclosure/)
   - Pushbutton access apertures for Reset and Boot/Tare (`PA8`).
   - Cutouts for Type-C USB telemetry/power, MicroSD card access, and screw terminal block wiring.
   - Passive convection ventilation louvers.
+- **Physical 3D Print Verification (Rev 3 Enclosure):**
+  - [Active Operation (Live Display & Sensor Leads)](enclosure/case_rev3_assembled_active.jpg)
+  - [Internal Hardware & Lid Underside Architecture](enclosure/case_rev3_internal_layout.jpg)
+  - [Assembled Top View (Beveled Window & Button Apertures)](enclosure/case_rev3_assembled_top.jpg)
+  - [Side Elevation (Ultra-Low-Profile Seam)](enclosure/case_rev3_side_profile.jpg)
+  - [Rear Elevation (Current-Sense Wire Window)](enclosure/case_rev3_rear_wire_window.jpg)
+  - [USB Type-C Port Elevation](enclosure/case_rev3_usb_port_side.jpg)

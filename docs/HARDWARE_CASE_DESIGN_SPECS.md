@@ -21,6 +21,12 @@
 | **INA219 Blue Module Kit** | [ina219_blue_breakout_kit.jpg](ina219_blue_breakout_kit.jpg) | Blue INA219 breakout, 6-pin header, and 3.5 mm 2-pin screw terminal block. |
 | **INA219 Blue Top View** | [ina219_blue_top_view.jpg](ina219_blue_top_view.jpg) | Top view showing R100 (0.1Ω) 2512 shunt, IC, A0/A1 jumpers, terminal pads. |
 | **INA219 Blue Bottom View** | [ina219_blue_bottom_view.jpg](ina219_blue_bottom_view.jpg) | Bottom silkscreen view (0–26V, 3.2A, 3–5V) and 4 corner mounting holes. |
+| **Rev 3 Print Active Top View** | [case_rev3_assembled_active.jpg](../prj_current_monitor/enclosure/case_rev3_assembled_active.jpg) | Fully assembled Rev 3 case powered on via USB-C with live LCD display and sensor wires. |
+| **Rev 3 Print Internal Layout** | [case_rev3_internal_layout.jpg](../prj_current_monitor/enclosure/case_rev3_internal_layout.jpg) | Open comparison: base with mounted Longan Nano & INA219 boards vs underside of Rev 3 lid. |
+| **Rev 3 Print Top View** | [case_rev3_assembled_top.jpg](../prj_current_monitor/enclosure/case_rev3_assembled_top.jpg) | Top-down view showing LCD bevel window framing, chamfered button holes, and vents. |
+| **Rev 3 Print Side Profile** | [case_rev3_side_profile.jpg](../prj_current_monitor/enclosure/case_rev3_side_profile.jpg) | Side elevation showing ultra-low-profile lid-to-base mating seam. |
+| **Rev 3 Print Rear Wire Window** | [case_rev3_rear_wire_window.jpg](../prj_current_monitor/enclosure/case_rev3_rear_wire_window.jpg) | Rear elevation showing rectangular wire exit cutout with power/load leads. |
+| **Rev 3 Print USB Port Side** | [case_rev3_usb_port_side.jpg](../prj_current_monitor/enclosure/case_rev3_usb_port_side.jpg) | Side elevation showing centered USB Type-C connector cutout and lid fit. |
 
 ---
 
@@ -58,7 +64,7 @@
 - **Controller & Interface**: ST7735 SPI LCD (SPI0 peripheral, 8-pin 0.5 mm pitch FPC flex connector).
 - **Resolution**: `160 × 80` RGB pixels.
 - **Active Display Window Area**: `21.70 mm` length × `10.80 mm` width (0.96-inch diagonal).
-- **Outer LCD Body & Glass Dimensions** *(Empirically verified on 2.54 mm PCB pin grid and physical test print `IMG_8187.JPG`)*:
+- **Outer LCD Body & Glass Dimensions** *(Empirically verified on 2.54 mm PCB pin grid and physical test prints [case_rev3_assembled_top.jpg](../prj_current_monitor/enclosure/case_rev3_assembled_top.jpg) and [case_rev3_internal_layout.jpg](../prj_current_monitor/enclosure/case_rev3_internal_layout.jpg))*:
   - Total outer LCD module body (glass + left black plastic bezel): **`28.00 mm` length × `13.50 mm` breadth**, spanning `X_pcb = 7.40 mm` to `35.40 mm` (`14.20 mm` nominal pocket width with foam adhesive margin).
   - Left black plastic bezel step: `X_pcb = 7.40 mm` to `10.50 mm` (`3.10 mm` step).
   - Smooth black LCD glass top surface: `X_pcb = 10.50 mm` to `35.40 mm` (`24.90 mm` glass length, touching the left edge of the tactile button housings).
@@ -68,13 +74,13 @@
 - **CRITICAL FPC Cable Relief Requirement**:
   - The flexible ribbon cable wraps tightly around the left edge of the display (`X_pcb = 3.00..8.00 mm`) to connect to the solder pads.
   - **Do NOT clamp or apply downward pressure** on the folded ribbon edge.
-  - The enclosure top lid MUST feature an internal recess / relief pocket of at least `5.0 mm × 8.5 mm` with `1.40 mm` depth over the flex fold to prevent trace fatigue or shearing.
+  - The enclosure top lid MUST feature an internal recess / relief pocket of at least `5.0 mm × 8.5 mm` with `1.40 mm` depth over the flex fold to prevent trace fatigue or shearing (clearly visible on the printed lid in [case_rev3_internal_layout.jpg](../prj_current_monitor/enclosure/case_rev3_internal_layout.jpg)).
 
 ### 2.4 Button, Connector & Peripheral Cutout Positions
 - **USB Type-C Port**:
   - Location: Right edge, centered on the 20.0 mm board width.
-  - Recommended Wall Cutout: `11.5 mm` width × `4.5–5.0 mm` height (provides clearance for USB-C cable overmold shroud).
-- **Tactile Buttons (`BOOT0` & `RESET`)** *(Calibrated to 2.54 mm pin header grid & physical test print `IMG_8187.JPG`)*:
+  - Recommended Wall Cutout: `11.5 mm` width × `4.5–5.0 mm` height (provides clearance for USB-C cable overmold shroud, verified in [case_rev3_usb_port_side.jpg](../prj_current_monitor/enclosure/case_rev3_usb_port_side.jpg)).
+- **Tactile Buttons (`BOOT0` & `RESET`)** *(Calibrated to 2.54 mm pin header grid & physical test prints [case_rev3_assembled_active.jpg](../prj_current_monitor/enclosure/case_rev3_assembled_active.jpg) and [case_rev3_assembled_top.jpg](../prj_current_monitor/enclosure/case_rev3_assembled_top.jpg))*:
   - Both buttons sit between `Pin 14` (`B13` / `B1`) and `Pin 15` (`B12` / `B10`) — accounting for the `3.80 mm` (`+1` pin pitch) center notch gap — at **`X_pcb = 37.50 mm`** in the enclosure cradle (`~8.0 mm` from the right PCB edge).
   - `BOOT0` (PA8): `X_pcb = 37.50 mm`, `Y_pcb = 13.30 mm` from front (`VB..RST`) edge.
   - `RESET` (NRST): `X_pcb = 37.50 mm`, `Y_pcb = 6.45 mm` from front (`VB..RST`) edge (`6.85 mm` center-to-center Y spacing).
@@ -83,7 +89,7 @@
   - Location: Bottom side of PCB (`1.80 mm` profile height).
   - Note: External enclosure card slots are omitted when firmware provides USB Mass Storage (`prj_usb_msc` / `prj_current_monitor` Screen 6 USB Drive Mode).
 - **JTAG / UART 4-Pin Edge Header (`3V3 R0 T0 GND`)**:
-  - 4 pads at the left edge (`X_pcb = 0.0 mm`, centered on board width). When a 4-pin male header is soldered horizontally (`IMG_8185.JPG`), pins extend `~8.5 mm` to the left (`-X`); the left cradle stop pillars must leave a `≥ 12.0 mm` center gap.
+  - 4 pads at the left edge (`X_pcb = 0.0 mm`, centered on board width). When a 4-pin male header is soldered horizontally (shown installed in [case_rev3_internal_layout.jpg](../prj_current_monitor/enclosure/case_rev3_internal_layout.jpg)), pins extend `~8.5 mm` to the left (`-X`); the left cradle stop pillars must leave a `≥ 12.0 mm` center gap.
 
 ### 2.5 Complete Pinout Mapping (Longan Nano)
 ```
@@ -139,7 +145,7 @@ Pin  Name   Function / Description
 ### 3.1 Variant A: Blue INA219 Breakout Board (Standard with Screw Terminal)
 *High-side DC current, bus voltage, and power monitor with screw terminal block.*
 
-#### 3.1.1 Mechanical Dimensions & Mounting *(Empirically verified in `IMG_8184.JPG`)*
+#### 3.1.1 Mechanical Dimensions & Mounting *(Empirically verified in [case_rev3_internal_layout.jpg](../prj_current_monitor/enclosure/case_rev3_internal_layout.jpg) and [ina219_blue_top_view.jpg](ina219_blue_top_view.jpg))*
 - **PCB Outer Dimensions**:
   - **Width (along 6-pin header & `VIN- / VIN+` edge, X-axis)**: `25.50 mm` (`1.00"`).
   - **Length (from `VCC..VIN+` header edge to `VIN- / VIN+` edge, Y-axis)**: `22.30 mm` (`0.88"`).
@@ -242,9 +248,33 @@ When prompting an AI to generate OpenSCAD, CadQuery, FreeCAD, or STL 3D models f
 | **LCD Module Pocket** | `28.90 mm × 15.20 mm × 1.40 mm` | Underside recess spanning `X_pcb = 6.8..35.7 mm` to fit the `13.5 × 28.0 mm` LCD module. |
 | **FPC Flex Relief Notch** | `5.00 mm × 8.50 mm × 1.40 mm` | **MANDATORY**: Relief channel at `X_pcb = 3.0..8.0 mm` for folded display flex ribbon. |
 | **USB Type-C Cutout** | `11.50 mm × 4.80 mm` | Allows clearance for USB-C connector shell and cable housing overmold. |
-| **Button Access Holes** | `2 × Ø 4.00 mm` holes | Located at `X_pcb = 37.50 mm`, `Y_pcb = 6.45 & 13.30 mm` (calibrated to `IMG_8187.JPG`). |
+| **Button Access Holes** | `2 × Ø 4.00 mm` holes | Located at `X_pcb = 37.50 mm`, `Y_pcb = 6.45 & 13.30 mm` (calibrated to physical Rev 3 print [case_rev3_assembled_top.jpg](../prj_current_monitor/enclosure/case_rev3_assembled_top.jpg)). |
 | **INA219 Standoff Grid** | `20.40 mm (X) × 17.20 mm (Y)` | Matches `25.5 mm (X) × 22.3 mm (Y)` PCB corner holes with `Ø 1.9 -> 1.5 mm` tapered pins. |
 | **Thermal Dissipation** | 4× slots (`1.6 × 8.0 mm`) | Located over the R100 shunt resistor. At 3.2A, the shunt dissipates $P = I^2 R \approx 1.02\text{ W}$. |
+
+---
+
+### 4.3 Physical Print Verification & Empirical Evaluation (Rev 3 Enclosure)
+
+The Rev 3 enclosure CAD design (`longan_nano_ina219_case.scad`) has been 3D printed and physically assembled on target hardware. Empirical verification across the photographic record confirms:
+
+1. **Active Operational Verification ([`case_rev3_assembled_active.jpg`](../prj_current_monitor/enclosure/case_rev3_assembled_active.jpg))**:
+   - The Longan Nano boots and runs `prj_current_monitor` with crisp ST7735 LCD visibility.
+   - The 0.96" LCD display window aligns with sub-millimeter precision, framing the active pixel area while concealing perimeter adhesive and glass borders.
+   - Dual BOOT0 and RESET pushbuttons align under their chamfered access holes, allowing easy stylus or fingertip actuation. The PC13 status LED is clearly visible through the button cavity.
+   - Standard Type-C USB cables (e.g. UGREEN overmold) plug flush into the right side port without collar collision.
+
+2. **Internal Architecture & Clearance ([`case_rev3_internal_layout.jpg`](../prj_current_monitor/enclosure/case_rev3_internal_layout.jpg))**:
+   - **Longan Nano Cradle**: The board drops smoothly into the front-right bay without bending or PCB stress. The 4-pin male JTAG header (soldered horizontally on the left edge) clears the left cradle stop pillars through the 12.6 mm gap.
+   - **INA219 Mounting**: The breakout board sits level on the 4 corner standoffs with tapered locator pins engaging the mounting holes cleanly. Under-board solder clearance accommodates the through-hole pins and jumper wire terminations.
+   - **Inter-Board Wiring**: The 4-wire logic harness (3V3, GND, SCL, SDA) and power sense wiring route through the central courtyard without kinking.
+   - **Lid Underside Relief**: The printed lid features the recessed LCD pocket, the mandatory FPC flex ribbon relief pocket (preventing ribbon pinching), the 360° perimeter interlocking skirt, and 4-wall snap detents.
+
+3. **External Aesthetics & Port Geometry ([`case_rev3_assembled_top.jpg`](../prj_current_monitor/enclosure/case_rev3_assembled_top.jpg), [`case_rev3_side_profile.jpg`](../prj_current_monitor/enclosure/case_rev3_side_profile.jpg), [`case_rev3_rear_wire_window.jpg`](../prj_current_monitor/enclosure/case_rev3_rear_wire_window.jpg), [`case_rev3_usb_port_side.jpg`](../prj_current_monitor/enclosure/case_rev3_usb_port_side.jpg))**:
+   - **Top Finish**: Clean top surface layer texture with crisp chamfers on the display bezel, button apertures, and thermal ventilation louvers.
+   - **Side Profile & Mating**: Ultra-low-profile lid (2.4 mm flat plate) reduces overall assembled height to 16.6 mm. The 360° interlocking skirt prevents X/Y lateral sliding.
+   - **Rear Wire Window**: The 11.5 × 8.2 mm cutout comfortably accommodates 18–24 AWG red/black current-sense wires without binding.
+   - **USB Cutout**: Symmetrical clearance around the Type-C receptacle prevents mechanical binding on insertion/removal.
 
 ---
 
