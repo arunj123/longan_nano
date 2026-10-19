@@ -79,6 +79,8 @@ python prj_current_monitor/monitor.py
 
 ## 3D Printable Enclosure
 
+For full dimensional blueprints, PCB component stackup, print tolerances, and AI CAD directives, see the authoritative mechanical reference: [**`docs/HARDWARE_CASE_DESIGN_SPECS.md`**](../docs/HARDWARE_CASE_DESIGN_SPECS.md).
+
 An OpenSCAD parametric enclosure model is provided in [`enclosure/`](enclosure/):
 
 - **CAD Source:** [`longan_nano_ina219_case.scad`](enclosure/longan_nano_ina219_case.scad)

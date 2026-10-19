@@ -1,8 +1,10 @@
 // ============================================================================
-// Parametric Two-Piece Snap-Fit Enclosure for DC Power Monitor (Rev 2)
+// Parametric Two-Piece Snap-Fit Enclosure for DC Power Monitor (Rev 3)
 // Hardware Modules:
 //   1. Sipeed Longan Nano (GD32VF103CBT6 RISC-V) with 0.96" 160x80 IPS LCD
 //   2. Blue INA219 High-Side DC Current Sensor Breakout
+//
+// Authoritative Mechanical Reference & Blueprints: docs/HARDWARE_CASE_DESIGN_SPECS.md
 //
 // Empirical Fit Refinements (Verified on Physical Rev 3 Prints case_rev3_*.jpg):
 //   - Full 360-degree perimeter interlocking lip + 4-wall snap detents (zero X/Y slide)
