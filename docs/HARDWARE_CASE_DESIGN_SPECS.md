@@ -245,13 +245,14 @@ When prompting an AI to generate OpenSCAD, CadQuery, FreeCAD, or STL 3D models f
 | **Wall Thickness** | `1.80–2.00 mm` | Provides structural rigidity for FDM (PLA/PETG) with 4 perimeters (0.4 mm nozzle). |
 | **PCB Cradle Clearance** | `0.50–0.60 mm` per side | `1.0–1.2 mm` total pocket clearance prevents FDM inner-wall shrinkage from pinching PCBs. |
 | **360° Lid Skirt Clearance** | `0.25 mm` per side | Continuous 4-wall interlocking skirt + 4-wall snap beads prevent X/Y lid sliding. |
-| **LCD Viewport Window** | `27.20 mm × 11.40 mm` (`28.0 × 12.6 mm` bevel) | Centered at `X_pcb = 21.10 mm`; exposes full `28.0 mm` LCD length while hiding red PCB. |
-| **LCD Module Pocket** | `28.90 mm × 15.20 mm × 1.40 mm` | Underside recess spanning `X_pcb = 6.8..35.7 mm` to fit the `13.5 × 28.0 mm` LCD module. |
+| **LCD Viewport Window** | `23.00 mm × 11.40 mm` (`23.80 × 12.60 mm` bevel) | Centered at `X_pcb = 22.60 mm`; frames active pixel area ($21.7 \times 10.8\text{ mm}$), hides $4.4\text{ mm}$ dead left COG/FPC bezel, and widens bridge to buttons to $1.40\text{ mm}$. |
+| **LCD Module Pocket** | `28.60 mm × 15.20 mm × 1.40 mm` | Underside recess spanning `X_pcb = 6.8..35.4 mm`; trimmed right edge prevents overlap with button counterbore. |
 | **FPC Flex Relief Notch** | `5.00 mm × 8.50 mm × 1.40 mm` | **MANDATORY**: Relief channel at `X_pcb = 3.0..8.0 mm` for folded display flex ribbon. |
+| **RGB LED Optical Port** | `Ø 2.0 mm` pinhole / `Ø 3.2 mm` diffuser | Centered at `X_pcb = 5.50 mm`, `Y_pcb = 10.0 mm`; configurable `led_view_mode` (`"pinhole"`, `"diffuser"`, `"none"`) with $3.2 \times 3.2 \times 1.0\text{ mm}$ light collector. |
 | **USB Type-C Underside Relief** | `6.5 mm (X) × 10.4 mm (Y) × 0.8 mm (Z)` | Prevents USB-C receptacle shell from pushing lid upward; eliminates 0.6 mm seam gap. |
 | **Pin Solder Relief Rails** | `44.2 mm (X) × 2.6 mm (Y) × 0.8 mm (Z)` | Underside relief above top-side header solder pads along front and rear PCB edges. |
-| **Captive Button Plunger** | `Ø 3.3 mm` stem, `Ø 5.2 × 0.8 mm` flange | Fits `Ø 4.0 mm` lid hole ($0.35\text{ mm}$ radial play); flange trapped in $1.4\text{ mm}$ counterbore. |
-| **Button Dome Extension** | `0.90 mm` proud of lid top | Acts as ergonomic tactile fingertip nubs and light pipes for onboard status LEDs. |
+| **Captive Button Plunger** | `Ø 3.3 mm` stem, `Ø 4.8 × 2.6 mm` flange | Fits `Ø 4.0 mm` lid hole ($0.35\text{ mm}$ radial play); $2.6\text{ mm}$ flange height eliminates $2.1\text{ mm}$ vertical rattle, maintaining exact $0.3\text{ mm}$ pre-travel play. |
+| **Button Dome Extension** | `0.90 mm` proud of lid top | Acts as ergonomic tactile fingertip nubs and optical light pipes for onboard status LEDs. |
 | **Dual INA219 Bay Spacing** | `40.5 mm` center-to-center | Bay 1 at $X = 4.5\text{ mm}$, Bay 2 at $X = 45.0\text{ mm}$; leaves $14.5\text{ mm}$ center wire corridor. |
 | **Rear Snap Detent Location** | Centered at $X = 37.5\text{ mm}$ ($8.0\text{ mm}$ width) | Relocated to solid wall bridge between the dual rear wire cutouts. |
 | **Wire Strain-Relief Anchor** | `8.0 × 3.0 × 4.0 mm` arch with `4.4 × 4.0 mm` slot | Sits under rear sense pads for zip-tie or wire-loop strain relief on external leads. |
@@ -311,23 +312,52 @@ Following empirical testing of the Rev 3 physical print, an independent engineer
 
 ---
 
+### 4.5 Rev 4.1 Optical & Mechanical Refinements (Active LCD Viewport, RGB LED Port & Anti-Rattle Plungers)
+
+Following CAD inspection and slicer analysis of the Rev 4 model, Rev 4.1 introduces four precision upgrades:
+
+1. **Active Pixel Area LCD Viewport Framing**:
+   - The ST7735S 0.96" IPS display features an active matrix of $21.70 \times 10.80\text{ mm}$ ($160 \times 80$ pixels) with a $\sim 4.4\text{ mm}$ dead COG/FPC border on the left ($-X$) side.
+   - Rev 4.1 sizes the top aperture to $23.00 \times 11.40\text{ mm}$ ($23.80 \times 12.60\text{ mm}$ bevel), centered at $X_{\text{pcb}} = 22.60\text{ mm}$.
+   - **Dual Engineering Benefits**:
+     - Completely conceals the exposed red FR4 PCB and folded FPC ribbon border on the left.
+     - Widens the plastic structural bridge between the right edge of the display window and the $\varnothing 4.0\text{ mm}$ button apertures from $0.80\text{ mm}$ to **$1.40\text{ mm}$** (>3 solid perimeters with a 0.4 mm nozzle), eliminating slicer perimeter voids.
+
+2. **Onboard RGB Status LED Optical Indicator Port**:
+   - The Longan Nano RGB LED sits at $X_{\text{pcb}} = 5.50\text{ mm}$ along the display centerline ($Y = \text{longan\_cy}$).
+   - Rev 4.1 adds a dedicated top optical port backed by a $3.2 \times 3.2 \times 1.0\text{ mm}$ underside light collector cavity, controlled via `led_view_mode`:
+     - `"pinhole"` (Default): $\varnothing 2.0\text{ mm}$ micro-beveled through-hole. Optimal for dark/opaque PLA/PETG; accepts a $2.4\text{ mm}$ snippet of standard $\varnothing 1.75\text{ mm}$ transparent or white filament as a flush press-fit light pipe lens.
+     - `"diffuser"`: $\varnothing 3.2\text{ mm}$ blind pocket stopping $0.40\text{ mm}$ (2 layers @ 0.20 mm) below the top plate. For translucent/light filaments (white, yellow, natural), bridging the flat ceiling produces a seamless glowing indicator.
+     - `"none"`: Solid lid for light-shielded applications.
+
+3. **Zero-Rattle Captive Dual-Button Plunger Insert**:
+   - In Rev 4, the vertical distance from the switch tops ($Z = 12.7\text{ mm}$) to the underside pocket ceiling ($Z = 15.6\text{ mm}$) was $2.9\text{ mm}$, leaving $2.1\text{ mm}$ of rattle play when using a $0.8\text{ mm}$ flange.
+   - Rev 4.1 increases the lower retention flange height `btn_flange_h` to **$2.60\text{ mm}$** ($4.5\text{ mm}$ total plunger height), while maintaining a thin $0.60\text{ mm}$ flexible tether.
+   - Flange diameter is adjusted to $\varnothing 4.8\text{ mm}$ ($0.4\text{ mm}$ per-side retention over $\varnothing 4.0\text{ mm}$ hole), yielding an exact **$0.30\text{ mm}$ pre-travel clearance** ($2.9 - 2.6 = 0.3\text{ mm}$) that permanently prevents button rattle without exerting static preload on the microswitches.
+
+4. **Underside Pocket Separation**:
+   - The right margin of the underside LCD module recess is trimmed to $X_{\text{pcb}} = 35.40\text{ mm}$, cleanly separating it from the button counterbore pocket ($d = 5.4\text{ mm}$ centered at $X_{\text{pcb}} = 37.50\text{ mm}$) with a distinct $0.5\text{ mm}$ isolation wall.
+
+---
+
 ## 5. Concise AI Prompt Template for Generating Case Code
 
 *Copy-paste the prompt below into an LLM or CAD generation tool to produce enclosure source code:*
 
 ```text
-Generate a 3D-printable two-piece snap-fit enclosure (Base, Low-Profile Lid, and Captive Button Insert) in OpenSCAD for a DC Power Monitor.
+Generate a 3D-printable two-piece snap-fit enclosure (Base, Low-Profile Lid, and Captive Button Insert) in OpenSCAD for a DC Power Monitor (Rev 4.1).
 Hardware Modules to House:
 1. Microcontroller Board: Sipeed Longan Nano (GD32VF103CBT6 RISC-V) with 0.96" IPS LCD:
    - PCB Size: 46.2 mm (L) x 20.0 mm (W) x 1.2 mm (H); cradle pocket 47.2 x 21.0 mm at Z = 9.0 mm (post_h = 7.0 mm).
    - Display: 0.96" LCD (outer module dimensions 13.5 mm breadth x 28.0 mm length at X_pcb = 7.4..35.4 mm).
-   - Top LCD Window: 27.2 x 11.4 mm inner (28.0 x 12.6 mm outer bevel), centered at X_pcb = 21.10 mm, Y_pcb = 10.0 mm; underside pocket 28.9 x 15.2 x 1.4 mm.
+   - Top LCD Window: 23.0 x 11.4 mm inner (23.8 x 12.6 mm outer bevel), centered at X_pcb = 22.60 mm, Y_pcb = 10.0 mm; underside pocket 28.6 x 15.2 x 1.4 mm.
    - Display Flex Cable: 8-pin FPC ribbon folded over left edge (X_pcb = 3.0..8.0 mm); REQUIRES 5x8.5x1.4 mm relief pocket.
+   - RGB LED Port: Pinhole (Ø2.0 mm) or diffuser (Ø3.2 mm blind) at X_pcb = 5.50 mm, Y_pcb = 10.0 mm + 3.2x3.2x1.0 mm light collector.
    - Left JTAG Header: 4-pin header on left edge protruding 8.5 mm; leave 12.6 mm gap between left cradle stops.
    - USB-C Port: Protrudes 3.0 mm from right edge, needs 11.5 x 5.2 mm wall cutout + 6.5x10.4x0.8 mm lid underside relief.
    - Top Solder Relief: 44.2 x 2.6 x 0.8 mm lid underside relief channels along front and rear pin header rows.
    - Buttons: BOOT0 and RESET at X_pcb = 37.50 mm, Y_pcb = 6.45 mm and 13.30 mm; 4.0 mm through-holes + 1.4 mm underside counterbore.
-   - Captive Plunger Insert: Single-piece dumbbell with two 3.3 mm stems, 5.2x0.8 mm retention flanges, 0.9 mm proud domes, 0.6 mm flexible tether.
+   - Captive Plunger Insert: Single-piece dumbbell with two 3.3 mm stems, 4.8x2.6 mm anti-rattle flanges (0.3 mm pre-travel), 0.9 mm proud domes, 0.6 mm flexible tether.
 2. Dual Sensor Boards: 2x Blue INA219 DC Current Sensor Breakouts (I2C 0x40 & 0x41):
    - Orientation: VIN-/VIN+ at Rear (+Y) wall, 6-pin header at Front (-Y) side.
    - PCB Size: 25.5 mm (X width) x 22.3 mm (Y length) x 1.6 mm (H); pockets 26.7 x 23.5 mm at X = 4.5 mm and X = 45.0 mm.

@@ -1,19 +1,19 @@
 // ============================================================================
-// Parametric Two-Piece Snap-Fit Enclosure for DC Power Monitor (Rev 4)
+// Parametric Two-Piece Snap-Fit Enclosure for DC Power Monitor (Rev 4.1)
 // Hardware Modules:
 //   1. Sipeed Longan Nano (GD32VF103CBT6 RISC-V) with 0.96" 160x80 IPS LCD
 //   2. Dual Blue INA219 High-Side DC Current Sensor Breakouts (I2C 0x40 & 0x41)
 //
-// Authoritative Mechanical Reference & Blueprints: docs/HARDWARE_CASE_DESIGN_SPECS.md
-//
-// Upgrades from Rev 3:
-//   1. Dual Blue INA219 Current Sensor support (occupying Rear-Left & Rear-Right bays)
-//   2. 3D-printable Captive Dual-Button Plunger Insert for RESET & BOOT0
-//   3. Relocated Rear (+Y) snap-fit tab to the solid bridge between the two INA219 bays
-//   4. Lowered Longan post height by 0.5 mm (7.0 mm) + Lid USB-C/solder relief pocket
-//      to eliminate the lid gap on the USB-C side
-//   5. Internal zip-tie / wire-loop strain-relief anchors behind INA219 wire exits
-//   6. Replaced jagged figure-8 screw holes with clean hull() pill slots (or omit via toggle)
+// Upgrades in Rev 4.1:
+//   1. Adjusted LCD top viewport to frame the 21.7 x 10.8 mm Active Pixel Area
+//      (+tolerance), hiding the 4.4 mm dead COG/FPC bezel on the left and
+//      widening the bridge next to the RESET/BOOT0 buttons from 0.8 to 1.4 mm
+//   2. Added onboard RGB LED optical indicator port + underside light channel
+//      with selectable mode ("pinhole" for 1.75mm filament light-pipe / micro-hole,
+//      "diffuser" for 0.4mm 2-layer blind translucent window, or "none")
+//   3. Eliminated 2.1 mm vertical button rattle by increasing button flange height
+//      to 2.6 mm (maintaining exact 0.3 mm switch pre-travel clearance)
+//   4. Resolved underside pocket overlap between LCD recess and button flange pocket
 // ============================================================================
 
 $fn = 64; // Smooth cylinder tessellation
@@ -21,8 +21,9 @@ $fn = 64; // Smooth cylinder tessellation
 // ----------------------------------------------------------------------------
 // 0. Feature Toggles & Render Mode Selection
 // ----------------------------------------------------------------------------
-enable_dual_ina219 = true;  // true = 2x INA219 mounts/cutouts/vents; false = single INA219
-enable_screw_slot  = false; // false = omit top terminal holes (for direct-soldered wires)
+enable_dual_ina219 = true;      // true = 2x INA219 mounts/cutouts/vents; false = single INA219
+enable_screw_slot  = false;     // false = omit top terminal holes (for direct-soldered wires)
+led_view_mode      = "pinhole"; // "pinhole" (Ø2.0mm light-pipe hole), "diffuser" (0.4mm blind window), "none"
 
 // Mode aliases for robust command-line invocation (supports both -D mode="base" and -D mode=base)
 base       = "base";
@@ -64,30 +65,42 @@ longan_l        = 46.2;  // Nominal PCB length (X-axis, mm)
 longan_w        = 20.0;  // Nominal PCB width (Y-axis, mm)
 longan_t        = 1.2;   // Actual FR4 PCB thickness (mm)
 
-// LCD Module (0.96" 160x80 IPS, 13.5 mm breadth x 28.0 mm length)
+// LCD Module Outline (0.96" 160x80 IPS, 13.5 mm breadth x 27.95 mm length)
 lcd_glass_x_ofs = 7.4;   // Left (-X) edge of 28.0 mm LCD module body from PCB left edge (mm)
 lcd_glass_l     = 28.0;  // Full black LCD module length (mm)
 lcd_glass_w     = 14.2;  // Outer LCD module width + foam tape margin (mm)
-lcd_win_cx_ofs  = 21.10; // Center of LCD top window from PCB left edge (mm)
-lcd_win_l       = 27.2;  // Top viewport inner length (mm)
-lcd_win_w       = 11.4;  // Top viewport inner breadth (mm)
 lcd_pocket_d    = 1.4;   // Underside recess depth in lid ceiling (mm)
+
+// LCD Active Pixel Area (AA: 21.70 x 10.80 mm; shifted +X away from left FPC/COG bezel)
+lcd_aa_l        = 21.7;  // Active pixel area length (160 px * 0.1356 mm)
+lcd_aa_w        = 10.8;  // Active pixel area width (80 px * 0.135 mm)
+lcd_aa_tol_x    = 0.65;  // Per-side X tolerance around active pixels (mm)
+lcd_aa_tol_y    = 0.30;  // Per-side Y tolerance around active pixels (mm)
+lcd_win_cx_ofs  = 22.60; // Center of active pixel area from PCB left edge (mm)
+lcd_win_l       = lcd_aa_l + 2 * lcd_aa_tol_x; // 23.0 mm (frames active pixels + margin)
+lcd_win_w       = lcd_aa_w + 2 * lcd_aa_tol_y; // 11.4 mm (matches factory Viewing Area)
 
 // 8-pin FPC Display Flex Cable Relief Pocket (folded over left edge of LCD, X_pcb = 3.0..8.0 mm)
 fpc_relief_l    = 5.0;   // FPC relief pocket X length (mm)
 fpc_relief_w    = 8.5;   // FPC relief pocket Y width (mm)
 fpc_relief_d    = 1.4;   // FPC relief pocket Z depth into lid underside (mm)
 
+// Onboard RGB LED Light Port (centered on LCD Y-centerline, left of LCD viewport)
+led_port_x_ofs  = 5.50;  // X offset from Longan left PCB edge (mm)
+led_hole_d      = 2.0;   // Pinhole diameter (accepts 1.75 mm clear filament light pipe)
+led_diffuser_d  = 3.2;   // Blind diffuser pocket diameter (mm)
+led_diffuser_t  = 0.40;  // Remaining translucent top ceiling thickness (2 layers @ 0.2mm)
+
 // USB Type-C Port (protrudes ~3.0 mm from right edge of Longan Nano)
 usbc_protrude   = 3.0;   // Protrusion past right PCB edge (mm)
 usbc_cut_w      = 11.5;  // Wall cutout width (Y-axis, mm)
-usbc_cut_h      = 5.2;   // Wall cutout height in Base (Z = 9.0..14.2 mm, lowered 0.4 mm)
+usbc_cut_h      = 5.2;   // Wall cutout height in Base (Z = 9.0..14.2 mm)
 
 // Tactile Pushbuttons & 3D-Printable Captive Button Insert Parameters
 btn_hole_d      = 4.0;   // Lid through-hole diameter (mm)
 btn_stem_d      = 3.3;   // Printable button stem diameter (0.35 mm radial clearance)
-btn_flange_d    = 5.2;   // Printable button retention flange diameter (mm)
-btn_flange_h    = 0.8;   // Printable button flange thickness (mm)
+btn_flange_d    = 4.8;   // Captive retention flange diameter (clears LCD glass edge)
+btn_flange_h    = 2.6;   // Flange height (fills 2.9mm gap between Z=12.7 switch & Z=15.6 ceiling with 0.3mm play)
 btn_proud_h     = 0.9;   // Height button dome extends above top of lid (mm)
 btn_x_ofs       = 37.50; // Button center X offset from Longan left edge (mm)
 btn_reset_y     = 6.45;  // RESET button Y offset from Longan front (-Y) edge (mm)
@@ -98,7 +111,7 @@ longan_right_gap = 0.5;
 longan_x        = case_w - wall - longan_right_gap - longan_l; // 26.3 mm
 longan_y        = 5.5;                      // Front bay Y origin (spans 5.5..25.5 mm)
 longan_cy       = longan_y + longan_w / 2;  // 15.5 mm centerline
-longan_post_h   = 7.0;                      // Lowered 0.5 mm (from 7.5) for flush USB-C lid fit!
+longan_post_h   = 7.0;                      // Lowered 0.5 mm (from 7.5) for flush USB-C lid fit
 longan_pcb_z    = wall + longan_post_h;     // 9.0 mm (PCB bottom Z)
 
 // ----------------------------------------------------------------------------
@@ -185,11 +198,12 @@ module rounded_slot_z(w, l, h) {
 }
 
 // ============================================================================
-// Module: Captive Dual-Button Plunger Insert (Prints flat in ~2 minutes)
+// Module: Captive Dual-Button Plunger Insert (Zero-Rattle Fit)
 // ============================================================================
 // Total height Calculation:
 //   Switch top is at Z = 9.0 (PCB bottom) + 1.2 (PCB) + 2.5 (Switch) = 12.7 mm.
-//   Plunger bottom starts at Z_assembled = 13.0 mm (0.3 mm pre-travel clearance).
+//   Pocket ceiling inside lid is at Z = 14.2 (base_h) + 1.4 (lcd_pocket_d) = 15.6 mm.
+//   A 2.6 mm flange height restricts vertical travel between Z = 12.7 and 13.0 mm (0.3 mm play).
 //   Top of lid is at Z = 16.6 mm; button top dome reaches Z = 16.6 + 0.9 = 17.5 mm.
 //   Total plunger height = 17.5 - 13.0 = 4.5 mm.
 module button_insert_print() {
@@ -199,7 +213,7 @@ module button_insert_print() {
     union() {
         for (y_ofs = [0, dy]) {
             translate([0, y_ofs, 0]) {
-                // 1. Bottom captive retention flange
+                // 1. Bottom captive retention flange (2.6 mm tall to eliminate vertical rattle)
                 cylinder(d = btn_flange_d, h = btn_flange_h);
                 // 2. Main cylindrical plunger stem
                 cylinder(d = btn_stem_d, h = total_h - 0.4);
@@ -248,7 +262,7 @@ module base() {
             translate([longan_x + longan_l/2 - (snap_len + 2)/2, step_wall - snap_undercut, base_h - lip_h + 0.35])
                 cube([snap_len + 2, snap_undercut + 1.0, 0.9]);
 
-            // Rear (+Y) snap groove — centered at X = 37.5 mm between INA219 #1 and #2!
+            // Rear (+Y) snap groove — centered at X = 37.5 mm between INA219 #1 and #2
             translate([case_w/2 - (rear_snap_len + 2)/2, case_l - step_wall - 1.0, base_h - lip_h + 0.35])
                 cube([rear_snap_len + 2, snap_undercut + 1.0, 0.9]);
 
@@ -361,13 +375,14 @@ module ina219_mounts(mod_x, mod_y) {
 }
 
 // ============================================================================
-// Module: Lid (Upper Cover with Captive Button Pocket & Dual Sensor Vents)
+// Module: Lid (Upper Cover with Active-Area LCD Viewport & RGB LED Port)
 // ============================================================================
 module lid() {
     lcd_glass_x   = longan_x + lcd_glass_x_ofs;
     lcd_glass_y   = longan_cy - lcd_glass_w / 2;
-    lcd_win_x     = longan_x + lcd_win_cx_ofs - lcd_win_l/2;
+    lcd_win_x     = longan_x + lcd_win_cx_ofs - lcd_win_l / 2;
     lcd_win_y     = longan_cy - lcd_win_w / 2;
+    led_x         = longan_x + led_port_x_ofs;
     screw_y       = ina_y + ina_l - 3.8;
     screw_dx      = 2.15;
     vent_center_y = ina_y + 11.5;
@@ -380,26 +395,40 @@ module lid() {
             lid_snap_skirt();
         }
 
-        // 3. LCD Viewing Window Cutout & Top Bevel
+        // 3. LCD Active-Area Viewing Window Cutout & Symmetric Top Bevel
         translate([lcd_win_x, lcd_win_y, -1.0])
             cube([lcd_win_l, lcd_win_w, lid_h + 2.0]);
         hull() {
             translate([lcd_win_x, lcd_win_y, lid_h - 0.5])
                 cube([lcd_win_l, lcd_win_w, 0.1]);
-            translate([lcd_win_x - 0.5, lcd_win_y - 0.6, lid_h - 0.05])
-                cube([lcd_win_l + 0.8, lcd_win_w + 1.2, 0.1]);
+            translate([lcd_win_x - 0.5, lcd_win_y - 0.5, lid_h - 0.05])
+                cube([lcd_win_l + 1.0, lcd_win_w + 1.0, 0.1]);
         }
 
-        // 4. Underside Recessed Pocket for LCD Module
-        translate([lcd_glass_x - 0.6, lcd_glass_y - 0.5, -0.5])
-            cube([lcd_glass_l + 0.9, lcd_glass_w + 1.0, lcd_pocket_d + 0.5]);
+        // 4. Underside Recessed Pocket for Full 28.0x13.5mm LCD Module Body
+        //    Right edge stops at X_pcb = 35.45 mm to stay separated from button pocket
+        translate([lcd_glass_x - 0.4, lcd_glass_y - 0.5, -0.5])
+            cube([lcd_glass_l + 0.45, lcd_glass_w + 1.0, lcd_pocket_d + 0.5]);
 
-        // 5. Underside Relief Pocket for Folded 8-Pin FPC Ribbon
+        // 5. Underside Relief Pocket for Folded 8-Pin FPC Ribbon (also channels RGB LED light)
         translate([longan_x + 3.0, longan_cy - fpc_relief_w/2, -0.5])
-            cube([fpc_relief_l, fpc_relief_w, fpc_relief_d + 0.5]);
+            cube([fpc_relief_l + 1.5, fpc_relief_w, fpc_relief_d + 0.5]);
 
-        // 6. NEW: Underside Relief Pocket for USB-C Shell & Top Pin Solder Joints (0.8 mm deep)
-        // Eliminates the lid gap seen in case_rev3_usb_port_side.jpg!
+        // 6. Onboard RGB LED Optical Indicator (Left of LCD Window at X_pcb = 5.5 mm)
+        if (led_view_mode == "pinhole") {
+            // Through-hole for direct viewing or 1.75 mm clear filament light pipe
+            translate([led_x, longan_cy, -1.0])
+                cylinder(d = led_hole_d, h = lid_h + 2.0);
+            // Subtle top micro-chamfer
+            translate([led_x, longan_cy, lid_h - 0.4])
+                cylinder(d1 = led_hole_d, d2 = led_hole_d + 0.8, h = 0.45);
+        } else if (led_view_mode == "diffuser") {
+            // Blind underside diffuser pocket leaving 0.40 mm (2 layers) solid top ceiling
+            translate([led_x, longan_cy, -0.5])
+                cylinder(d = led_diffuser_d, h = (lid_h - led_diffuser_t) + 0.5);
+        }
+
+        // 7. Underside Relief Pocket for USB-C Shell & Top Pin Solder Joints (0.8 mm deep)
         translate([longan_x + longan_l - 5.0, longan_cy - 5.2, -0.5])
             cube([6.5, 10.4, 0.8 + 0.5]);
         translate([longan_x + 1.0, longan_y - 0.2, -0.5])
@@ -407,20 +436,20 @@ module lid() {
         translate([longan_x + 1.0, longan_y + longan_w - 2.4, -0.5])
             cube([longan_l - 2.0, 2.6, 0.8 + 0.5]);
 
-        // 7. Tactile Button Shaft Through-Holes + Underside Captive Flange Pocket (1.4 mm deep)
+        // 8. Tactile Button Shaft Through-Holes + Underside Captive Flange Pocket (1.4 mm deep)
         for (by = [longan_y + btn_reset_y, longan_y + btn_boot_y]) {
             translate([longan_x + btn_x_ofs, by, -1.0])
                 cylinder(d = btn_hole_d, h = lid_h + 2.0);
         }
-        // Stadium-shaped underside counterbore pocket for the captive dual-button flange
+        // Stadium-shaped underside counterbore pocket for the 4.8 mm captive dual-button flange
         hull() {
             translate([longan_x + btn_x_ofs, longan_y + btn_reset_y, -0.5])
-                cylinder(d = btn_flange_d + 0.6, h = lcd_pocket_d + 0.5);
+                cylinder(d = btn_flange_d + 0.5, h = lcd_pocket_d + 0.5);
             translate([longan_x + btn_x_ofs, longan_y + btn_boot_y, -0.5])
-                cylinder(d = btn_flange_d + 0.6, h = lcd_pocket_d + 0.5);
+                cylinder(d = btn_flange_d + 0.5, h = lcd_pocket_d + 0.5);
         }
 
-        // 8. Thermal Ventilation Slots & Optional Pill Slot for Each INA219 Sensor
+        // 9. Thermal Ventilation Slots & Optional Pill Slot for Each INA219 Sensor
         for (ix = ina_x_list) {
             icx = ix + ina_w / 2;
             if (enable_screw_slot) {
@@ -515,9 +544,18 @@ module lid_snap_skirt() {
 module ghost_hardware() {
     translate([longan_x, longan_y, longan_pcb_z]) {
         color([0.85, 0.15, 0.15]) cube([longan_l, longan_w, longan_t]);
+        // Full black LCD glass body
         color([0.1, 0.1, 0.15])
             translate([lcd_glass_x_ofs, (longan_w - 13.5)/2, longan_t])
-                cube([lcd_glass_l, 13.5, 2.8]);
+                cube([lcd_glass_l, 13.5, 2.75]);
+        // Active 160x80 Pixel Area highlight (21.7 x 10.8 mm)
+        color([0.15, 0.55, 0.85])
+            translate([lcd_win_cx_ofs - lcd_aa_l/2, (longan_w - lcd_aa_w)/2, longan_t + 2.75])
+                cube([lcd_aa_l, lcd_aa_w, 0.05]);
+        // Onboard RGB LED indicator glow reference
+        color([0.2, 0.95, 0.3])
+            translate([led_port_x_ofs, longan_w/2, longan_t])
+                cylinder(d = 1.6, h = 0.8);
         color([0.75, 0.75, 0.78])
             translate([longan_l - 4.5, (longan_w - 8.94)/2, longan_t])
                 cube([4.5 + usbc_protrude, 8.94, 3.16]);

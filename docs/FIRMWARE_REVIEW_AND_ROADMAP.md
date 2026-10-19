@@ -260,13 +260,12 @@ flowchart TD
   - Renamed datasheet to [`docs/sipeed_longan_nano_datasheet_102991302.pdf`](sipeed_longan_nano_datasheet_102991302.pdf) and organized visual assets ([`longan_nano_mechanical_drawing.jpg`](longan_nano_mechanical_drawing.jpg), [`longan_nano_ruler_scale.jpg`](longan_nano_ruler_scale.jpg), [`longan_nano_top_view.jpg`](longan_nano_top_view.jpg), [`longan_nano_bottom_view.jpg`](longan_nano_bottom_view.jpg), [`longan_nano_acrylic_case_side_view.jpg`](longan_nano_acrylic_case_side_view.jpg), [`ina219_blue_breakout_kit.jpg`](ina219_blue_breakout_kit.jpg), [`ina219_blue_top_view.jpg`](ina219_blue_top_view.jpg), [`ina219_blue_bottom_view.jpg`](ina219_blue_bottom_view.jpg)).
   - Redesigned, 3D-printed, and physically verified [`prj_current_monitor/enclosure/longan_nano_ina219_case.scad`](../prj_current_monitor/enclosure/longan_nano_ina219_case.scad):
     - **Rev 3 Baseline**: Calibrated against physical print verification photos ([`case_rev3_assembled_active.jpg`](../prj_current_monitor/enclosure/case_rev3_assembled_active.jpg), [`case_rev3_internal_layout.jpg`](../prj_current_monitor/enclosure/case_rev3_internal_layout.jpg), [`case_rev3_assembled_top.jpg`](../prj_current_monitor/enclosure/case_rev3_assembled_top.jpg), [`case_rev3_side_profile.jpg`](../prj_current_monitor/enclosure/case_rev3_side_profile.jpg), [`case_rev3_rear_wire_window.jpg`](../prj_current_monitor/enclosure/case_rev3_rear_wire_window.jpg), [`case_rev3_usb_port_side.jpg`](../prj_current_monitor/enclosure/case_rev3_usb_port_side.jpg)).
-    - **Rev 4 Independent Review Upgrades**:
-      1. Dual Blue INA219 current sensor support (`enable_dual_ina219 = true`, Rear-Left `0x40` & Rear-Right `0x41` I2C channels) within existing $75 \times 55\text{ mm}$ footprint.
-      2. 3D-printable captive dual-button plunger insert (`button_insert_print()`) with $0.9\text{ mm}$ proud domes and $1.4\text{ mm}$ lid underside counterbore pocket.
-      3. Lowered Longan post height by $0.5\text{ mm}$ (`7.0 mm`) + lid underside relief pockets over USB-C shell and pin solder joints, eliminating lid lift.
-      4. Internal zip-tie / wire strain-relief anchor arches under each INA219 bay.
-      5. Rear (+Y) snap tab relocated to solid bridge between dual rear wire windows.
-      6. Batch-exported watertight meshes and previews (`generate_meshes.ps1`).
+    - **Rev 4.1 Mechanical & Optical Upgrades**:
+      1. Adjusted LCD top viewport to frame the $21.7 \times 10.8\text{ mm}$ Active Pixel Area ($23.0 \times 11.4\text{ mm}$ window centered at $X_{\text{pcb}} = 22.60\text{ mm}$), concealing the $4.4\text{ mm}$ dead left COG/FPC bezel and widening the structural bridge next to the button apertures from $0.80\text{ mm}$ to $1.40\text{ mm}$ (>3 solid perimeters).
+      2. Added onboard RGB status LED optical port at $X_{\text{pcb}} = 5.50\text{ mm}$ backed by a $3.2 \times 3.2 \times 1.0\text{ mm}$ underside light collector, selectable via `led_view_mode`: `"pinhole"` ($\varnothing 2.0\text{ mm}$ micro-beveled hole for direct view or $1.75\text{ mm}$ clear filament light pipe), `"diffuser"` ($\varnothing 3.2\text{ mm}$ blind pocket stopping $0.40\text{ mm}$ / 2 layers below top for translucent filaments), or `"none"`.
+      3. Eliminated $2.1\text{ mm}$ vertical button rattle by increasing plunger lower flange height `btn_flange_h` to $2.60\text{ mm}$ ($4.5\text{ mm}$ total plunger height), establishing exact $0.30\text{ mm}$ pre-travel switch clearance without static preload.
+      4. Trimmed underside LCD module recess right margin to $X_{\text{pcb}} = 35.40\text{ mm}$, cleanly separating the LCD pocket from the button flange counterbore.
+      5. Full batch export of watertight CGAL meshes (`.stl`, `.3mf`) and orthographic PNG previews via `generate_meshes.ps1`.
 - **Immediate Next Step**:
   - Production maintenance, user field testing, and downstream releases.
 
